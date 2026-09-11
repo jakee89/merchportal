@@ -57,7 +57,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
             progress_percent: percent,
           })
         })
-      })
+      })()
     await service.updateImportJobs({
       id: job.id,
       status: "completed",
