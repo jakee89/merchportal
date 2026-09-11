@@ -1,4 +1,9 @@
-import { loadEnv, defineConfig } from "@medusajs/framework/utils";
+import {
+  ContainerRegistrationKeys,
+  loadEnv,
+  defineConfig,
+  Modules,
+} from "@medusajs/framework/utils";
 
 loadEnv(process.env.NODE_ENV || "development", process.cwd());
 
@@ -18,10 +23,28 @@ module.exports = defineConfig({
       authCors: process.env.AUTH_CORS!,
       jwtSecret: process.env.JWT_SECRET,
       cookieSecret: process.env.COOKIE_SECRET,
+      authMethodsPerActor: {
+        user: ["emailpass"],
+        customer: ["emailpass"],
+      },
     },
   },
   admin: {
     disable: process.env.DISABLE_MEDUSA_ADMIN === "true",
     backendUrl: process.env.MEDUSA_BACKEND_URL,
   },
+  modules: [
+    {
+      resolve: "@medusajs/medusa/auth",
+      dependencies: [Modules.CACHE, ContainerRegistrationKeys.LOGGER],
+      options: {
+        providers: [
+          {
+            resolve: "@medusajs/medusa/auth-emailpass",
+            id: "emailpass",
+          },
+        ],
+      },
+    },
+  ],
 });
