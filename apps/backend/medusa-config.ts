@@ -17,6 +17,10 @@ module.exports = defineConfig({
     redisUrl: process.env.REDIS_URL,
     workerMode: process.env.MEDUSA_WORKER_MODE as
       "shared" | "worker" | "server",
+    cookieOptions: {
+      sameSite: "lax",
+      secure: false,
+    },
     http: {
       storeCors: process.env.STORE_CORS!,
       adminCors: process.env.ADMIN_CORS!,
