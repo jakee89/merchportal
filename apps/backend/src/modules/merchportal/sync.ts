@@ -53,7 +53,12 @@ function imageUrls(value: unknown, output = new Set<string>()): string[] {
         /(image|picture|photo|url|asset)/i.test(key)
       ) {
         try {
-          if (["cdn.hideacontent.com", "cdn1.midocean.com"].includes(new URL(child).hostname)) {
+          const assetUrl = new URL(child)
+          if (
+            ["cdn.hideacontent.com", "cdn1.midocean.com"].includes(assetUrl.hostname) &&
+            (/\.(avif|gif|jpe?g|png|webp)(?:$|\?)/i.test(assetUrl.href) ||
+              assetUrl.pathname.toLowerCase().includes("/image/"))
+          ) {
             output.add(child)
           }
         } catch {}
@@ -156,6 +161,7 @@ export async function runSupplierSync(
         await service.updateRawSupplierRecords({
           id: existing[0].id,
           import_job_id: job.id,
+          source_image_urls: imageUrls(record),
           last_seen_at: now,
         })
         skipped += 1

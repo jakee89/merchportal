@@ -111,7 +111,7 @@ const MerchPortalPage = () => {
     setBusy(key)
     try {
       if (action === "test") {
-        const result = await api<{ connection: { ok: boolean; message: string } }>(`/admin/merchportal/suppliers/${code}/test`, { method: "POST" })
+        const result = await api<{ connection: { ok: boolean; message: string } }>(`/admin/merchportal/suppliers/${code}/connection`, { method: "POST" })
         result.connection.ok ? toast.success(result.connection.message) : toast.error(result.connection.message)
       } else {
         await api(`/admin/merchportal/suppliers/${code}/sync`, { method: "POST", body: JSON.stringify({ kind: action }) })

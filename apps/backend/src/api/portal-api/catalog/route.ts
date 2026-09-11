@@ -34,19 +34,36 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     service.listRawSupplierRecords({ record_type: "stock" }, { take: 10000 }),
   ])
   const key = (record: any) => `${record.supplier_id}:${record.sku || record.external_id}`
-  const priceByProduct = new Map(prices.map((record: any) => [key(record), record.payload]))
-  const stockByProduct = new Map(stocks.map((record: any) => [key(record), record.payload]))
+  const matching = (items: any[], record: any) => {
+    const exact = items.filter((item) => key(item) === key(record))
+    if (exact.length) return exact
+    const prefix = `${record.external_id}-`
+    return items.filter(
+      (item) =>
+        item.supplier_id === record.supplier_id &&
+        typeof item.sku === "string" &&
+        item.sku.startsWith(prefix)
+    )
+  }
   const products = records.map((record: any) => {
     const payload = (record.payload || {}) as Record<string, unknown>
     const token = record.source_image_urls?.[0] ? supplierImageToken(record.source_image_urls[0]) : null
+    const productPrices = matching(prices, record)
+      .map((item) => numberValue(item.payload, ["price", "unit_price", "net_price", "price_1"]))
+      .filter((value): value is number => value !== undefined)
+    const productStocks = matching(stocks, record)
+      .map((item) => numberValue(item.payload, ["stock", "quantity", "available", "free_stock"]))
+      .filter((value): value is number => value !== undefined)
     return {
       id: record.id,
       sku: record.sku || first(payload, ["sku", "SKU", "reference", "ProductReference"]),
       name: first(payload, ["name", "Name", "product_name", "ProductName", "description", "Description"]) || "Merchandise product",
       description: first(payload, ["short_description", "ShortDescription", "description", "Description"]),
       image_url: token ? `/media/${token}` : null,
-      price_eur: numberValue(priceByProduct.get(key(record)), ["price", "unit_price", "net_price", "price_1"]),
-      stock_quantity: numberValue(stockByProduct.get(key(record)), ["stock", "quantity", "available", "free_stock"]),
+      price_eur: productPrices.length ? Math.min(...productPrices) : undefined,
+      stock_quantity: productStocks.length
+        ? productStocks.reduce((total, value) => total + value, 0)
+        : undefined,
     }
   })
   res.json({ products })
