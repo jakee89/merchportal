@@ -2,14 +2,8 @@ name: merchportal
 
 services:
   storefront:
-    build:
-      context: .
-      dockerfile: docker/storefront.Dockerfile
-      args:
-        NEXT_PUBLIC_MEDUSA_BACKEND_URL: ${BACKEND_URL:-http://localhost:9000}
-        NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY:-pk_setup_required}
-        NEXT_PUBLIC_DEFAULT_REGION: ${NEXT_PUBLIC_DEFAULT_REGION:-mt}
-        NEXT_PUBLIC_BASE_URL: ${STOREFRONT_URL:-http://localhost:8000}
+    image: ghcr.io/jakee89/merchportal-storefront:latest
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       backend:
@@ -34,11 +28,8 @@ services:
       retries: 10
 
   backend:
-    build:
-      context: .
-      dockerfile: docker/backend.Dockerfile
-      args:
-        MEDUSA_BACKEND_URL: ${BACKEND_URL:-http://localhost:9000}
+    image: ghcr.io/jakee89/merchportal-backend:latest
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       postgres:
