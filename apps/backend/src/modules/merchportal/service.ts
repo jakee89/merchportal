@@ -4,6 +4,9 @@ import Membership from "./models/membership"
 import Organization from "./models/organization"
 import RawSupplierRecord from "./models/raw-supplier-record"
 import Supplier from "./models/supplier"
+import CategoryMapping from "./models/category-mapping"
+import PricingRule from "./models/pricing-rule"
+import PublishedProductSource from "./models/published-product-source"
 
 class MerchPortalModuleService extends MedusaService({
   ImportJob,
@@ -11,6 +14,9 @@ class MerchPortalModuleService extends MedusaService({
   Organization,
   RawSupplierRecord,
   Supplier,
+  CategoryMapping,
+  PricingRule,
+  PublishedProductSource,
 }) {}
 
 export default MerchPortalModuleService

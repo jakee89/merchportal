@@ -14,11 +14,18 @@ type Supplier = {
 }
 
 type Organization = { id: string; name: string; join_code: string; status: string }
+type CategoryMapping = { id: string; supplier_name: string; supplier_category: string; suggested_category: string; approved_category?: string; confidence: number; status: "pending" | "approved" | "ignored" }
+type PricingRule = { id: string; scope_key: string; organization_id?: string; markup_percentage: number }
 type NormalizedProduct = {
   source_key: string
   supplier_name: string
   title: string
   category?: string
+  supplier_category: string
+  category_status: string
+  lead_time?: string
+  sustainable: boolean
+  print_methods: string[]
   images: string[]
   published: boolean
   variants: Array<{ sku: string; color: string; size: string; price_eur?: number; stock_quantity?: number }>
@@ -67,6 +74,11 @@ const MerchPortalPage = () => {
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [catalog, setCatalog] = useState<NormalizedProduct[]>([])
   const [catalogOffset, setCatalogOffset] = useState(0)
+  const [categoryMappings, setCategoryMappings] = useState<CategoryMapping[]>([])
+  const [categoryChanges, setCategoryChanges] = useState<Record<string, string>>({})
+  const [pricingRules, setPricingRules] = useState<PricingRule[]>([])
+  const [globalMarkup, setGlobalMarkup] = useState("30")
+  const [clientMarkups, setClientMarkups] = useState<Record<string, string>>({})
   const [companyName, setCompanyName] = useState("")
   const [companyAddress, setCompanyAddress] = useState("")
   const [companyLogo, setCompanyLogo] = useState("")
@@ -74,15 +86,22 @@ const MerchPortalPage = () => {
   const [busy, setBusy] = useState("")
 
   const refresh = useCallback(async () => {
-    const [supplierData, companyData, catalogData] = await Promise.all([
+    const mappingData = await api<{ mappings: CategoryMapping[] }>("/admin/merchportal/category-mappings")
+    const [supplierData, companyData, catalogData, pricingData] = await Promise.all([
       api<{ suppliers: Supplier[]; jobs: Job[] }>("/admin/merchportal/suppliers"),
       api<{ organizations: Organization[] }>("/admin/merchportal/organizations"),
       api<{ products: NormalizedProduct[] }>(`/admin/merchportal/catalog?offset=${catalogOffset}`),
+      api<{ rules: PricingRule[] }>("/admin/merchportal/pricing-rules"),
     ])
     setSuppliers(supplierData.suppliers)
     setJobs(supplierData.jobs)
     setOrganizations(companyData.organizations)
     setCatalog(catalogData.products)
+    setCategoryMappings(mappingData.mappings)
+    setPricingRules(pricingData.rules)
+    const globalRule = pricingData.rules.find((rule) => rule.scope_key === "global")
+    if (globalRule) setGlobalMarkup(String(globalRule.markup_percentage))
+    setClientMarkups(Object.fromEntries(pricingData.rules.filter((rule) => rule.organization_id).map((rule) => [rule.organization_id!, String(rule.markup_percentage)])))
   }, [catalogOffset])
 
   useEffect(() => { refresh().catch((error) => toast.error(error.message)) }, [refresh])
@@ -174,6 +193,31 @@ const MerchPortalPage = () => {
     }
   }
 
+  const categoryAction = async (mapping: CategoryMapping, action: "approve" | "ignore" | "change") => {
+    setBusy(`category-${mapping.id}`)
+    try {
+      await api("/admin/merchportal/category-mappings", {
+        method: "POST",
+        body: JSON.stringify({ mapping_id: mapping.id, action, category: categoryChanges[mapping.id] }),
+      })
+      toast.success(action === "ignore" ? "Suggestion ignored" : "Category approved")
+      await refresh()
+    } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
+  }
+
+  const saveMarkup = async (organizationId?: string) => {
+    const value = organizationId ? clientMarkups[organizationId] : globalMarkup
+    setBusy(`pricing-${organizationId || "global"}`)
+    try {
+      await api("/admin/merchportal/pricing-rules", {
+        method: "POST",
+        body: JSON.stringify({ organization_id: organizationId || null, markup_percentage: Number(value) }),
+      })
+      toast.success("Pricing rule saved")
+      await refresh()
+    } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
+  }
+
   return <div className="flex flex-col gap-y-3">
     <Container className="flex items-center justify-between">
       <div><Heading>MerchPortal setup</Heading><Text className="text-ui-fg-subtle">Malta commerce, clients and supplier updates</Text></div>
@@ -203,8 +247,21 @@ const MerchPortalPage = () => {
     </Container>
 
     <Container>
-      <div className="flex items-center justify-between gap-4"><div><Heading level="h2">Normalized product approval</Heading><Text className="text-ui-fg-subtle">Review the unified product, variant, colour, EUR price, stock and image data before publishing.</Text></div><Button disabled={!catalog.some((product) => !product.published)} isLoading={busy === "publish"} onClick={() => publishProducts(catalog.filter((product) => !product.published).slice(0, 10).map((product) => product.source_key))}>Publish next 10</Button></div>
-      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">{catalog.map((product) => <div key={product.source_key} className="flex gap-3 rounded border p-3">{product.images[0] ? <img src={product.images[0]} alt="" className="h-20 w-20 rounded object-contain" /> : <div className="flex h-20 w-20 items-center justify-center rounded bg-ui-bg-component text-ui-fg-muted">No image</div>}<div className="min-w-0 flex-1"><Text weight="plus">{product.title}</Text><Text size="xsmall" className="text-ui-fg-subtle">{product.supplier_name} · {product.category || "Uncategorized"} · {product.variants.length} variants</Text><Text size="xsmall" className="mt-1 text-ui-fg-subtle">{product.variants[0] ? `${product.variants[0].color} · ${product.variants[0].size} · ${product.variants[0].price_eur !== undefined ? `EUR ${product.variants[0].price_eur.toFixed(2)}` : "price unavailable"} · ${product.variants[0].stock_quantity ?? 0} stock` : "No variants"}</Text><Button size="small" variant="secondary" className="mt-2" disabled={product.published || busy === "publish"} onClick={() => publishProducts([product.source_key])}>{product.published ? "Published" : "Approve & publish"}</Button></div></div>)}</div>
+      <Heading level="h2">Category mapping and approval</Heading>
+      <Text className="mb-4 text-ui-fg-subtle">Approve the automatic suggestion, ignore it, or enter a replacement category. Pending mappings must be reviewed before their products can be published.</Text>
+      <div className="flex flex-col gap-y-2">{categoryMappings.map((mapping) => <div key={mapping.id} className="rounded border p-3"><div className="flex flex-wrap items-center justify-between gap-3"><div><Text weight="plus">{mapping.supplier_name}: {mapping.supplier_category}</Text><Text size="small" className="text-ui-fg-subtle">Suggested: {mapping.suggested_category} · {Math.round(mapping.confidence * 100)}% confidence · {mapping.status}</Text></div><div className="flex flex-wrap gap-2"><Input placeholder="Change category" value={categoryChanges[mapping.id] || ""} onChange={(event) => setCategoryChanges((current) => ({ ...current, [mapping.id]: event.target.value }))} /><Button size="small" disabled={mapping.status === "approved"} isLoading={busy === `category-${mapping.id}`} onClick={() => categoryAction(mapping, "approve")}>Approve</Button><Button size="small" variant="secondary" isLoading={busy === `category-${mapping.id}`} onClick={() => categoryAction(mapping, "change")}>Change</Button><Button size="small" variant="secondary" isLoading={busy === `category-${mapping.id}`} onClick={() => categoryAction(mapping, "ignore")}>Ignore</Button></div></div>{mapping.approved_category && <Text size="xsmall" className="mt-2 text-ui-fg-subtle">Approved category: {mapping.approved_category}</Text>}</div>)}</div>
+    </Container>
+
+    <Container>
+      <Heading level="h2">Pricing rules</Heading>
+      <Text className="mb-4 text-ui-fg-subtle">Supplier cost is private. Clients see cost plus their company markup, or the global markup when no client rule exists.</Text>
+      <div className="mb-3 flex items-center gap-2"><Text weight="plus">Global markup %</Text><Input type="number" min="0" max="1000" value={globalMarkup} onChange={(event) => setGlobalMarkup(event.target.value)} /><Button isLoading={busy === "pricing-global"} onClick={() => saveMarkup()}>Save</Button></div>
+      <div className="flex flex-col gap-y-2">{organizations.map((organization) => { const existing = pricingRules.find((rule) => rule.organization_id === organization.id); return <div key={`price-${organization.id}`} className="flex items-center justify-between rounded border p-3"><div><Text weight="plus">{organization.name}</Text><Text size="xsmall" className="text-ui-fg-subtle">{existing ? "Custom client price" : `Uses global ${globalMarkup}% markup`}</Text></div><div className="flex gap-2"><Input type="number" min="0" max="1000" placeholder={globalMarkup} value={clientMarkups[organization.id] || ""} onChange={(event) => setClientMarkups((current) => ({ ...current, [organization.id]: event.target.value }))} /><Button size="small" variant="secondary" disabled={!clientMarkups[organization.id]} isLoading={busy === `pricing-${organization.id}`} onClick={() => saveMarkup(organization.id)}>Save client markup</Button></div></div> })}</div>
+    </Container>
+
+    <Container>
+      <div className="flex items-center justify-between gap-4"><div><Heading level="h2">Normalized product approval</Heading><Text className="text-ui-fg-subtle">Review the unified product, variant, colour, EUR price, stock and image data before publishing.</Text></div><Button disabled={!catalog.some((product) => !product.published && !["pending", "unmapped"].includes(product.category_status))} isLoading={busy === "publish"} onClick={() => publishProducts(catalog.filter((product) => !product.published && !["pending", "unmapped"].includes(product.category_status)).slice(0, 10).map((product) => product.source_key))}>Publish next 10</Button></div>
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">{catalog.map((product) => <div key={product.source_key} className="flex gap-3 rounded border p-3">{product.images[0] ? <img src={product.images[0]} alt="" className="h-20 w-20 rounded object-contain" /> : <div className="flex h-20 w-20 items-center justify-center rounded bg-ui-bg-component text-ui-fg-muted">No image</div>}<div className="min-w-0 flex-1"><Text weight="plus">{product.title}</Text><Text size="xsmall" className="text-ui-fg-subtle">{product.supplier_name} · {product.category || "Uncategorized"} · {product.variants.length} variants · category {product.category_status}</Text><Text size="xsmall" className="mt-1 text-ui-fg-subtle">{product.variants[0] ? `${product.variants[0].color} · ${product.variants[0].size} · supplier cost ${product.variants[0].price_eur !== undefined ? `EUR ${product.variants[0].price_eur.toFixed(2)}` : "unavailable"} · client from ${product.variants[0].price_eur !== undefined ? `EUR ${(product.variants[0].price_eur * (1 + Number(globalMarkup || 0) / 100)).toFixed(2)}` : "unavailable"} · ${product.variants[0].stock_quantity ?? 0} stock` : "No variants"}</Text><Text size="xsmall" className="mt-1 text-ui-fg-subtle">{product.sustainable ? "Sustainable · " : ""}{product.lead_time ? `Lead ${product.lead_time} · ` : ""}{product.print_methods.join(", ")}</Text><Button size="small" variant="secondary" className="mt-2" disabled={product.published || busy === "publish" || ["pending", "unmapped"].includes(product.category_status)} onClick={() => publishProducts([product.source_key])}>{product.published ? "Published" : ["pending", "unmapped"].includes(product.category_status) ? "Review category first" : "Approve & publish"}</Button></div></div>)}</div>
       <div className="mt-4 flex items-center justify-between"><Button variant="secondary" disabled={catalogOffset === 0} onClick={() => setCatalogOffset(Math.max(0, catalogOffset - 24))}>Previous</Button><Text size="small" className="text-ui-fg-subtle">Products {catalogOffset + 1}–{catalogOffset + catalog.length}</Text><Button variant="secondary" disabled={catalog.length < 24} onClick={() => setCatalogOffset(catalogOffset + 24)}>Next</Button></div>
     </Container>
 

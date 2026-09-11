@@ -14,15 +14,63 @@ import {
 import {
   normalizeSupplierCatalog,
   normalizedProductHandle,
+  type NormalizedProduct,
 } from "../modules/merchportal/normalization"
+import { MERCHPORTAL_MODULE } from "../modules/merchportal"
+import { sellingPrice } from "../modules/merchportal/catalog-rules"
+import { resolveMarkup } from "./manage-pricing-rules"
 
 type Input = { source_keys: string[] }
+
+async function persistProductSources(
+  container: any,
+  normalized: NormalizedProduct[],
+  nativeProducts: any[]
+) {
+  const service = container.resolve(MERCHPORTAL_MODULE) as any
+  const suppliers = await service.listSuppliers({})
+  const supplierByCode = new Map<string, any>(
+    suppliers.map((supplier: any) => [supplier.code, supplier])
+  )
+  const nativeByKey = new Map<string, any>(
+    nativeProducts.map((product: any) => [product.external_id, product])
+  )
+  for (const product of normalized) {
+    const native = nativeByKey.get(product.source_key)
+    const supplier = supplierByCode.get(product.supplier_code)
+    if (!native || !supplier) continue
+    const data = {
+      source_key: product.source_key,
+      product_id: native.id,
+      supplier_id: supplier.id,
+      cost_by_sku: Object.fromEntries(
+        product.variants.flatMap((variant) =>
+          variant.price_eur === undefined ? [] : [[variant.sku, variant.price_eur]]
+        )
+      ),
+      lead_time: product.lead_time || null,
+      sustainable: product.sustainable,
+      print_methods: product.print_methods,
+    }
+    const existing = await service.listPublishedProductSources(
+      { source_key: product.source_key },
+      { take: 1 }
+    )
+    if (existing.length) {
+      await service.updatePublishedProductSources({ id: existing[0].id, ...data })
+    } else {
+      await service.createPublishedProductSources(data)
+    }
+  }
+}
 
 export async function refreshPublishedSupplierProducts(
   container: any,
   supplierCode?: "stricker" | "midocean"
 ) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const service = container.resolve(MERCHPORTAL_MODULE) as any
+  const markup = await resolveMarkup(service)
   const [{ data: products }, { data: locations }] = await Promise.all([
     query.graph({
       entity: "product",
@@ -67,7 +115,10 @@ export async function refreshPublishedSupplierProducts(
       if (!existing || variant.price_eur === undefined) return []
       return [{
         id: existing.id,
-        prices: [{ currency_code: "eur", amount: variant.price_eur }],
+        prices: [{
+          currency_code: "eur",
+          amount: sellingPrice(variant.price_eur, markup),
+        }],
       }]
     })
   )
@@ -88,6 +139,7 @@ export async function refreshPublishedSupplierProducts(
   )
   const skus = [...stockBySku.keys()].filter((sku) => variantBySku.has(sku))
   if (!skus.length) {
+    await persistProductSources(container, selected, published)
     return {
       updated_products: selected.length,
       updated_prices: variantUpdates.length,
@@ -129,6 +181,7 @@ export async function refreshPublishedSupplierProducts(
       input: { inventory_levels: creates },
     })
   }
+  await persistProductSources(container, selected, published)
   return {
     updated_products: selected.length,
     updated_prices: variantUpdates.length,
@@ -140,12 +193,23 @@ const publishNormalizedProductsStep = createStep(
   "publish-normalized-products",
   async (input: Input, { container }) => {
     const query = container.resolve(ContainerRegistrationKeys.QUERY)
+    const service = container.resolve(MERCHPORTAL_MODULE) as any
+    const markup = await resolveMarkup(service)
     const normalized = await normalizeSupplierCatalog(container, {
       source_keys: input.source_keys.slice(0, 20),
       take: 20,
     })
     const pending = normalized.filter((product) => !product.published)
     if (!pending.length) return new StepResponse({ created: 0, products: [] })
+    const unresolved = pending.find((product) =>
+      ["pending", "unmapped"].includes(product.category_status)
+    )
+    if (unresolved) {
+      throw new MedusaError(
+        MedusaError.Types.INVALID_DATA,
+        `Approve or ignore the category mapping for ${unresolved.supplier_category} first`
+      )
+    }
 
     const [{ data: salesChannels }, { data: profiles }, { data: locations }] =
       await Promise.all([
@@ -230,7 +294,10 @@ const publishNormalizedProductsStep = createStep(
             options: { Color: variant.color, Size: variant.size },
             prices:
               variant.price_eur !== undefined
-                ? [{ currency_code: "eur", amount: variant.price_eur }]
+                ? [{
+                    currency_code: "eur",
+                    amount: sellingPrice(variant.price_eur, markup),
+                  }]
                 : [],
           })),
         })) as any,
@@ -264,6 +331,7 @@ const publishNormalizedProductsStep = createStep(
         input: { inventory_levels: levels },
       })
     }
+    await persistProductSources(container, pending, products)
 
     return new StepResponse({
       created: products.length,
