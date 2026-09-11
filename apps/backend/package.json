@@ -30,6 +30,7 @@
     "@medusajs/dashboard": "2.20.1",
     "@medusajs/draft-order": "2.20.1",
     "@medusajs/event-bus-redis": "2.20.1",
+    "@medusajs/file-s3": "2.20.1",
     "@medusajs/framework": "2.20.1",
     "@medusajs/locking-redis": "2.20.1",
     "@medusajs/medusa": "2.20.1",

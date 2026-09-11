@@ -1,4 +1,5 @@
 import { asRecords, ConnectionResult, SupplierAdapter } from "./types"
+import { MedusaError } from "@medusajs/framework/utils"
 
 const BASE_URL = "https://ws.stricker-europe.com"
 
@@ -44,4 +45,3 @@ export class StrickerAdapter implements SupplierAdapter {
     return this.download("stocks")
   }
 }
-import { MedusaError } from "@medusajs/framework/utils"

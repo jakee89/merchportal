@@ -15,8 +15,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
   if (input.kind === "catalog") {
     await ensureCategoryMappings(container, input.supplier_code)
   }
-  const catalog = input.kind === "catalog" ? undefined :
-    await refreshPublishedSupplierProducts(container, input.supplier_code)
+  const catalog = await refreshPublishedSupplierProducts(container, input.supplier_code)
   return new StepResponse({ job, catalog })
 })
 

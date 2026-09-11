@@ -7,6 +7,7 @@ import Supplier from "./models/supplier"
 import CategoryMapping from "./models/category-mapping"
 import PricingRule from "./models/pricing-rule"
 import PublishedProductSource from "./models/published-product-source"
+import ProductConfiguration from "./models/product-configuration"
 
 class MerchPortalModuleService extends MedusaService({
   ImportJob,
@@ -17,6 +18,7 @@ class MerchPortalModuleService extends MedusaService({
   CategoryMapping,
   PricingRule,
   PublishedProductSource,
+  ProductConfiguration,
 }) {}
 
 export default MerchPortalModuleService

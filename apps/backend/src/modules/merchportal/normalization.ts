@@ -4,6 +4,7 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "."
 import { supplierImageToken } from "./media"
 import { productAttributes, supplierCategory } from "./catalog-rules"
+import { normalizeDecorationOptions, type DecorationMethod } from "./decoration"
 
 type ObjectValue = Record<string, any>
 
@@ -31,6 +32,7 @@ export type NormalizedProduct = {
   lead_time?: string
   sustainable: boolean
   print_methods: string[]
+  decoration_options: DecorationMethod[]
   images: string[]
   variants: NormalizedVariant[]
   published: boolean
@@ -39,12 +41,7 @@ export type NormalizedProduct = {
 function value(object: ObjectValue, keys: string[]) {
   const accepted = new Set(keys.map((key) => key.toLowerCase()))
   for (const [key, found] of Object.entries(object || {})) {
-    if (
-      accepted.has(key.toLowerCase()) &&
-      found !== undefined &&
-      found !== null &&
-      String(found).trim()
-    ) return String(found).trim()
+    if (accepted.has(key.toLowerCase()) && found !== undefined && found !== null && String(found).trim()) return String(found).trim()
   }
 }
 
@@ -73,11 +70,7 @@ function imageUrls(object: unknown, output = new Set<string>()): string[] {
         if (typeof candidate === "string" && /^https:\/\//i.test(candidate)) {
           try {
             const url = new URL(candidate)
-            if (
-              ["cdn.hideacontent.com", "cdn1.midocean.com"].includes(url.hostname) &&
-              (/\.(avif|gif|jpe?g|png|webp)(?:$|\?)/i.test(url.href) ||
-                url.pathname.toLowerCase().includes("/image/"))
-            ) output.add(candidate)
+            if (["cdn.hideacontent.com", "cdn1.midocean.com"].includes(url.hostname) && (/\.(avif|gif|jpe?g|png|webp)(?:$|\?)/i.test(url.href) || url.pathname.toLowerCase().includes("/image/"))) output.add(candidate)
           } catch {}
         }
       }
@@ -102,64 +95,42 @@ function opaqueSourceKey(supplierId: string, externalId: string) {
 function relatedRecords(items: any[], supplierId: string, sku: string, masterId: string) {
   const exact = items.filter((item) => item.supplier_id === supplierId && item.sku === sku)
   if (exact.length) return exact
-  return items.filter(
-    (item) =>
-      item.supplier_id === supplierId &&
-      typeof item.sku === "string" &&
-      item.sku.startsWith(`${masterId}-`)
-  )
+  return items.filter((item) => item.supplier_id === supplierId && typeof item.sku === "string" && item.sku.startsWith(`${masterId}-`))
 }
 
 function proxyImages(urls: string[]) {
   const backend = (process.env.MEDUSA_BACKEND_URL || "http://localhost:9000").replace(/\/$/, "")
-  return urls.map(supplierImageToken).filter((token): token is string => Boolean(token)).map((token) => `${backend}/media/${token}`)
+  return urls
+    .map(supplierImageToken)
+    .filter((token): token is string => Boolean(token))
+    .map((token) => `${backend}/media/${token}`)
 }
 
-export async function normalizeSupplierCatalog(
-  container: MedusaContainer,
-  options: { source_keys?: string[]; take?: number; skip?: number } = {}
-): Promise<NormalizedProduct[]> {
+export async function normalizeSupplierCatalog(container: MedusaContainer, options: { source_keys?: string[]; take?: number; skip?: number } = {}): Promise<NormalizedProduct[]> {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const [records, prices, stocks, suppliers, categoryMappings] = await Promise.all([
-    service.listRawSupplierRecords(
-      { record_type: "product" },
-      { take: 50000, order: { updated_at: "DESC" } }
-    ),
-    service.listRawSupplierRecords({ record_type: "price" }, { take: 50000 }),
-    service.listRawSupplierRecords({ record_type: "stock" }, { take: 50000 }),
-    service.listSuppliers({}),
-    service.listCategoryMappings({}),
-  ])
+  const [records, prices, stocks, decorations, suppliers, categoryMappings] = await Promise.all([service.listRawSupplierRecords({ record_type: "product" }, { take: 50000, order: { updated_at: "DESC" } }), service.listRawSupplierRecords({ record_type: "price" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "stock" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "decoration" }, { take: 50000 }), service.listSuppliers({}), service.listCategoryMappings({})])
   const supplierById = new Map<string, any>(suppliers.map((supplier: any) => [supplier.id, supplier]))
   const groups = new Map<string, { supplier_id: string; master_id: string; records: any[] }>()
   for (const record of records) {
     const payload = (record.payload || {}) as ObjectValue
     const supplier = supplierById.get(record.supplier_id)
-    const masterId = supplier?.code === "stricker"
-      ? value(payload, ["reference", "Reference", "productReference", "product_reference"]) || record.external_id
-      : record.external_id
+    const masterId = supplier?.code === "stricker" ? value(payload, ["reference", "Reference", "productReference", "product_reference"]) || record.external_id : record.external_id
     const groupId = `${record.supplier_id}:${masterId}`
-    const group: { supplier_id: string; master_id: string; records: any[] } =
-      groups.get(groupId) || {
-        supplier_id: record.supplier_id,
-        master_id: masterId,
-        records: [],
-      }
+    const group: { supplier_id: string; master_id: string; records: any[] } = groups.get(groupId) || {
+      supplier_id: record.supplier_id,
+      master_id: masterId,
+      records: [],
+    }
     group.records.push(record)
     groups.set(groupId, group)
   }
   let selectedGroups = [...groups.values()]
   if (options.source_keys?.length) {
     const selected = new Set(options.source_keys)
-    selectedGroups = selectedGroups.filter((group) =>
-      selected.has(opaqueSourceKey(group.supplier_id, group.master_id))
-    )
+    selectedGroups = selectedGroups.filter((group) => selected.has(opaqueSourceKey(group.supplier_id, group.master_id)))
   } else {
-    selectedGroups = selectedGroups.slice(
-      options.skip || 0,
-      (options.skip || 0) + (options.take || 24)
-    )
+    selectedGroups = selectedGroups.slice(options.skip || 0, (options.skip || 0) + (options.take || 24))
   }
   const sourceKeys = selectedGroups.map((group) => opaqueSourceKey(group.supplier_id, group.master_id))
   const { data: existing } = await query.graph({
@@ -168,90 +139,71 @@ export async function normalizeSupplierCatalog(
     filters: { external_id: sourceKeys },
   })
   const published = new Set(existing.map((product: any) => product.external_id))
-  const mappingBySource = new Map<string, any>(
-    categoryMappings.map((mapping: any) => [
-      `${mapping.supplier_id}:${mapping.supplier_category.toLowerCase()}`,
-      mapping,
-    ])
-  )
+  const mappingBySource = new Map<string, any>(categoryMappings.map((mapping: any) => [`${mapping.supplier_id}:${mapping.supplier_category.toLowerCase()}`, mapping]))
 
   return selectedGroups.map((group) => {
     const record = group.records[0]
     const payload = (record.payload || {}) as ObjectValue
     const supplier = supplierById.get(group.supplier_id)
     const originalCategory = supplierCategory(payload)
-    const categoryMapping = mappingBySource.get(
-      `${group.supplier_id}:${originalCategory.toLowerCase()}`
-    )
+    const categoryMapping = mappingBySource.get(`${group.supplier_id}:${originalCategory.toLowerCase()}`)
     const attributes = productAttributes(payload)
-    const rows = group.records.flatMap((item) =>
-      variantRows((item.payload || {}) as ObjectValue)
-    )
+    const decorationPayloads = decorations.filter((item: any) => item.supplier_id === group.supplier_id && (item.external_id === group.master_id || (item.payload as ObjectValue)?.master_code === group.master_id || (item.payload as ObjectValue)?.master_id === group.master_id)).map((item: any) => item.payload)
+    const decorationOptions = normalizeDecorationOptions([...group.records.map((item) => item.payload), ...decorationPayloads], attributes.print_methods)
+    const rows = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue))
     const seen = new Set<string>()
     const seenSkus = new Set<string>()
-    const variants = rows.map((row, index) => {
-      const sku = value(row, ["sku", "SKU", "optionalReference", "reference", "variant_id"]) ||
-        `${record.external_id}-${index + 1}`
-      const color = value(row, ["color_description", "colour_description", "color", "colour", "color_group"]) || "Standard"
-      let size = value(row, ["size", "size_description", "format", "dimension"]) || "Standard"
-      const combination = `${color}:${size}`
-      if (seen.has(combination)) size = sku
-      seen.add(`${color}:${size}`)
-      const priceMatches = relatedRecords(prices, group.supplier_id, sku, group.master_id)
-      const stockMatches = relatedRecords(stocks, group.supplier_id, sku, group.master_id)
-      const pricesFound = priceMatches.map((item) => numberValue(item.payload, ["price", "unit_price", "net_price", "price_1"])).filter((item): item is number => item !== undefined)
-      const stocksFound = stockMatches.map((item) => numberValue(item.payload, ["stock", "quantity", "available", "free_stock"])).filter((item): item is number => item !== undefined)
-      let variantImages = imageUrls(row)
-      if (!variantImages.length && supplier?.code === "stricker") {
-        const colorCode = value(row, [
-          "color_code",
-          "colour_code",
-          "colorCode",
-          "colourCode",
-          "color",
-        ])
-        if (colorCode) {
-          variantImages = [
-            `https://cdn.hideacontent.com/public/products/1000x1000/${group.master_id}_${colorCode}.jpg`,
-          ]
+    const variants = rows
+      .map((row, index) => {
+        const sku = value(row, ["sku", "SKU", "optionalReference", "reference", "variant_id"]) || `${record.external_id}-${index + 1}`
+        const color = value(row, ["color_description", "colour_description", "color", "colour", "color_group"]) || "Standard"
+        let size = value(row, ["size", "size_description", "format", "dimension"]) || "Standard"
+        const combination = `${color}:${size}`
+        if (seen.has(combination)) size = sku
+        seen.add(`${color}:${size}`)
+        const priceMatches = relatedRecords(prices, group.supplier_id, sku, group.master_id)
+        const stockMatches = relatedRecords(stocks, group.supplier_id, sku, group.master_id)
+        const pricesFound = priceMatches.map((item) => numberValue(item.payload, ["price", "unit_price", "net_price", "price_1"])).filter((item): item is number => item !== undefined)
+        const stocksFound = stockMatches.map((item) => numberValue(item.payload, ["stock", "quantity", "available", "free_stock"])).filter((item): item is number => item !== undefined)
+        let variantImages = imageUrls(row)
+        if (!variantImages.length && supplier?.code === "stricker") {
+          const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "color"])
+          if (colorCode) {
+            variantImages = [`https://cdn.hideacontent.com/public/products/1000x1000/${group.master_id}_${colorCode}.jpg`]
+          }
         }
-      }
-      return {
-        source_id: value(row, ["variant_id", "id", "ID"]) || sku,
-        sku,
-        title: [color, size === "Standard" ? "" : size].filter(Boolean).join(" "),
-        color,
-        size,
-        images: proxyImages(variantImages),
-        price_eur: pricesFound.length ? Math.min(...pricesFound) : undefined,
-        stock_quantity: stocksFound.length ? stocksFound.reduce((sum, item) => sum + item, 0) : undefined,
-      }
-    }).filter((variant) => {
-      if (seenSkus.has(variant.sku)) return false
-      seenSkus.add(variant.sku)
-      return true
-    })
+        return {
+          source_id: value(row, ["variant_id", "id", "ID"]) || sku,
+          sku,
+          title: [color, size === "Standard" ? "" : size].filter(Boolean).join(" "),
+          color,
+          size,
+          images: proxyImages(variantImages),
+          price_eur: pricesFound.length ? Math.min(...pricesFound) : undefined,
+          stock_quantity: stocksFound.length ? stocksFound.reduce((sum, item) => sum + item, 0) : undefined,
+        }
+      })
+      .filter((variant) => {
+        if (seenSkus.has(variant.sku)) return false
+        seenSkus.add(variant.sku)
+        return true
+      })
     const sourceKey = opaqueSourceKey(group.supplier_id, group.master_id)
-    const productImages = [
-      ...proxyImages(imageUrls(group.records.map((item) => item.payload))),
-      ...variants.flatMap((variant) => variant.images),
-    ].filter((url, index, all) => all.indexOf(url) === index)
+    const productImages = [...proxyImages(imageUrls(group.records.map((item) => item.payload))), ...variants.flatMap((variant) => variant.images)].filter((url, index, all) => all.indexOf(url) === index)
     return {
       source_key: sourceKey,
       supplier_code: supplier?.code || "unknown",
       supplier_name: supplier?.display_name || "Unknown supplier",
       title: value(payload, ["product_name", "name", "Name", "description", "Description"]) || "Merchandise product",
       description: value(payload, ["long_description", "short_description", "description", "Description"]),
-      category:
-        categoryMapping?.status === "approved"
-          ? categoryMapping.approved_category || categoryMapping.suggested_category
-          : originalCategory,
+      category: categoryMapping?.status === "approved" ? categoryMapping.approved_category || categoryMapping.suggested_category : originalCategory,
       supplier_category: originalCategory,
       category_mapping_id: categoryMapping?.id,
       category_status: categoryMapping?.status || "unmapped",
       lead_time: attributes.lead_time,
       sustainable: attributes.sustainable,
-      print_methods: attributes.print_methods,
+      print_methods: [...new Set([...attributes.print_methods, ...decorationOptions.map((method) => method.name)])],
+      decoration_options: decorationOptions,
       images: productImages,
       variants,
       published: published.has(sourceKey),

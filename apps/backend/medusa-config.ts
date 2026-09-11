@@ -1,11 +1,6 @@
-import {
-  ContainerRegistrationKeys,
-  loadEnv,
-  defineConfig,
-  Modules,
-} from "@medusajs/framework/utils";
+import { ContainerRegistrationKeys, loadEnv, defineConfig, Modules } from "@medusajs/framework/utils"
 
-loadEnv(process.env.NODE_ENV || "development", process.cwd());
+loadEnv(process.env.NODE_ENV || "development", process.cwd())
 
 module.exports = defineConfig({
   projectConfig: {
@@ -15,8 +10,7 @@ module.exports = defineConfig({
       sslmode: "disable",
     },
     redisUrl: process.env.REDIS_URL,
-    workerMode: process.env.MEDUSA_WORKER_MODE as
-      "shared" | "worker" | "server",
+    workerMode: process.env.MEDUSA_WORKER_MODE as "shared" | "worker" | "server",
     cookieOptions: {
       sameSite: "lax",
       secure: false,
@@ -39,6 +33,27 @@ module.exports = defineConfig({
   },
   modules: [
     {
+      resolve: "@medusajs/medusa/file",
+      options: {
+        providers: [
+          {
+            resolve: "@medusajs/file-s3",
+            id: "s3",
+            options: {
+              file_url: process.env.S3_FILE_URL || `${process.env.S3_ENDPOINT}/${process.env.S3_BUCKET}`,
+              access_key_id: process.env.S3_ACCESS_KEY_ID,
+              secret_access_key: process.env.S3_SECRET_ACCESS_KEY,
+              region: process.env.S3_REGION || "us-east-1",
+              bucket: process.env.S3_BUCKET,
+              endpoint: process.env.S3_ENDPOINT,
+              prefix: "client-artwork/",
+              additional_client_config: { forcePathStyle: true },
+            },
+          },
+        ],
+      },
+    },
+    {
       resolve: "./src/modules/merchportal",
     },
     {
@@ -54,4 +69,4 @@ module.exports = defineConfig({
       },
     },
   ],
-});
+})

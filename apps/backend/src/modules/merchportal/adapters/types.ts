@@ -10,6 +10,7 @@ export interface SupplierAdapter {
   fetchProducts(): Promise<unknown[]>
   fetchPrices(): Promise<unknown[]>
   fetchStock(): Promise<unknown[]>
+  fetchDecorations?(): Promise<unknown[]>
 }
 
 export function asRecords(payload: unknown): unknown[] {

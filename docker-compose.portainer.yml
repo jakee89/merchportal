@@ -17,7 +17,13 @@ services:
     ports:
       - "${STOREFRONT_PORT:-8100}:8000"
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:8000/portal').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:8000/portal').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -31,7 +37,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: ["sh", "-c", "npm exec -- medusa db:migrate && npm exec -- medusa start --host 0.0.0.0 --port 9000"]
+      minio-init:
+        condition: service_completed_successfully
+    command:
+      [
+        "sh",
+        "-c",
+        "npm exec -- medusa db:migrate && npm exec -- medusa start --host 0.0.0.0 --port 9000",
+      ]
     environment:
       NODE_ENV: production
       PORT: 9000
@@ -51,13 +64,20 @@ services:
       S3_BUCKET: ${MINIO_BUCKET:-merchportal}
       S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-merchportal}
       S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+      S3_REGION: us-east-1
       STRICKER_ACCESS_KEY: ${STRICKER_ACCESS_KEY:-}
       MIDOCEAN_API_KEY: ${MIDOCEAN_API_KEY:-}
       MEDIA_PROXY_SECRET: ${MEDIA_PROXY_SECRET:?Set MEDIA_PROXY_SECRET}
     ports:
       - "${BACKEND_PORT:-9100}:9000"
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:9000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:9000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
       interval: 15s
       timeout: 5s
       retries: 30
@@ -93,7 +113,13 @@ services:
   typesense:
     image: typesense/typesense:30.2
     restart: unless-stopped
-    command: ["--data-dir", "/data", "--api-key=${TYPESENSE_API_KEY:?Set TYPESENSE_API_KEY}", "--enable-cors=false"]
+    command:
+      [
+        "--data-dir",
+        "/data",
+        "--api-key=${TYPESENSE_API_KEY:?Set TYPESENSE_API_KEY}",
+        "--enable-cors=false",
+      ]
     volumes:
       - typesense_data:/data
 
@@ -108,6 +134,28 @@ services:
       - minio_data:/data
     ports:
       - "${MINIO_CONSOLE_PORT:-9101}:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    restart: "no"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-merchportal}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-merchportal}
+    entrypoint:
+      [
+        "/bin/sh",
+        "-c",
+        "mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD && mc mb --ignore-existing local/$$MINIO_BUCKET",
+      ]
 
 volumes:
   postgres_data:

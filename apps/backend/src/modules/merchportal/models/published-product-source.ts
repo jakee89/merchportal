@@ -10,11 +10,8 @@ const PublishedProductSource = model
     lead_time: model.text().nullable(),
     sustainable: model.boolean().default(false),
     print_methods: model.json().nullable(),
+    decoration_options: model.json().nullable(),
   })
-  .indexes([
-    { on: ["source_key"], unique: true },
-    { on: ["product_id"], unique: true },
-    { on: ["supplier_id"] },
-  ])
+  .indexes([{ on: ["source_key"], unique: true }, { on: ["product_id"], unique: true }, { on: ["supplier_id"] }])
 
 export default PublishedProductSource

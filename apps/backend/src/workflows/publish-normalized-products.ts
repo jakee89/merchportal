@@ -1,40 +1,18 @@
 import { createStep, createWorkflow, StepResponse, WorkflowResponse } from "@medusajs/framework/workflows-sdk"
-import {
-  ContainerRegistrationKeys,
-  MedusaError,
-  ProductStatus,
-} from "@medusajs/framework/utils"
-import {
-  createInventoryLevelsWorkflow,
-  createProductCategoriesWorkflow,
-  createProductsWorkflow,
-  updateInventoryLevelsWorkflow,
-  updateProductVariantsWorkflow,
-} from "@medusajs/medusa/core-flows"
-import {
-  normalizeSupplierCatalog,
-  normalizedProductHandle,
-  type NormalizedProduct,
-} from "../modules/merchportal/normalization"
+import { ContainerRegistrationKeys, MedusaError, ProductStatus } from "@medusajs/framework/utils"
+import { createInventoryLevelsWorkflow, createProductCategoriesWorkflow, createProductsWorkflow, updateInventoryLevelsWorkflow, updateProductVariantsWorkflow } from "@medusajs/medusa/core-flows"
+import { normalizeSupplierCatalog, normalizedProductHandle, type NormalizedProduct } from "../modules/merchportal/normalization"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
 import { sellingPrice } from "../modules/merchportal/catalog-rules"
 import { resolveMarkup } from "./manage-pricing-rules"
 
 type Input = { source_keys: string[] }
 
-async function persistProductSources(
-  container: any,
-  normalized: NormalizedProduct[],
-  nativeProducts: any[]
-) {
+async function persistProductSources(container: any, normalized: NormalizedProduct[], nativeProducts: any[]) {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const suppliers = await service.listSuppliers({})
-  const supplierByCode = new Map<string, any>(
-    suppliers.map((supplier: any) => [supplier.code, supplier])
-  )
-  const nativeByKey = new Map<string, any>(
-    nativeProducts.map((product: any) => [product.external_id, product])
-  )
+  const supplierByCode = new Map<string, any>(suppliers.map((supplier: any) => [supplier.code, supplier]))
+  const nativeByKey = new Map<string, any>(nativeProducts.map((product: any) => [product.external_id, product]))
   for (const product of normalized) {
     const native = nativeByKey.get(product.source_key)
     const supplier = supplierByCode.get(product.supplier_code)
@@ -43,19 +21,13 @@ async function persistProductSources(
       source_key: product.source_key,
       product_id: native.id,
       supplier_id: supplier.id,
-      cost_by_sku: Object.fromEntries(
-        product.variants.flatMap((variant) =>
-          variant.price_eur === undefined ? [] : [[variant.sku, variant.price_eur]]
-        )
-      ),
+      cost_by_sku: Object.fromEntries(product.variants.flatMap((variant) => (variant.price_eur === undefined ? [] : [[variant.sku, variant.price_eur]]))),
       lead_time: product.lead_time || null,
       sustainable: product.sustainable,
       print_methods: product.print_methods,
+      decoration_options: product.decoration_options,
     }
-    const existing = await service.listPublishedProductSources(
-      { source_key: product.source_key },
-      { take: 1 }
-    )
+    const existing = await service.listPublishedProductSources({ source_key: product.source_key }, { take: 1 })
     if (existing.length) {
       await service.updatePublishedProductSources({ id: existing[0].id, ...data })
     } else {
@@ -64,10 +36,7 @@ async function persistProductSources(
   }
 }
 
-export async function refreshPublishedSupplierProducts(
-  container: any,
-  supplierCode?: "stricker" | "midocean"
-) {
+export async function refreshPublishedSupplierProducts(container: any, supplierCode?: "stricker" | "midocean") {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const markup = await resolveMarkup(service)
@@ -84,9 +53,7 @@ export async function refreshPublishedSupplierProducts(
       filters: { name: "Malta Operations" },
     }),
   ])
-  const published = products.filter((product: any) =>
-    product.external_id?.startsWith("mp_")
-  )
+  const published = products.filter((product: any) => product.external_id?.startsWith("mp_"))
   if (!published.length || !locations.length) {
     return { updated_products: 0, updated_prices: 0, updated_stock: 0 }
   }
@@ -95,12 +62,8 @@ export async function refreshPublishedSupplierProducts(
     source_keys: published.map((product: any) => product.external_id),
     take: published.length,
   })
-  const selected = supplierCode
-    ? normalized.filter((product) => product.supplier_code === supplierCode)
-    : normalized
-  const normalizedByKey = new Map(
-    selected.map((product) => [product.source_key, product])
-  )
+  const selected = supplierCode ? normalized.filter((product) => product.supplier_code === supplierCode) : normalized
+  const normalizedByKey = new Map(selected.map((product) => [product.source_key, product]))
   const variantBySku = new Map<string, any>()
   for (const product of published) {
     if (!normalizedByKey.has(product.external_id)) continue
@@ -113,14 +76,18 @@ export async function refreshPublishedSupplierProducts(
     product.variants.flatMap((variant) => {
       const existing = variantBySku.get(variant.sku)
       if (!existing || variant.price_eur === undefined) return []
-      return [{
-        id: existing.id,
-        prices: [{
-          currency_code: "eur",
-          amount: sellingPrice(variant.price_eur, markup),
-        }],
-      }]
-    })
+      return [
+        {
+          id: existing.id,
+          prices: [
+            {
+              currency_code: "eur",
+              amount: sellingPrice(variant.price_eur, markup),
+            },
+          ],
+        },
+      ]
+    }),
   )
   if (variantUpdates.length) {
     await updateProductVariantsWorkflow(container).run({
@@ -128,15 +95,7 @@ export async function refreshPublishedSupplierProducts(
     })
   }
 
-  const stockBySku = new Map(
-    selected.flatMap((product) =>
-      product.variants.flatMap((variant) =>
-        variant.stock_quantity === undefined
-          ? []
-          : [[variant.sku, variant.stock_quantity] as const]
-      )
-    )
-  )
+  const stockBySku = new Map(selected.flatMap((product) => product.variants.flatMap((variant) => (variant.stock_quantity === undefined ? [] : [[variant.sku, variant.stock_quantity] as const]))))
   const skus = [...stockBySku.keys()].filter((sku) => variantBySku.has(sku))
   if (!skus.length) {
     await persistProductSources(container, selected, published)
@@ -155,9 +114,7 @@ export async function refreshPublishedSupplierProducts(
   const updates: any[] = []
   for (const item of inventoryItems) {
     const quantity = Math.max(0, Math.floor(stockBySku.get(item.sku) || 0))
-    const level = item.location_levels?.find(
-      (candidate: any) => candidate.location_id === locations[0].id
-    )
+    const level = item.location_levels?.find((candidate: any) => candidate.location_id === locations[0].id)
     if (level) {
       updates.push({
         id: level.id,
@@ -189,148 +146,119 @@ export async function refreshPublishedSupplierProducts(
   }
 }
 
-const publishNormalizedProductsStep = createStep(
-  "publish-normalized-products",
-  async (input: Input, { container }) => {
-    const query = container.resolve(ContainerRegistrationKeys.QUERY)
-    const service = container.resolve(MERCHPORTAL_MODULE) as any
-    const markup = await resolveMarkup(service)
-    const normalized = await normalizeSupplierCatalog(container, {
-      source_keys: input.source_keys.slice(0, 20),
-      take: 20,
-    })
-    const pending = normalized.filter((product) => !product.published)
-    if (!pending.length) return new StepResponse({ created: 0, products: [] })
-    const [{ data: salesChannels }, { data: profiles }, { data: locations }] =
-      await Promise.all([
-        query.graph({
-          entity: "sales_channel",
-          fields: ["id"],
-          filters: { name: "MerchPortal Malta" },
-        }),
-        query.graph({ entity: "shipping_profile", fields: ["id"] }),
-        query.graph({
-          entity: "stock_location",
-          fields: ["id"],
-          filters: { name: "Malta Operations" },
-        }),
-      ])
-    if (!salesChannels.length || !profiles.length || !locations.length) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_DATA,
-        "Run Configure Malta & EUR before publishing products"
-      )
-    }
+const publishNormalizedProductsStep = createStep("publish-normalized-products", async (input: Input, { container }) => {
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
+  const service = container.resolve(MERCHPORTAL_MODULE) as any
+  const markup = await resolveMarkup(service)
+  const normalized = await normalizeSupplierCatalog(container, {
+    source_keys: input.source_keys.slice(0, 20),
+    take: 20,
+  })
+  const pending = normalized.filter((product) => !product.published)
+  if (!pending.length) return new StepResponse({ created: 0, products: [] })
+  const [{ data: salesChannels }, { data: profiles }, { data: locations }] = await Promise.all([
+    query.graph({
+      entity: "sales_channel",
+      fields: ["id"],
+      filters: { name: "MerchPortal Malta" },
+    }),
+    query.graph({ entity: "shipping_profile", fields: ["id"] }),
+    query.graph({
+      entity: "stock_location",
+      fields: ["id"],
+      filters: { name: "Malta Operations" },
+    }),
+  ])
+  if (!salesChannels.length || !profiles.length || !locations.length) {
+    throw new MedusaError(MedusaError.Types.INVALID_DATA, "Run Configure Malta & EUR before publishing products")
+  }
 
-    const { data: existingCategories } = await query.graph({
-      entity: "product_category",
-      fields: ["id", "name"],
-    })
-    const categoryByName = new Map<string, any>(
-      existingCategories.map((category: any) => [category.name, category])
-    )
-    const missingCategoryNames = [
-      ...new Set(
-        pending
-          .map((product) => product.category)
-          .filter((name): name is string => Boolean(name))
-      ),
-    ].filter((name) => !categoryByName.has(name))
-    if (missingCategoryNames.length) {
-      const { result: createdCategories } =
-        await createProductCategoriesWorkflow(container).run({
-          input: {
-            product_categories: missingCategoryNames.map((name) => ({
-              name,
-              is_active: true,
-            })),
-          },
-        })
-      createdCategories.forEach((category: any) =>
-        categoryByName.set(category.name, category)
-      )
-    }
-
-    const { result: products } = await createProductsWorkflow(container).run({
+  const { data: existingCategories } = await query.graph({
+    entity: "product_category",
+    fields: ["id", "name"],
+  })
+  const categoryByName = new Map<string, any>(existingCategories.map((category: any) => [category.name, category]))
+  const missingCategoryNames = [...new Set(pending.map((product) => product.category).filter((name): name is string => Boolean(name)))].filter((name) => !categoryByName.has(name))
+  if (missingCategoryNames.length) {
+    const { result: createdCategories } = await createProductCategoriesWorkflow(container).run({
       input: {
-        products: pending.map((product) => ({
-          title: product.title,
-          subtitle: product.category,
-          description: product.description,
-          handle: normalizedProductHandle(product),
-          external_id: product.source_key,
-          category_ids: product.category
-            ? [categoryByName.get(product.category)?.id].filter(Boolean)
-            : [],
-          status: ProductStatus.PUBLISHED,
-          shipping_profile_id: profiles[0].id,
-          sales_channels: [{ id: salesChannels[0].id }],
-          thumbnail: product.images[0],
-          images: product.images.map((url) => ({ url })),
-          options: [
-            {
-              title: "Color",
-              values: [...new Set(product.variants.map((variant) => variant.color))],
-            },
-            {
-              title: "Size",
-              values: [...new Set(product.variants.map((variant) => variant.size))],
-            },
-          ],
-          variants: product.variants.map((variant) => ({
-            title: variant.title,
-            sku: variant.sku,
-            manage_inventory: true,
-            options: { Color: variant.color, Size: variant.size },
-            prices:
-              variant.price_eur !== undefined
-                ? [{
-                    currency_code: "eur",
-                    amount: sellingPrice(variant.price_eur, markup),
-                  }]
-                : [],
-          })),
-        })) as any,
+        product_categories: missingCategoryNames.map((name) => ({
+          name,
+          is_active: true,
+        })),
       },
     })
+    createdCategories.forEach((category: any) => categoryByName.set(category.name, category))
+  }
 
-    const stockBySku = new Map(
-      pending.flatMap((product) =>
-        product.variants.map((variant) => [variant.sku, variant.stock_quantity] as const)
-      )
-    )
-    const skus = [...stockBySku.keys()]
-    const { data: inventoryItems } = await query.graph({
-      entity: "inventory_item",
-      fields: ["id", "sku", "location_levels.location_id"],
-      filters: { sku: skus },
-    })
-    const levels = inventoryItems
-      .filter((item: any) =>
-        !item.location_levels?.some(
-          (level: any) => level.location_id === locations[0].id
-        )
-      )
-      .map((item: any) => ({
-        inventory_item_id: item.id,
-        location_id: locations[0].id,
-        stocked_quantity: Math.max(0, Math.floor(stockBySku.get(item.sku) || 0)),
-      }))
-    if (levels.length) {
-      await createInventoryLevelsWorkflow(container).run({
-        input: { inventory_levels: levels },
-      })
-    }
-    await persistProductSources(container, pending, products)
+  const { result: products } = await createProductsWorkflow(container).run({
+    input: {
+      products: pending.map((product) => ({
+        title: product.title,
+        subtitle: product.category,
+        description: product.description,
+        handle: normalizedProductHandle(product),
+        external_id: product.source_key,
+        category_ids: product.category ? [categoryByName.get(product.category)?.id].filter(Boolean) : [],
+        status: ProductStatus.PUBLISHED,
+        shipping_profile_id: profiles[0].id,
+        sales_channels: [{ id: salesChannels[0].id }],
+        thumbnail: product.images[0],
+        images: product.images.map((url) => ({ url })),
+        options: [
+          {
+            title: "Color",
+            values: [...new Set(product.variants.map((variant) => variant.color))],
+          },
+          {
+            title: "Size",
+            values: [...new Set(product.variants.map((variant) => variant.size))],
+          },
+        ],
+        variants: product.variants.map((variant) => ({
+          title: variant.title,
+          sku: variant.sku,
+          manage_inventory: true,
+          options: { Color: variant.color, Size: variant.size },
+          prices:
+            variant.price_eur !== undefined
+              ? [
+                  {
+                    currency_code: "eur",
+                    amount: sellingPrice(variant.price_eur, markup),
+                  },
+                ]
+              : [],
+        })),
+      })) as any,
+    },
+  })
 
-    return new StepResponse({
-      created: products.length,
-      products: products.map((product: any) => ({ id: product.id, title: product.title })),
+  const stockBySku = new Map(pending.flatMap((product) => product.variants.map((variant) => [variant.sku, variant.stock_quantity] as const)))
+  const skus = [...stockBySku.keys()]
+  const { data: inventoryItems } = await query.graph({
+    entity: "inventory_item",
+    fields: ["id", "sku", "location_levels.location_id"],
+    filters: { sku: skus },
+  })
+  const levels = inventoryItems
+    .filter((item: any) => !item.location_levels?.some((level: any) => level.location_id === locations[0].id))
+    .map((item: any) => ({
+      inventory_item_id: item.id,
+      location_id: locations[0].id,
+      stocked_quantity: Math.max(0, Math.floor(stockBySku.get(item.sku) || 0)),
+    }))
+  if (levels.length) {
+    await createInventoryLevelsWorkflow(container).run({
+      input: { inventory_levels: levels },
     })
   }
-)
+  await persistProductSources(container, pending, products)
 
-export const publishNormalizedProductsWorkflow = createWorkflow(
-  "publish-normalized-products",
-  (input: Input) => new WorkflowResponse(publishNormalizedProductsStep(input))
-)
+  return new StepResponse({
+    created: products.length,
+    products: products.map((product: any) => ({ id: product.id, title: product.title })),
+  })
+})
+
+export const publishNormalizedProductsWorkflow = createWorkflow("publish-normalized-products", (input: Input) => new WorkflowResponse(publishNormalizedProductsStep(input)))
