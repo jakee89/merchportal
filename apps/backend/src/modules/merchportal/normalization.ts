@@ -109,7 +109,7 @@ function proxyImages(urls: string[]) {
 export async function normalizeSupplierCatalog(container: MedusaContainer, options: { source_keys?: string[]; take?: number; skip?: number } = {}): Promise<NormalizedProduct[]> {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const [records, prices, stocks, decorations, suppliers, categoryMappings] = await Promise.all([service.listRawSupplierRecords({ record_type: "product" }, { take: 50000, order: { updated_at: "DESC" } }), service.listRawSupplierRecords({ record_type: "price" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "stock" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "decoration" }, { take: 50000 }), service.listSuppliers({}), service.listCategoryMappings({})])
+  const [records, prices, stocks, decorations, suppliers] = await Promise.all([service.listRawSupplierRecords({ record_type: "product" }, { take: 50000, order: { updated_at: "DESC" } }), service.listRawSupplierRecords({ record_type: "price" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "stock" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "decoration" }, { take: 50000 }), service.listSuppliers({})])
   const supplierById = new Map<string, any>(suppliers.map((supplier: any) => [supplier.id, supplier]))
   const groups = new Map<string, { supplier_id: string; master_id: string; records: any[] }>()
   for (const record of records) {
@@ -139,14 +139,11 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     filters: { external_id: sourceKeys },
   })
   const published = new Set(existing.map((product: any) => product.external_id))
-  const mappingBySource = new Map<string, any>(categoryMappings.map((mapping: any) => [`${mapping.supplier_id}:${mapping.supplier_category.toLowerCase()}`, mapping]))
-
   return selectedGroups.map((group) => {
     const record = group.records[0]
     const payload = (record.payload || {}) as ObjectValue
     const supplier = supplierById.get(group.supplier_id)
     const originalCategory = supplierCategory(payload)
-    const categoryMapping = mappingBySource.get(`${group.supplier_id}:${originalCategory.toLowerCase()}`)
     const attributes = productAttributes(payload)
     const decorationPayloads = decorations.filter((item: any) => item.supplier_id === group.supplier_id && (item.external_id === group.master_id || (item.payload as ObjectValue)?.master_code === group.master_id || (item.payload as ObjectValue)?.master_id === group.master_id)).map((item: any) => item.payload)
     const decorationOptions = normalizeDecorationOptions([...group.records.map((item) => item.payload), ...decorationPayloads], attributes.print_methods)
@@ -196,10 +193,10 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
       supplier_name: supplier?.display_name || "Unknown supplier",
       title: value(payload, ["product_name", "name", "Name", "description", "Description"]) || "Merchandise product",
       description: value(payload, ["long_description", "short_description", "description", "Description"]),
-      category: categoryMapping?.status === "approved" ? categoryMapping.approved_category || categoryMapping.suggested_category : originalCategory,
+      category: originalCategory,
       supplier_category: originalCategory,
-      category_mapping_id: categoryMapping?.id,
-      category_status: categoryMapping?.status || "unmapped",
+      category_mapping_id: undefined,
+      category_status: "unmapped",
       lead_time: attributes.lead_time,
       sustainable: attributes.sustainable,
       print_methods: [...new Set([...attributes.print_methods, ...decorationOptions.map((method) => method.name)])],
