@@ -9,6 +9,7 @@ export default function AuthForm() {
   const [loginState, loginAction, loginPending] = useActionState(portalLogin, null)
   const [signupState, signupAction, signupPending] = useActionState(portalSignup, null)
   const state = registering ? signupState : loginState
+  const pending = registering ? signupPending : loginPending
   return <div className={styles.authCard}>
     <div className={styles.tabs}>
       <button type="button" className={!registering ? styles.activeTab : ""} onClick={() => setRegistering(false)}>Sign in</button>
@@ -21,7 +22,7 @@ export default function AuthForm() {
       <label>Company code {registering ? "" : "(only needed the first time)"}<input name="join_code" required={registering} autoCapitalize="characters" /></label>
       {state?.state === "error" && <p className={styles.error}>{state.error}</p>}
       {state?.state === "verification_required" && <p className={styles.notice}>Check {state.email} to verify your account.</p>}
-      <button className={styles.primary} disabled={loginPending || signupPending}>{registering ? "Create client account" : "Sign in"}</button>
+      <button className={styles.primary} disabled={pending} aria-busy={pending}>{pending ? (registering ? "Creating account…" : "Signing in…") : registering ? "Create client account" : "Sign in"}</button>
     </form>
   </div>
 }

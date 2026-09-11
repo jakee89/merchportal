@@ -6,6 +6,13 @@ import { resolveMarkup } from "../../../workflows/manage-pricing-rules"
 
 const catalogCache = new Map<string, { expires: number; products: any[]; facets: any }>()
 
+function removeExpiredCatalogCacheEntries() {
+  const now = Date.now()
+  for (const [key, value] of catalogCache) {
+    if (value.expires <= now) catalogCache.delete(key)
+  }
+}
+
 function queryText(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
 }
@@ -32,6 +39,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   }
 
   const cacheKey = membership[0].organization_id
+  removeExpiredCatalogCacheEntries()
   const cached = catalogCache.get(cacheKey)
   let safeProducts: any[]
   let facets: any

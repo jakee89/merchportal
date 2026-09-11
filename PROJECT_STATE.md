@@ -19,3 +19,4 @@ MerchPortal is a Docker-first B2B merchandise portal built on Medusa v2 and Next
 ## Deployment
 
 - The Portainer image release requires a pull and live smoke test. Public hostnames, reverse-proxy/TLS, transactional email, and supplier-secret storage approach remain unresolved.
+- Storefront image builds use GitHub Actions variables for public origins and the publishable API key. Set `NEXT_PUBLIC_MEDUSA_BACKEND_URL`, `NEXT_PUBLIC_BASE_URL`, and `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY` in the repository before building production images.

@@ -43,10 +43,10 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:latest
             ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}:${{ github.sha }}
           build-args: |
-            MEDUSA_BACKEND_URL=http://192.168.1.214:9100
-            NEXT_PUBLIC_MEDUSA_BACKEND_URL=http://192.168.1.214:9100
+            MEDUSA_BACKEND_URL=${{ vars.MEDUSA_BACKEND_URL || 'http://localhost:9000' }}
+            NEXT_PUBLIC_MEDUSA_BACKEND_URL=${{ vars.NEXT_PUBLIC_MEDUSA_BACKEND_URL || vars.MEDUSA_BACKEND_URL || 'http://localhost:9000' }}
             NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || 'pk_setup_required' }}
-            NEXT_PUBLIC_DEFAULT_REGION=mt
-            NEXT_PUBLIC_BASE_URL=http://192.168.1.214:8100
+            NEXT_PUBLIC_DEFAULT_REGION=${{ vars.NEXT_PUBLIC_DEFAULT_REGION || 'mt' }}
+            NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL || 'http://localhost:8000' }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}

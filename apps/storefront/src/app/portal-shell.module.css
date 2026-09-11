@@ -452,6 +452,14 @@
   font-size: 13px;
   padding: 10px;
 }
+.serviceStatus {
+  background: #edf8f2;
+  border-radius: 8px;
+  color: #147452 !important;
+  font-size: 13px;
+  margin-top: 18px;
+  padding: 10px;
+}
 .productImage {
   background: #edf5f7;
   border-radius: 11px;
