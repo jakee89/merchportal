@@ -7,6 +7,15 @@ import { requireStaff } from "../../../auth"
 
 export async function POST(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   await requireStaff(req)
-  const adapter = createSupplierAdapter(req.params.code)
-  res.json({ connection: await adapter.testConnection() })
+  try {
+    const adapter = createSupplierAdapter(req.params.code)
+    res.json({ connection: await adapter.testConnection() })
+  } catch (error) {
+    res.json({
+      connection: {
+        ok: false,
+        message: error instanceof Error ? error.message : "Connection test failed",
+      },
+    })
+  }
 }

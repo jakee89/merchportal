@@ -22,8 +22,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
   })
-  const body = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(body.message || "Request failed")
+  const text = await response.text()
+  let body: any = {}
+  try { body = text ? JSON.parse(text) : {} } catch {}
+  if (!response.ok) {
+    throw new Error(
+      body.message || body.error || text || `Request failed (${response.status})`
+    )
+  }
   return body
 }
 
