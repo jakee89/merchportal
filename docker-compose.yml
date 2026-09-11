@@ -49,7 +49,7 @@ services:
       [
         "sh",
         "-c",
-        "pnpm exec medusa db:migrate && pnpm exec medusa start --host 0.0.0.0 --port 9000",
+        "npm exec -- medusa db:migrate && npm exec -- medusa start --host 0.0.0.0 --port 9000",
       ]
     environment: &backend-environment
       NODE_ENV: production

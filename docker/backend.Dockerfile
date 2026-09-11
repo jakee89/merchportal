@@ -14,13 +14,11 @@ COPY . .
 ARG MEDUSA_BACKEND_URL
 ENV MEDUSA_BACKEND_URL=$MEDUSA_BACKEND_URL
 RUN pnpm --filter @dtc/backend build
+RUN cd apps/backend/.medusa/server && npm install --omit=dev
 
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable
-COPY --from=build /app /app
-WORKDIR /app/apps/backend/.medusa/server
+COPY --from=build /app/apps/backend/.medusa/server /app
+WORKDIR /app
 EXPOSE 9000
-CMD ["pnpm", "start"]
+CMD ["npm", "start"]
