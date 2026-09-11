@@ -14,7 +14,22 @@ type Supplier = {
 }
 
 type Organization = { id: string; name: string; join_code: string; status: string }
-type Job = { id: string; kind: string; status: string; processed: number; created_at: string; error_message?: string }
+type Job = {
+  id: string
+  supplier_name: string
+  supplier_code: string
+  kind: string
+  trigger: string
+  status: string
+  processed: number
+  created_count: number
+  updated_count: number
+  skipped_count: number
+  error_count: number
+  created_at: string
+  completed_at?: string
+  error_message?: string
+}
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -160,8 +175,10 @@ const MerchPortalPage = () => {
 
     <Container>
       <Heading level="h2">Recent imports</Heading>
-      <div className="mt-3 flex flex-col gap-y-2">{jobs.slice(0, 12).map((job) => <div key={job.id} className="flex justify-between border-b py-2"><Text>{job.kind} · {job.status}</Text><Text size="small" className="text-ui-fg-subtle">{job.processed || 0} records · {date(job.created_at)}</Text></div>)}</div>
+      <div className="mt-3 flex flex-col gap-y-2">{jobs.slice(0, 16).map((job) => <div key={job.id} className="border-b py-3"><div className="flex items-start justify-between gap-4"><div><Text weight="plus">{job.supplier_name} · {job.kind} · {job.status}</Text><Text size="xsmall" className="text-ui-fg-subtle">{job.trigger} update · {date(job.created_at)}</Text></div><Text size="small" className="text-ui-fg-subtle">{job.processed || 0} processed · {job.created_count || 0} new · {job.updated_count || 0} changed · {job.skipped_count || 0} unchanged · {job.error_count || 0} errors</Text></div>{job.error_message && <div className="mt-2 rounded bg-ui-bg-component p-2"><Text size="small" className="text-ui-fg-error">Error: {job.error_message}</Text></div>}</div>)}</div>
     </Container>
+
+    {jobs.some((job) => job.status === "failed" || job.error_count > 0) && <Container><Heading level="h2">Import error log</Heading><Text className="mb-3 text-ui-fg-subtle">Latest supplier failures, newest first.</Text><div className="flex flex-col gap-y-2">{jobs.filter((job) => job.status === "failed" || job.error_count > 0).map((job) => <div key={`error-${job.id}`} className="rounded border border-ui-border-error p-3"><Text weight="plus">{job.supplier_name} · {job.kind} · {date(job.created_at)}</Text><Text size="small" className="mt-1 text-ui-fg-error">{job.error_message || `${job.error_count} record errors`}</Text></div>)}</div></Container>}
   </div>
 }
 

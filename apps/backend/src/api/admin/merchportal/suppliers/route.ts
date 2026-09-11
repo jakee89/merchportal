@@ -14,6 +14,9 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
   const suppliers = await ensureSuppliers(req.scope)
   const jobs = await service.listImportJobs({}, { take: 30, order: { created_at: "DESC" } })
+  const suppliersById = new Map<string, any>(
+    suppliers.map((supplier: any) => [supplier.id, supplier])
+  )
   res.json({
     suppliers: suppliers.map((supplier: any) => ({
       ...supplier,
@@ -24,6 +27,11 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         stock: !supplier.stock_sync_at || Date.now() - new Date(supplier.stock_sync_at).getTime() > 3_600_000,
       },
     })),
-    jobs,
+    jobs: jobs.map((job: any) => ({
+      ...job,
+      supplier_code: suppliersById.get(job.supplier_id)?.code || "unknown",
+      supplier_name:
+        suppliersById.get(job.supplier_id)?.display_name || "Unknown supplier",
+    })),
   })
 }

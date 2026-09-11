@@ -10,7 +10,9 @@ function numberValue(value: unknown, keys: string[]): number | undefined {
   if (!value || typeof value !== "object") return
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
     if (keys.some((candidate) => candidate.toLowerCase() === key.toLowerCase())) {
-      const parsed = Number(child)
+      const parsed = Number(
+        typeof child === "string" ? child.replace(",", ".") : child
+      )
       if (Number.isFinite(parsed)) return parsed
     }
   }

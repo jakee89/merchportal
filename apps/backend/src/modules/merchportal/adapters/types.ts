@@ -17,7 +17,7 @@ export function asRecords(payload: unknown): unknown[] {
   if (!payload || typeof payload !== "object") return []
 
   const object = payload as Record<string, unknown>
-  for (const key of ["products", "items", "data", "stock", "prices", "result"]) {
+  for (const key of ["products", "items", "data", "stock", "price", "prices", "result"]) {
     if (Array.isArray(object[key])) return object[key] as unknown[]
   }
 
