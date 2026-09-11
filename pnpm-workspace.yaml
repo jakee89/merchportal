@@ -1,0 +1,25 @@
+packages:
+  - "apps/**"
+  - "!apps/backend/.medusa/**"
+
+allowBuilds:
+  "@medusajs/telemetry": set this to true or false
+  "@swc/core": set this to true or false
+  esbuild: set this to true or false
+  msgpackr-extract: set this to true or false
+  protobufjs: set this to true or false
+  sharp: set this to true or false
+  unrs-resolver: set this to true or false
+
+overrides:
+  "@types/react": "19.0.5"
+  "@types/react-dom": "19.0.5"
+
+onlyBuiltDependencies:
+  - "@medusajs/telemetry"
+  - "@swc/core"
+  - "esbuild"
+  - "msgpackr-extract"
+  - "protobufjs"
+  - "sharp"
+  - "unrs-resolver"
