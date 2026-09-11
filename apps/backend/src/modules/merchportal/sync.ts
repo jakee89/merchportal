@@ -103,7 +103,13 @@ export async function ensureSuppliers(container: MedusaContainer) {
   return service.listSuppliers({}, { order: { display_name: "ASC" } })
 }
 
-export async function runSupplierSync(container: MedusaContainer, supplierCode: SupplierCode, kind: SyncKind, trigger: "manual" | "scheduled") {
+export async function runSupplierSync(
+  container: MedusaContainer,
+  supplierCode: SupplierCode,
+  kind: SyncKind,
+  trigger: "manual" | "scheduled",
+  options: { dryRun?: boolean } = {},
+) {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const supplier = (await ensureSuppliers(container)).find((item: any) => item.code === supplierCode)
   if (!supplier) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Supplier is not configured")
@@ -277,11 +283,13 @@ export async function runSupplierSync(container: MedusaContainer, supplierCode: 
         decoration_price_records: decorationPriceRecords.length,
       },
     })
-    await service.updateSuppliers({
-      id: supplier.id,
-      [`${kind === "catalog" ? "product" : kind}_sync_at`]: new Date(),
-      last_error: null,
-    })
+    if (!options.dryRun) {
+      await service.updateSuppliers({
+        id: supplier.id,
+        [`${kind === "catalog" ? "product" : kind}_sync_at`]: new Date(),
+        last_error: null,
+      })
+    }
     return { ...(await service.retrieveImportJob(job.id)), already_running: false }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Supplier sync failed"

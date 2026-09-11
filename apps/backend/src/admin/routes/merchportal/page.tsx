@@ -44,6 +44,7 @@ type Job = {
   created_at: string
   completed_at?: string
   error_message?: string
+  log?: { dry_run?: boolean }
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -65,6 +66,13 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 function date(value?: string) {
   return value ? new Date(value).toLocaleString() : "Never"
+}
+
+function duration(job?: Job) {
+  if (!job?.completed_at) return "In progress"
+  const milliseconds = new Date(job.completed_at).getTime() - new Date(job.created_at).getTime()
+  if (milliseconds < 60_000) return "Under a minute"
+  return `${Math.round(milliseconds / 60_000)} min`
 }
 
 const MerchPortalPage = () => {
@@ -139,8 +147,8 @@ const MerchPortalPage = () => {
     copied ? toast.success("Publishable key copied") : toast.info("Select the key and copy it manually")
   }
 
-  const supplierAction = async (code: string, action: string) => {
-    const key = `${code}-${action}`
+  const supplierAction = async (code: string, action: string, dryRun = false) => {
+    const key = `${code}-${action}${dryRun ? "-preview" : ""}`
     setBusy(key)
     try {
       if (action === "test") {
@@ -153,9 +161,9 @@ const MerchPortalPage = () => {
       } else {
         await api(`/admin/merchportal/suppliers/${code}/sync`, {
           method: "POST",
-          body: JSON.stringify({ kind: action }),
+          body: JSON.stringify({ kind: action, dry_run: dryRun }),
         })
-        toast.success(`${action} update started`)
+        toast.success(dryRun ? "Catalog preview started" : `${action} update started`)
       }
       setTimeout(() => refresh().catch(() => undefined), 1200)
     } catch (error) {
@@ -211,6 +219,10 @@ const MerchPortalPage = () => {
     }
   }
 
+  const activeJobs = jobs.filter((job) => job.status === "running" || job.status === "queued")
+  const failedJobs = jobs.filter((job) => job.status === "failed" || job.error_count > 0)
+  const latestCompleted = jobs.find((job) => job.status === "completed" && !job.log?.dry_run)
+
   return (
     <div className="flex flex-col gap-y-3">
       <Container className="flex items-center justify-between">
@@ -234,6 +246,28 @@ const MerchPortalPage = () => {
           </div>
         </Container>
       )}
+
+      <Container>
+        <Heading level="h2">Operations dashboard</Heading>
+        <Text className="mb-4 text-ui-fg-subtle">Live supplier work, recent outcomes, and actions that need attention.</Text>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="rounded border p-3">
+            <Text size="small" className="text-ui-fg-subtle">Active updates</Text>
+            <Text weight="plus">{activeJobs.length ? `${activeJobs.length} running` : "None"}</Text>
+            {activeJobs.slice(0, 2).map((job) => <Text key={job.id} size="xsmall">{job.supplier_name} · {job.kind} · {job.progress_percent}%</Text>)}
+          </div>
+          <div className="rounded border p-3">
+            <Text size="small" className="text-ui-fg-subtle">Last successful update</Text>
+            <Text weight="plus">{latestCompleted ? `${latestCompleted.supplier_name} · ${latestCompleted.kind}` : "No completed updates yet"}</Text>
+            {latestCompleted && <Text size="xsmall">{date(latestCompleted.completed_at)} · {duration(latestCompleted)}</Text>}
+          </div>
+          <div className={`rounded border p-3 ${failedJobs.length ? "border-ui-border-error bg-ui-bg-error" : ""}`}>
+            <Text size="small" className="text-ui-fg-subtle">Import alerts</Text>
+            <Text weight="plus" className={failedJobs.length ? "text-ui-fg-error" : ""}>{failedJobs.length ? `${failedJobs.length} need attention` : "No import alerts"}</Text>
+            {failedJobs[0] && <Text size="xsmall" className="text-ui-fg-error">{failedJobs[0].supplier_name} · {failedJobs[0].kind}</Text>}
+          </div>
+        </div>
+      </Container>
 
       <Container>
         <Heading level="h2">Supplier updates</Heading>
@@ -283,6 +317,9 @@ const MerchPortalPage = () => {
                     Update {kind}
                   </Button>
                 ))}
+                <Button size="small" variant="secondary" disabled={!supplier.configured || jobs.some((job) => job.supplier_code === supplier.code && job.kind === "catalog" && (job.status === "running" || job.status === "queued"))} isLoading={busy === `${supplier.code}-catalog-preview`} onClick={() => supplierAction(supplier.code, "catalog", true)}>
+                  Preview catalog changes
+                </Button>
               </div>
               <Text size="xsmall" className="mt-3 text-ui-fg-subtle">
                 Catalog: {date(supplier.product_sync_at)} · Prices: {date(supplier.price_sync_at)} · Stock: {date(supplier.stock_sync_at)}
@@ -377,10 +414,11 @@ const MerchPortalPage = () => {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <Text weight="plus">
-                    {job.supplier_name} · {job.kind} · {job.status}
+                    {job.supplier_name} · {job.kind} · {job.log?.dry_run ? "preview" : job.status}
                   </Text>
                   <Text size="xsmall" className="text-ui-fg-subtle">
-                    {job.trigger} update · {date(job.created_at)} · {job.current_message || job.phase}
+                  {job.trigger} update · {date(job.created_at)} · {job.current_message || job.phase}
+                  {job.completed_at ? ` · ${duration(job)}` : ""}
                   </Text>
                 </div>
                 <Text size="small" className="text-ui-fg-subtle">
@@ -414,13 +452,17 @@ const MerchPortalPage = () => {
           <Heading level="h2">Import error log</Heading>
           <Text className="mb-3 text-ui-fg-subtle">Latest supplier failures, newest first.</Text>
           <div className="flex flex-col gap-y-2">
-            {jobs
-              .filter((job) => job.status === "failed" || job.error_count > 0)
+          {failedJobs
               .map((job) => (
                 <div key={`error-${job.id}`} className="rounded border border-ui-border-error p-3">
-                  <Text weight="plus">
-                    {job.supplier_name} · {job.kind} · {date(job.created_at)}
-                  </Text>
+                  <div className="flex items-center justify-between gap-3">
+                    <Text weight="plus">
+                      {job.supplier_name} · {job.kind} · {date(job.created_at)}
+                    </Text>
+                    <Button size="small" variant="secondary" isLoading={busy === `${job.supplier_code}-${job.kind}`} onClick={() => supplierAction(job.supplier_code, job.kind)}>
+                      Retry
+                    </Button>
+                  </div>
                   <Text size="small" className="mt-1 text-ui-fg-error">
                     {job.error_message || `${job.error_count} record errors`}
                   </Text>

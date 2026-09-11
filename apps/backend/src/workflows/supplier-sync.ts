@@ -8,10 +8,13 @@ type Input = {
   supplier_code: "stricker" | "midocean"
   kind: SyncKind
   trigger: "manual" | "scheduled"
+  dry_run?: boolean
 }
 
 const syncSupplierStep = createStep("sync-supplier", async (input: Input, { container }) => {
-  const job = await runSupplierSync(container, input.supplier_code, input.kind, input.trigger)
+  const job = await runSupplierSync(container, input.supplier_code, input.kind, input.trigger, {
+    dryRun: input.dry_run,
+  })
   if (job.already_running) {
     return new StepResponse({
       job,
@@ -21,7 +24,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   try {
     let publication: Awaited<ReturnType<typeof autoPublishSupplierCatalog>> | undefined
-    if (input.kind === "catalog") {
+    if (input.kind === "catalog" && !input.dry_run) {
       await service.updateImportJobs({
         id: job.id,
         phase: "publishing",
@@ -37,29 +40,34 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
         })
       })
     }
-    await service.updateImportJobs({
-      id: job.id,
-      phase: "refreshing",
-      current_message: "Refreshing client prices, stock and search filters",
-      progress_percent: 92,
-    })
-    const catalog = await refreshPublishedSupplierProducts(container, input.supplier_code, publication?.normalized, async (percent, message) => {
-      await service.updateImportJobs({
-        id: job.id,
-        phase: "refreshing",
-        current_message: message,
-        progress_percent: percent,
+    const catalog = input.dry_run
+      ? { updated_products: 0, updated_prices: 0, updated_stock: 0 }
+      : await (async () => {
+        await service.updateImportJobs({
+          id: job.id,
+          phase: "refreshing",
+          current_message: "Refreshing client prices, stock and search filters",
+          progress_percent: 92,
+        })
+        return refreshPublishedSupplierProducts(container, input.supplier_code, publication?.normalized, async (percent, message) => {
+          await service.updateImportJobs({
+            id: job.id,
+            phase: "refreshing",
+            current_message: message,
+            progress_percent: percent,
+          })
+        })
       })
-    })
     await service.updateImportJobs({
       id: job.id,
       status: "completed",
       phase: "completed",
-      current_message: "Update completed",
+      current_message: input.dry_run ? "Preview completed — catalog was not published" : "Update completed",
       progress_percent: 100,
       completed_at: new Date(),
       log: {
         message: "Supplier update completed",
+        dry_run: Boolean(input.dry_run),
         published_count: publication?.created || 0,
         catalog_total: publication?.total || catalog.updated_products,
       },

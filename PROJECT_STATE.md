@@ -10,6 +10,7 @@ MerchPortal is a Docker-first B2B merchandise portal built on Medusa v2 and Next
 - Stricker and midocean connection tests; catalog, price, and stock imports; scheduled updates; import history.
 - Client catalog browsing/filtering, product configuration, artwork upload, and saved product configurations.
 - Staff setup, supplier controls, organization creation, pricing-rule controls, catalog publishing, and import monitoring.
+- Supplier operations include live progress, error alerts, retry controls, and a catalog preview that imports source data without publishing client-facing catalog changes.
 
 ## Current gaps
 
