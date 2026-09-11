@@ -14,6 +14,15 @@ type Supplier = {
 }
 
 type Organization = { id: string; name: string; join_code: string; status: string }
+type NormalizedProduct = {
+  source_key: string
+  supplier_name: string
+  title: string
+  category?: string
+  images: string[]
+  published: boolean
+  variants: Array<{ sku: string; color: string; size: string; price_eur?: number; stock_quantity?: number }>
+}
 type Job = {
   id: string
   supplier_name: string
@@ -56,6 +65,8 @@ const MerchPortalPage = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
   const [organizations, setOrganizations] = useState<Organization[]>([])
+  const [catalog, setCatalog] = useState<NormalizedProduct[]>([])
+  const [catalogOffset, setCatalogOffset] = useState(0)
   const [companyName, setCompanyName] = useState("")
   const [companyAddress, setCompanyAddress] = useState("")
   const [companyLogo, setCompanyLogo] = useState("")
@@ -63,14 +74,16 @@ const MerchPortalPage = () => {
   const [busy, setBusy] = useState("")
 
   const refresh = useCallback(async () => {
-    const [supplierData, companyData] = await Promise.all([
+    const [supplierData, companyData, catalogData] = await Promise.all([
       api<{ suppliers: Supplier[]; jobs: Job[] }>("/admin/merchportal/suppliers"),
       api<{ organizations: Organization[] }>("/admin/merchportal/organizations"),
+      api<{ products: NormalizedProduct[] }>(`/admin/merchportal/catalog?offset=${catalogOffset}`),
     ])
     setSuppliers(supplierData.suppliers)
     setJobs(supplierData.jobs)
     setOrganizations(companyData.organizations)
-  }, [])
+    setCatalog(catalogData.products)
+  }, [catalogOffset])
 
   useEffect(() => { refresh().catch((error) => toast.error(error.message)) }, [refresh])
 
@@ -145,6 +158,22 @@ const MerchPortalPage = () => {
     } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
   }
 
+  const publishProducts = async (recordIds: string[]) => {
+    setBusy("publish")
+    try {
+      const result = await api<{ created: number }>("/admin/merchportal/catalog", {
+        method: "POST",
+        body: JSON.stringify({ source_keys: recordIds }),
+      })
+      toast.success(`${result.created} products published to the Malta catalog`)
+      await refresh()
+    } catch (error) {
+      toast.error((error as Error).message)
+    } finally {
+      setBusy("")
+    }
+  }
+
   return <div className="flex flex-col gap-y-3">
     <Container className="flex items-center justify-between">
       <div><Heading>MerchPortal setup</Heading><Text className="text-ui-fg-subtle">Malta commerce, clients and supplier updates</Text></div>
@@ -171,6 +200,12 @@ const MerchPortalPage = () => {
       <Heading level="h2">Client companies</Heading>
       <div className="my-4 grid grid-cols-1 gap-2 md:grid-cols-4"><Input placeholder="Company name" value={companyName} onChange={(event) => setCompanyName(event.target.value)} /><Input placeholder="Address in Malta" value={companyAddress} onChange={(event) => setCompanyAddress(event.target.value)} /><Input placeholder="Logo URL (optional)" value={companyLogo} onChange={(event) => setCompanyLogo(event.target.value)} /><Button onClick={createCompany} isLoading={busy === "company"}>Create company</Button></div>
       <div className="flex flex-col gap-y-2">{organizations.map((organization) => <div key={organization.id} className="flex items-center justify-between rounded border p-3"><Text weight="plus">{organization.name}</Text><Text size="small">Client code: <strong>{organization.join_code}</strong></Text></div>)}</div>
+    </Container>
+
+    <Container>
+      <div className="flex items-center justify-between gap-4"><div><Heading level="h2">Normalized product approval</Heading><Text className="text-ui-fg-subtle">Review the unified product, variant, colour, EUR price, stock and image data before publishing.</Text></div><Button disabled={!catalog.some((product) => !product.published)} isLoading={busy === "publish"} onClick={() => publishProducts(catalog.filter((product) => !product.published).slice(0, 10).map((product) => product.source_key))}>Publish next 10</Button></div>
+      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">{catalog.map((product) => <div key={product.source_key} className="flex gap-3 rounded border p-3">{product.images[0] ? <img src={product.images[0]} alt="" className="h-20 w-20 rounded object-contain" /> : <div className="flex h-20 w-20 items-center justify-center rounded bg-ui-bg-component text-ui-fg-muted">No image</div>}<div className="min-w-0 flex-1"><Text weight="plus">{product.title}</Text><Text size="xsmall" className="text-ui-fg-subtle">{product.supplier_name} · {product.category || "Uncategorized"} · {product.variants.length} variants</Text><Text size="xsmall" className="mt-1 text-ui-fg-subtle">{product.variants[0] ? `${product.variants[0].color} · ${product.variants[0].size} · ${product.variants[0].price_eur !== undefined ? `EUR ${product.variants[0].price_eur.toFixed(2)}` : "price unavailable"} · ${product.variants[0].stock_quantity ?? 0} stock` : "No variants"}</Text><Button size="small" variant="secondary" className="mt-2" disabled={product.published || busy === "publish"} onClick={() => publishProducts([product.source_key])}>{product.published ? "Published" : "Approve & publish"}</Button></div></div>)}</div>
+      <div className="mt-4 flex items-center justify-between"><Button variant="secondary" disabled={catalogOffset === 0} onClick={() => setCatalogOffset(Math.max(0, catalogOffset - 24))}>Previous</Button><Text size="small" className="text-ui-fg-subtle">Products {catalogOffset + 1}–{catalogOffset + catalog.length}</Text><Button variant="secondary" disabled={catalog.length < 24} onClick={() => setCatalogOffset(catalogOffset + 24)}>Next</Button></div>
     </Container>
 
     <Container>

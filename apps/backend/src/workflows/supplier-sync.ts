@@ -1,6 +1,7 @@
 import { createStep, createWorkflow, StepResponse, WorkflowResponse } from "@medusajs/framework/workflows-sdk"
 import { runSupplierSync } from "../modules/merchportal/sync"
 import type { SyncKind } from "../modules/merchportal/adapters"
+import { refreshPublishedSupplierProducts } from "./publish-normalized-products"
 
 type Input = {
   supplier_code: "stricker" | "midocean"
@@ -9,7 +10,11 @@ type Input = {
 }
 
 const syncSupplierStep = createStep("sync-supplier", async (input: Input, { container }) => {
-  return new StepResponse(await runSupplierSync(container, input.supplier_code, input.kind, input.trigger))
+  const job = await runSupplierSync(container, input.supplier_code, input.kind, input.trigger)
+  const catalog = input.kind === "catalog"
+    ? undefined
+    : await refreshPublishedSupplierProducts(container, input.supplier_code)
+  return new StepResponse({ job, catalog })
 })
 
 export const supplierSyncWorkflow = createWorkflow("supplier-sync", (input: Input) => {

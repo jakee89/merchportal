@@ -1,70 +1,85 @@
-import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
+import type {
+  AuthenticatedMedusaRequest,
+  MedusaResponse,
+} from "@medusajs/framework/http"
+import {
+  ContainerRegistrationKeys,
+  ProductStatus,
+} from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
-import { supplierImageToken } from "../../../modules/merchportal/media"
-
-function first(payload: Record<string, unknown>, keys: string[]) {
-  for (const key of keys) if (payload[key] != null && String(payload[key]).trim()) return String(payload[key])
-}
-
-function numberValue(value: unknown, keys: string[]): number | undefined {
-  if (!value || typeof value !== "object") return
-  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if (keys.some((candidate) => candidate.toLowerCase() === key.toLowerCase())) {
-      const parsed = Number(
-        typeof child === "string" ? child.replace(",", ".") : child
-      )
-      if (Number.isFinite(parsed)) return parsed
-    }
-  }
-  for (const child of Object.values(value as Record<string, unknown>)) {
-    if (child && typeof child === "object") {
-      const found = numberValue(child, keys)
-      if (found !== undefined) return found
-    }
-  }
-}
 
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
-  const membership = await service.listMemberships({ actor_id: req.auth_context?.actor_id, actor_type: "customer", status: "active" }, { take: 1 })
-  if (!membership.length) return res.status(403).json({ message: "Join a company before viewing the catalog" })
-  const [records, prices, stocks] = await Promise.all([
-    service.listRawSupplierRecords({ record_type: "product" }, { take: 48, order: { updated_at: "DESC" } }),
-    service.listRawSupplierRecords({ record_type: "price" }, { take: 10000 }),
-    service.listRawSupplierRecords({ record_type: "stock" }, { take: 10000 }),
-  ])
-  const key = (record: any) => `${record.supplier_id}:${record.sku || record.external_id}`
-  const matching = (items: any[], record: any) => {
-    const exact = items.filter((item) => key(item) === key(record))
-    if (exact.length) return exact
-    const prefix = `${record.external_id}-`
-    return items.filter(
-      (item) =>
-        item.supplier_id === record.supplier_id &&
-        typeof item.sku === "string" &&
-        item.sku.startsWith(prefix)
-    )
+  const membership = await service.listMemberships(
+    {
+      actor_id: req.auth_context?.actor_id,
+      actor_type: "customer",
+      status: "active",
+    },
+    { take: 1 }
+  )
+  if (!membership.length) {
+    return res
+      .status(403)
+      .json({ message: "Join a company before viewing the catalog" })
   }
-  const products = records.map((record: any) => {
-    const payload = (record.payload || {}) as Record<string, unknown>
-    const token = record.source_image_urls?.[0] ? supplierImageToken(record.source_image_urls[0]) : null
-    const productPrices = matching(prices, record)
-      .map((item) => numberValue(item.payload, ["price", "unit_price", "net_price", "price_1"]))
-      .filter((value): value is number => value !== undefined)
-    const productStocks = matching(stocks, record)
-      .map((item) => numberValue(item.payload, ["stock", "quantity", "available", "free_stock"]))
-      .filter((value): value is number => value !== undefined)
-    return {
-      id: record.id,
-      sku: record.sku || first(payload, ["sku", "SKU", "reference", "ProductReference"]),
-      name: first(payload, ["name", "Name", "product_name", "ProductName", "description", "Description"]) || "Merchandise product",
-      description: first(payload, ["short_description", "ShortDescription", "description", "Description"]),
-      image_url: token ? `/media/${token}` : null,
-      price_eur: productPrices.length ? Math.min(...productPrices) : undefined,
-      stock_quantity: productStocks.length
-        ? productStocks.reduce((total, value) => total + value, 0)
-        : undefined,
-    }
+
+  const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
+  const { data } = await query.graph({
+    entity: "product",
+    fields: [
+      "id",
+      "title",
+      "description",
+      "thumbnail",
+      "external_id",
+      "images.url",
+      "sales_channels.name",
+      "variants.id",
+      "variants.title",
+      "variants.sku",
+      "variants.inventory_quantity",
+      "variants.prices.amount",
+      "variants.prices.currency_code",
+    ],
+    filters: { status: ProductStatus.PUBLISHED },
+    pagination: { take: 200 },
   })
+  const products = data
+    .filter(
+      (product: any) =>
+        product.external_id?.startsWith("mp_") &&
+        product.sales_channels?.some(
+          (channel: any) => channel.name === "MerchPortal Malta"
+        )
+    )
+    .slice(0, 48)
+    .map((product: any) => {
+      const eurPrices = product.variants
+        ?.flatMap((variant: any) => variant.prices || [])
+        .filter((price: any) => price.currency_code === "eur")
+        .map((price: any) => Number(price.amount))
+        .filter(Number.isFinite) || []
+      const stock = product.variants
+        ?.map((variant: any) => Number(variant.inventory_quantity))
+        .filter(Number.isFinite) || []
+      return {
+        id: product.id,
+        name: product.title,
+        description: product.description,
+        sku: product.variants?.[0]?.sku,
+        image_url: product.thumbnail || product.images?.[0]?.url || null,
+        price_eur: eurPrices.length ? Math.min(...eurPrices) : undefined,
+        stock_quantity: stock.length
+          ? stock.reduce((total: number, value: number) => total + value, 0)
+          : undefined,
+        variants: product.variants?.map((variant: any) => ({
+          id: variant.id,
+          title: variant.title,
+          sku: variant.sku,
+          stock_quantity: variant.inventory_quantity,
+        })),
+      }
+    })
   res.json({ products })
 }

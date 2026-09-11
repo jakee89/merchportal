@@ -27,7 +27,7 @@ function objectValue(record: RecordObject, keys: string[]) {
   }
 }
 
-function recordIdentity(record: unknown, index: number) {
+function recordIdentity(record: unknown, index: number, preferSku = false) {
   const value = (record && typeof record === "object" ? record : {}) as RecordObject
   const sku = objectValue(value, ["sku", "SKU", "Sku", "optionalReference", "reference"])
   const externalId = objectValue(value, [
@@ -39,7 +39,10 @@ function recordIdentity(record: unknown, index: number) {
     "ProductReference",
     "Reference",
   ])
-  return { externalId: externalId ?? sku ?? `record-${index}`, sku }
+  return {
+    externalId: (preferSku ? sku ?? externalId : externalId ?? sku) ?? `record-${index}`,
+    sku,
+  }
 }
 
 function imageUrls(value: unknown, output = new Set<string>()): string[] {
@@ -123,7 +126,11 @@ export async function runSupplierSync(
 
     for (let index = 0; index < records.length; index += 1) {
       const record = records[index]
-      const { externalId, sku } = recordIdentity(record, index)
+      const { externalId, sku } = recordIdentity(
+        record,
+        index,
+        supplierCode === "stricker" && kind === "catalog"
+      )
       const checksum = createHash("sha256")
         .update(JSON.stringify(record))
         .digest("hex")
