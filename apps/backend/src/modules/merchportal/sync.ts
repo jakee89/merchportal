@@ -17,6 +17,7 @@ const suppliers = {
 
 type SupplierCode = keyof typeof suppliers
 type RecordObject = Record<string, unknown>
+type RawRecordType = "product" | "price" | "stock" | "decoration" | "decoration_price"
 
 function objectValue(record: RecordObject, keys: string[]) {
   for (const key of keys) {
@@ -27,14 +28,44 @@ function objectValue(record: RecordObject, keys: string[]) {
   }
 }
 
-function recordIdentity(record: unknown, index: number, preferSku = false) {
+function recordIdentity(
+  record: unknown,
+  index: number,
+  preferSku = false,
+  type?: RawRecordType,
+) {
   const value = (record && typeof record === "object" ? record : {}) as RecordObject
   const sku = objectValue(value, ["sku", "SKU", "Sku", "optionalReference", "reference"])
-  const externalId = objectValue(value, ["master_id", "master_code", "variant_id", "id", "ID", "ProductReference", "Reference", "TableFullCode", "TableCode", "service_code"])
+  const masterId = objectValue(value, ["master_id", "master_code", "ProductReference", "Reference"])
+  const serviceCode = objectValue(value, ["service_code", "serviceCode", "technique_id", "techniqueId", "TableFullCode", "TableCode"])
+  const positionCode = objectValue(value, ["position_id", "positionId", "location_id", "locationId", "location_code", "locationCode"])
+  const decorationId = [masterId, serviceCode, positionCode].filter(Boolean).join(":")
+  const externalId = type === "decoration" || type === "decoration_price"
+    ? decorationId || objectValue(value, ["variant_id", "id", "ID"])
+    : masterId ?? objectValue(value, ["variant_id", "id", "ID", "TableFullCode", "TableCode", "service_code"])
   return {
     externalId: (preferSku ? (sku ?? externalId) : (externalId ?? sku)) ?? `record-${index}`,
     sku,
   }
+}
+
+export function deduplicateSupplierRecords(
+  records: unknown[],
+  supplierCode: SupplierCode,
+  type: RawRecordType,
+) {
+  const recordsById = new Map<string, unknown>()
+  for (let index = 0; index < records.length; index += 1) {
+    const record = records[index]
+    const { externalId } = recordIdentity(
+      record,
+      index,
+      supplierCode === "stricker" && type === "product",
+      type,
+    )
+    recordsById.set(externalId, record)
+  }
+  return [...recordsById.values()]
 }
 
 function imageUrls(value: unknown, output = new Set<string>()): string[] {
@@ -107,9 +138,11 @@ export async function runSupplierSync(container: MedusaContainer, supplierCode: 
       progress_percent: 5,
     })
 
-    const persistRecords = async (items: unknown[], type: "product" | "price" | "stock" | "decoration" | "decoration_price") => {
+    const persistRecords = async (items: unknown[], type: RawRecordType) => {
       const existingRecords = await service.listRawSupplierRecords({ supplier_id: supplier.id, record_type: type }, { take: 50000 })
       const existingById = new Map<string, any>(existingRecords.map((item: any) => [item.external_id, item]))
+      const uniqueItems = deduplicateSupplierRecords(items, supplierCode, type)
+      skipped += items.length - uniqueItems.length
       let creates: any[] = []
       let updates: any[] = []
       const flush = async () => {
@@ -127,9 +160,14 @@ export async function runSupplierSync(container: MedusaContainer, supplierCode: 
           current_message: `Importing ${type.replace("_", " ")} records (${processed.toLocaleString()} of ${totalRecords.toLocaleString()})`,
         })
       }
-      for (let index = 0; index < items.length; index += 1) {
-        const record = items[index]
-        const { externalId, sku } = recordIdentity(record, index, supplierCode === "stricker" && type === "product")
+      for (let index = 0; index < uniqueItems.length; index += 1) {
+        const record = uniqueItems[index]
+        const { externalId, sku } = recordIdentity(
+          record,
+          index,
+          supplierCode === "stricker" && type === "product",
+          type,
+        )
         const checksum = createHash("sha256").update(JSON.stringify(record)).digest("hex")
         const existing = existingById.get(externalId)
 
@@ -170,6 +208,7 @@ export async function runSupplierSync(container: MedusaContainer, supplierCode: 
         processed += 1
         if (creates.length + updates.length >= 250) await flush()
       }
+      processed += items.length - uniqueItems.length
       if (creates.length || updates.length) await flush()
     }
     await persistRecords(records, recordType)

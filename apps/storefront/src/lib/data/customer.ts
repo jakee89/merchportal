@@ -22,7 +22,7 @@ import {
 export type CustomerAuthState =
   | { state: "error"; error: string }
   | { state: "verification_required"; email: string }
-  | { state: "success" }
+  | { state: "success"; token?: string }
   | null
 
 // Requests a verification email for the given customer. The request must be
@@ -229,7 +229,7 @@ async function completeLogin(
     return { state: "error", error: String(error) }
   }
 
-  return { state: "success" }
+  return { state: "success", token }
 }
 
 // Confirms a customer's email using the token from the verification link.
