@@ -30,8 +30,8 @@
 
 - Deploy the new images, run **Configure Malta & EUR**, add supplier API keys, and run
   the two connection tests followed by catalog, price, and stock imports.
-- Set the generated publishable key as the GitHub Actions repository variable
-  `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`, rebuild once, then test client registration.
+- Set the generated publishable key as the Portainer stack variable
+  `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`, redeploy, then test client registration.
 - Map imported raw products, prices, and stock into Medusa sellable products after
   sample payload validation from both live supplier accounts.
 
