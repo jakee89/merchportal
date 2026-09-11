@@ -45,9 +45,8 @@ jobs:
           build-args: |
             MEDUSA_BACKEND_URL=http://192.168.1.214:9100
             NEXT_PUBLIC_MEDUSA_BACKEND_URL=http://192.168.1.214:9100
-            NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=pk_setup_required
+            NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || 'pk_setup_required' }}
             NEXT_PUBLIC_DEFAULT_REGION=mt
             NEXT_PUBLIC_BASE_URL=http://192.168.1.214:8100
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
-

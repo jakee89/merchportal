@@ -1,0 +1,138 @@
+import { defineRouteConfig } from "@medusajs/admin-sdk"
+import { Button, Container, Heading, Input, Text, toast } from "@medusajs/ui"
+import { useCallback, useEffect, useState } from "react"
+
+type Supplier = {
+  code: "stricker" | "midocean"
+  display_name: string
+  configured: boolean
+  due: { catalog: boolean; price: boolean; stock: boolean }
+  product_sync_at?: string
+  price_sync_at?: string
+  stock_sync_at?: string
+  last_error?: string
+}
+
+type Organization = { id: string; name: string; join_code: string; status: string }
+type Job = { id: string; kind: string; status: string; processed: number; created_at: string; error_message?: string }
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+  })
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(body.message || "Request failed")
+  return body
+}
+
+function date(value?: string) {
+  return value ? new Date(value).toLocaleString() : "Never"
+}
+
+const MerchPortalPage = () => {
+  const [suppliers, setSuppliers] = useState<Supplier[]>([])
+  const [jobs, setJobs] = useState<Job[]>([])
+  const [organizations, setOrganizations] = useState<Organization[]>([])
+  const [companyName, setCompanyName] = useState("")
+  const [companyAddress, setCompanyAddress] = useState("")
+  const [companyLogo, setCompanyLogo] = useState("")
+  const [busy, setBusy] = useState("")
+
+  const refresh = useCallback(async () => {
+    const [supplierData, companyData] = await Promise.all([
+      api<{ suppliers: Supplier[]; jobs: Job[] }>("/admin/merchportal/suppliers"),
+      api<{ organizations: Organization[] }>("/admin/merchportal/organizations"),
+    ])
+    setSuppliers(supplierData.suppliers)
+    setJobs(supplierData.jobs)
+    setOrganizations(companyData.organizations)
+  }, [])
+
+  useEffect(() => { refresh().catch((error) => toast.error(error.message)) }, [refresh])
+
+  const setup = async () => {
+    setBusy("setup")
+    try {
+      const result = await api<{ setup: { publishable_api_key: { token: string } } }>("/admin/merchportal/setup", { method: "POST" })
+      await navigator.clipboard?.writeText(result.setup.publishable_api_key.token)
+      toast.success("Malta shop configured. Publishable key copied.")
+    } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
+  }
+
+  const supplierAction = async (code: string, action: string) => {
+    const key = `${code}-${action}`
+    setBusy(key)
+    try {
+      if (action === "test") {
+        const result = await api<{ connection: { ok: boolean; message: string } }>(`/admin/merchportal/suppliers/${code}/test`, { method: "POST" })
+        result.connection.ok ? toast.success(result.connection.message) : toast.error(result.connection.message)
+      } else {
+        await api(`/admin/merchportal/suppliers/${code}/sync`, { method: "POST", body: JSON.stringify({ kind: action }) })
+        toast.success(`${action} update started`)
+      }
+      setTimeout(() => refresh().catch(() => undefined), 1200)
+    } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
+  }
+
+  const createCompany = async () => {
+    if (!companyName.trim()) return
+    setBusy("company")
+    try {
+      const address = companyAddress.trim()
+        ? { address_1: companyAddress.trim(), country_code: "mt" }
+        : undefined
+      await api("/admin/merchportal/organizations", {
+        method: "POST",
+        body: JSON.stringify({
+          name: companyName,
+          logo_url: companyLogo || undefined,
+          billing_address: address,
+          shipping_address: address,
+        }),
+      })
+      setCompanyName("")
+      setCompanyAddress("")
+      setCompanyLogo("")
+      toast.success("Company created")
+      await refresh()
+    } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
+  }
+
+  return <div className="flex flex-col gap-y-3">
+    <Container className="flex items-center justify-between">
+      <div><Heading>MerchPortal setup</Heading><Text className="text-ui-fg-subtle">Malta commerce, clients and supplier updates</Text></div>
+      <Button onClick={setup} isLoading={busy === "setup"}>Configure Malta & EUR</Button>
+    </Container>
+
+    <Container>
+      <Heading level="h2">Supplier updates</Heading>
+      <Text className="mb-4 text-ui-fg-subtle">Stock runs hourly; prices and catalog run daily. Use these buttons whenever the NAS missed an update.</Text>
+      <div className="flex flex-col gap-y-3">
+        {suppliers.map((supplier) => <div key={supplier.code} className="rounded border p-4">
+          <div className="mb-3 flex items-center justify-between"><div><Text weight="plus">{supplier.display_name}</Text><Text size="small" className="text-ui-fg-subtle">{supplier.configured ? "API key configured" : "Add API key in Portainer"}</Text></div><Button variant="secondary" size="small" onClick={() => supplierAction(supplier.code, "test")} isLoading={busy === `${supplier.code}-test`}>Test connection</Button></div>
+          <div className="flex flex-wrap gap-2">
+            {(["catalog", "price", "stock"] as const).map((kind) => <Button key={kind} size="small" variant={supplier.due[kind] ? "primary" : "secondary"} disabled={!supplier.configured} isLoading={busy === `${supplier.code}-${kind}`} onClick={() => supplierAction(supplier.code, kind)}>Update {kind}</Button>)}
+          </div>
+          <Text size="xsmall" className="mt-3 text-ui-fg-subtle">Catalog: {date(supplier.product_sync_at)} · Prices: {date(supplier.price_sync_at)} · Stock: {date(supplier.stock_sync_at)}</Text>
+          {supplier.last_error && <Text size="small" className="mt-2 text-ui-fg-error">{supplier.last_error}</Text>}
+        </div>)}
+      </div>
+    </Container>
+
+    <Container>
+      <Heading level="h2">Client companies</Heading>
+      <div className="my-4 grid grid-cols-1 gap-2 md:grid-cols-4"><Input placeholder="Company name" value={companyName} onChange={(event) => setCompanyName(event.target.value)} /><Input placeholder="Address in Malta" value={companyAddress} onChange={(event) => setCompanyAddress(event.target.value)} /><Input placeholder="Logo URL (optional)" value={companyLogo} onChange={(event) => setCompanyLogo(event.target.value)} /><Button onClick={createCompany} isLoading={busy === "company"}>Create company</Button></div>
+      <div className="flex flex-col gap-y-2">{organizations.map((organization) => <div key={organization.id} className="flex items-center justify-between rounded border p-3"><Text weight="plus">{organization.name}</Text><Text size="small">Client code: <strong>{organization.join_code}</strong></Text></div>)}</div>
+    </Container>
+
+    <Container>
+      <Heading level="h2">Recent imports</Heading>
+      <div className="mt-3 flex flex-col gap-y-2">{jobs.slice(0, 12).map((job) => <div key={job.id} className="flex justify-between border-b py-2"><Text>{job.kind} · {job.status}</Text><Text size="small" className="text-ui-fg-subtle">{job.processed || 0} records · {date(job.created_at)}</Text></div>)}</div>
+    </Container>
+  </div>
+}
+
+export const config = defineRouteConfig({ label: "MerchPortal" })
+export default MerchPortalPage

@@ -26,10 +26,10 @@ export default function PortalPage() {
           <Link href="#favourites">Favourites</Link>
         </nav>
         <Link
-          href="/admin"
+          href="/portal/login"
           className={`${styles.secondary} ${styles.focusable}`}
         >
-          Staff view
+          Client sign in
         </Link>
       </header>
       <main className={styles.main}>

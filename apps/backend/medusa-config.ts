@@ -39,6 +39,9 @@ module.exports = defineConfig({
   },
   modules: [
     {
+      resolve: "./src/modules/merchportal",
+    },
+    {
       resolve: "@medusajs/medusa/auth",
       dependencies: [Modules.CACHE, ContainerRegistrationKeys.LOGGER],
       options: {

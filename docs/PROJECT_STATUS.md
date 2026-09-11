@@ -11,18 +11,29 @@
 - Recorded the architectural and supplier-documentation boundaries.
 - Verified both production builds, TypeScript checks, Compose configuration, and local
   HTTP responses for the admin and client shells.
+- Added Malta/EUR commerce setup, a linked storefront publishable key, Malta tax and
+  quotation-delivery configuration.
+- Added staff and client roles, company accounts, addresses, branding, and private
+  company-code onboarding.
+- Added Stricker and midocean adapters, differential raw imports, daily catalog/price
+  schedules, hourly stock schedules, connection tests, manual update controls, and
+  persistent import history.
+- Added an encrypted image proxy so supplier CDN assets remain remote while supplier
+  names and CDN paths are not exposed in the client catalog.
 
 ## Currently working
 
-- Milestone 1 is implemented through awaiting first boot on the target Docker host.
+- Deployment images are built by GitHub Actions and the current feature release is
+  awaiting its Portainer pull and live smoke test.
 
 ## Next
 
-- Deploy the stack in Portainer, create the first administrator, and add a publishable
-  storefront API key.
-- Add organization, membership, roles, and tenant-enforcement modules to complete the
-  application-specific identity layer.
-- Begin Milestone 2 with the supplier adapter contract and raw import storage.
+- Deploy the new images, run **Configure Malta & EUR**, add supplier API keys, and run
+  the two connection tests followed by catalog, price, and stock imports.
+- Set the generated publishable key as the GitHub Actions repository variable
+  `NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY`, rebuild once, then test client registration.
+- Map imported raw products, prices, and stock into Medusa sellable products after
+  sample payload validation from both live supplier accounts.
 
 ## Unresolved decisions
 
