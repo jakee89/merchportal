@@ -45,7 +45,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: ["sh", "-c", "pnpm exec medusa db:migrate && pnpm start"]
+    command:
+      [
+        "sh",
+        "-c",
+        "pnpm exec medusa db:migrate && pnpm exec medusa start --host 0.0.0.0 --port 9000",
+      ]
     environment: &backend-environment
       NODE_ENV: production
       PORT: 9000
@@ -56,7 +61,7 @@ services:
       STORE_CORS: ${STOREFRONT_URL:-http://localhost:8000}
       ADMIN_CORS: ${ADMIN_URL:-http://localhost:9000}
       AUTH_CORS: ${STOREFRONT_URL:-http://localhost:8000},${ADMIN_URL:-http://localhost:9000}
-      MEDUSA_WORKER_MODE: server
+      MEDUSA_WORKER_MODE: shared
       DISABLE_MEDUSA_ADMIN: "false"
       MEDUSA_BACKEND_URL: ${BACKEND_URL:-http://localhost:9000}
       TYPESENSE_HOST: http://typesense:8108
@@ -77,34 +82,8 @@ services:
         ]
       interval: 15s
       timeout: 5s
-      retries: 15
-      start_period: 40s
-
-  worker:
-    build:
-      context: .
-      dockerfile: docker/backend.Dockerfile
-      args:
-        MEDUSA_BACKEND_URL: ${BACKEND_URL:-http://localhost:9000}
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-    environment:
-      <<: *backend-environment
-      MEDUSA_WORKER_MODE: worker
-      DISABLE_MEDUSA_ADMIN: "true"
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "process.exit(process.env.MEDUSA_WORKER_MODE === 'worker' ? 0 : 1)",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      retries: 30
+      start_period: 90s
 
   postgres:
     image: postgres:17-alpine
