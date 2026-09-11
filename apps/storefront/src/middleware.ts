@@ -108,7 +108,7 @@ export async function middleware(request: NextRequest) {
   }
 
   if (
-    request.nextUrl.pathname === "/portal" ||
+    request.nextUrl.pathname.startsWith("/portal") ||
     request.nextUrl.pathname === "/admin"
   ) {
     return NextResponse.next()
