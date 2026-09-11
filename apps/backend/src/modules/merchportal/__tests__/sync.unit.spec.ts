@@ -28,4 +28,14 @@ describe("supplier sync record deduplication", () => {
       { master_code: "PDP1-01", service_code: "LAS", price: 2 },
     ])
   })
+
+  it("normalizes whitespace in a supplier record identity", () => {
+    const records = deduplicateSupplierRecords(
+      [{ id: "PDP1-01" }, { id: "PDP1-01 " }],
+      "stricker",
+      "decoration",
+    )
+
+    expect(records).toEqual([{ id: "PDP1-01 " }])
+  })
 })

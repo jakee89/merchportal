@@ -23,7 +23,7 @@ function objectValue(record: RecordObject, keys: string[]) {
   for (const key of keys) {
     const value = record[key]
     if (value !== undefined && value !== null && String(value).length) {
-      return String(value)
+      return String(value).trim()
     }
   }
 }
@@ -88,6 +88,10 @@ function imageUrls(value: unknown, output = new Set<string>()): string[] {
   return [...output]
 }
 
+function isExistingRawRecordError(error: unknown) {
+  return error instanceof Error && /raw supplier record.+already exists/i.test(error.message)
+}
+
 export async function ensureSuppliers(container: MedusaContainer) {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   for (const [code, definition] of Object.entries(suppliers)) {
@@ -146,7 +150,48 @@ export async function runSupplierSync(container: MedusaContainer, supplierCode: 
       let creates: any[] = []
       let updates: any[] = []
       const flush = async () => {
-        if (creates.length) await service.createRawSupplierRecords(creates)
+        if (creates.length) {
+          try {
+            await service.createRawSupplierRecords(creates)
+          } catch (error) {
+            if (!isExistingRawRecordError(error)) throw error
+            for (const record of creates) {
+              const existing = await service.listRawSupplierRecords(
+                {
+                  supplier_id: supplier.id,
+                  record_type: type,
+                  external_id: record.external_id,
+                },
+                { take: 1 },
+              )
+              if (!existing.length) {
+                await service.createRawSupplierRecords(record)
+                continue
+              }
+              created -= 1
+              if (existing[0].checksum === record.checksum) {
+                skipped += 1
+                await service.updateRawSupplierRecords({
+                  id: existing[0].id,
+                  import_job_id: job.id,
+                  source_image_urls: record.source_image_urls,
+                  last_seen_at: now,
+                })
+              } else {
+                updated += 1
+                await service.updateRawSupplierRecords({
+                  id: existing[0].id,
+                  import_job_id: job.id,
+                  sku: record.sku,
+                  checksum: record.checksum,
+                  payload: record.payload,
+                  source_image_urls: record.source_image_urls,
+                  last_seen_at: now,
+                })
+              }
+            }
+          }
+        }
         if (updates.length) await service.updateRawSupplierRecords(updates)
         creates = []
         updates = []
