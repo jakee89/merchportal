@@ -146,16 +146,11 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
   }
 }
 
-const publishNormalizedProductsStep = createStep("publish-normalized-products", async (input: Input, { container }) => {
+export async function publishNormalizedProductBatch(container: any, pending: NormalizedProduct[]) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const markup = await resolveMarkup(service)
-  const normalized = await normalizeSupplierCatalog(container, {
-    source_keys: input.source_keys.slice(0, 20),
-    take: 20,
-  })
-  const pending = normalized.filter((product) => !product.published)
-  if (!pending.length) return new StepResponse({ created: 0, products: [] })
+  if (!pending.length) return { created: 0, products: [] }
   const [{ data: salesChannels }, { data: profiles }, { data: locations }] = await Promise.all([
     query.graph({
       entity: "sales_channel",
@@ -255,10 +250,34 @@ const publishNormalizedProductsStep = createStep("publish-normalized-products", 
   }
   await persistProductSources(container, pending, products)
 
-  return new StepResponse({
+  return {
     created: products.length,
     products: products.map((product: any) => ({ id: product.id, title: product.title })),
+  }
+}
+
+export async function autoPublishSupplierCatalog(container: any, supplierCode: "stricker" | "midocean") {
+  const normalized = await normalizeSupplierCatalog(container, { take: 50000 })
+  const pending = normalized.filter((product) => product.supplier_code === supplierCode && !product.published)
+  let created = 0
+  for (let index = 0; index < pending.length; index += 100) {
+    const result = await publishNormalizedProductBatch(container, pending.slice(index, index + 100))
+    created += result.created
+  }
+  return { created, total: normalized.filter((product) => product.supplier_code === supplierCode).length }
+}
+
+const publishNormalizedProductsStep = createStep("publish-normalized-products", async (input: Input, { container }) => {
+  const normalized = await normalizeSupplierCatalog(container, {
+    source_keys: input.source_keys.slice(0, 100),
+    take: 100,
   })
+  return new StepResponse(
+    await publishNormalizedProductBatch(
+      container,
+      normalized.filter((product) => !product.published),
+    ),
+  )
 })
 
 export const publishNormalizedProductsWorkflow = createWorkflow("publish-normalized-products", (input: Input) => new WorkflowResponse(publishNormalizedProductsStep(input)))

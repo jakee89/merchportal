@@ -35,6 +35,14 @@ type Facets = {
   print_methods: string[]
 }
 type Search = Record<string, string | string[] | undefined>
+type CatalogResponse = {
+  products: Product[]
+  facets: Facets
+  total: number
+  page: number
+  page_size: number
+  page_count: number
+}
 
 function productImageUrl(backend: string, value?: string) {
   if (!value) return
@@ -58,11 +66,13 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
     if (typeof found === "string" && found) query.set(key, found)
   }
   const hasFilters = Boolean(query.toString())
-  const catalog = await sdk.client.fetch<{
-    products: Product[]
-    facets: Facets
-    total: number
-  }>(`/portal-api/catalog?${query}`, { headers, cache: "no-store" })
+  if (chosen("page")) query.set("page", chosen("page"))
+  const catalog = await sdk.client.fetch<CatalogResponse>(`/portal-api/catalog?${query}`, { headers, cache: "no-store" })
+  const pageHref = (page: number) => {
+    const params = new URLSearchParams(query)
+    params.set("page", String(page))
+    return `/portal/account?${params}`
+  }
   const backend = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
   return (
     <div
@@ -183,6 +193,19 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
             <h2>{hasFilters ? "No products match these filters" : "No approved products yet"}</h2>
             <p>{hasFilters ? "Clear some filters and try again." : "A staff member must approve products in MerchPortal before clients can see them."}</p>
           </div>
+        )}
+        {catalog.page_count > 1 && (
+          <nav className={styles.pagination} aria-label="Catalog pages">
+            <Link className={catalog.page <= 1 ? styles.disabledPage : styles.secondary} aria-disabled={catalog.page <= 1} href={pageHref(Math.max(1, catalog.page - 1))}>
+              Previous
+            </Link>
+            <span>
+              Page {catalog.page} of {catalog.page_count}
+            </span>
+            <Link className={catalog.page >= catalog.page_count ? styles.disabledPage : styles.secondary} aria-disabled={catalog.page >= catalog.page_count} href={pageHref(Math.min(catalog.page_count, catalog.page + 1))}>
+              Next
+            </Link>
+          </nav>
         )}
       </main>
     </div>

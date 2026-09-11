@@ -477,6 +477,28 @@
   margin-top: 14px;
   padding: 10px;
 }
+.pagination {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  margin-top: 28px;
+}
+.pagination span {
+  color: #66758a;
+  font-size: 13px;
+  font-weight: 700;
+}
+.disabledPage {
+  background: #edf1f5;
+  border-radius: 9px;
+  color: #9aa6b4;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 11px 17px;
+  pointer-events: none;
+}
 .productDetail {
   align-items: center;
   display: grid;
