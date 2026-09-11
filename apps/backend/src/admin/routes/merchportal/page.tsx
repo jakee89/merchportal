@@ -38,6 +38,7 @@ const MerchPortalPage = () => {
   const [companyName, setCompanyName] = useState("")
   const [companyAddress, setCompanyAddress] = useState("")
   const [companyLogo, setCompanyLogo] = useState("")
+  const [publishableKey, setPublishableKey] = useState("")
   const [busy, setBusy] = useState("")
 
   const refresh = useCallback(async () => {
@@ -56,9 +57,32 @@ const MerchPortalPage = () => {
     setBusy("setup")
     try {
       const result = await api<{ setup: { publishable_api_key: { token: string } } }>("/admin/merchportal/setup", { method: "POST" })
-      await navigator.clipboard?.writeText(result.setup.publishable_api_key.token)
-      toast.success("Malta shop configured. Publishable key copied.")
+      setPublishableKey(result.setup.publishable_api_key.token)
+      toast.success("Malta shop configured. The publishable key is shown below.")
     } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
+  }
+
+  const copyKey = async () => {
+    let copied = false
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(publishableKey)
+        copied = true
+      }
+    } catch {}
+    if (!copied) {
+      try {
+        const input = document.createElement("textarea")
+        input.value = publishableKey
+        input.style.position = "fixed"
+        input.style.opacity = "0"
+        document.body.appendChild(input)
+        input.select()
+        copied = document.execCommand("copy")
+        input.remove()
+      } catch {}
+    }
+    copied ? toast.success("Publishable key copied") : toast.info("Select the key and copy it manually")
   }
 
   const supplierAction = async (code: string, action: string) => {
@@ -105,6 +129,7 @@ const MerchPortalPage = () => {
       <div><Heading>MerchPortal setup</Heading><Text className="text-ui-fg-subtle">Malta commerce, clients and supplier updates</Text></div>
       <Button onClick={setup} isLoading={busy === "setup"}>Configure Malta & EUR</Button>
     </Container>
+    {publishableKey && <Container><Heading level="h2">Storefront publishable key</Heading><Text className="mb-3 text-ui-fg-subtle">Paste this into Portainer as NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY.</Text><div className="flex gap-2"><Input readOnly value={publishableKey} onFocus={(event) => event.currentTarget.select()} /><Button variant="secondary" onClick={copyKey}>Copy key</Button></div></Container>}
 
     <Container>
       <Heading level="h2">Supplier updates</Heading>
