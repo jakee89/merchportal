@@ -201,16 +201,6 @@ const publishNormalizedProductsStep = createStep(
     })
     const pending = normalized.filter((product) => !product.published)
     if (!pending.length) return new StepResponse({ created: 0, products: [] })
-    const unresolved = pending.find((product) =>
-      ["pending", "unmapped"].includes(product.category_status)
-    )
-    if (unresolved) {
-      throw new MedusaError(
-        MedusaError.Types.INVALID_DATA,
-        `Approve or ignore the category mapping for ${unresolved.supplier_category} first`
-      )
-    }
-
     const [{ data: salesChannels }, { data: profiles }, { data: locations }] =
       await Promise.all([
         query.graph({

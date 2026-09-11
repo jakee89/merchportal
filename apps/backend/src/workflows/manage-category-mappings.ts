@@ -1,11 +1,9 @@
 import { createStep, createWorkflow, StepResponse, WorkflowResponse } from "@medusajs/framework/workflows-sdk"
 import type { MedusaContainer } from "@medusajs/framework/types"
-import { MedusaError } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, MedusaError } from "@medusajs/framework/utils"
+import { createProductCategoriesWorkflow } from "@medusajs/medusa/core-flows"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
-import {
-  suggestCategory,
-  supplierCategory,
-} from "../modules/merchportal/catalog-rules"
+import { supplierCategory } from "../modules/merchportal/catalog-rules"
 
 type ActionInput = {
   mapping_id?: string
@@ -18,10 +16,12 @@ export async function ensureCategoryMappings(
   supplierCode?: "stricker" | "midocean"
 ) {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
+  const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const suppliers = await service.listSuppliers({})
   const selectedSuppliers = supplierCode
     ? suppliers.filter((supplier: any) => supplier.code === supplierCode)
     : suppliers
+  const discovered = new Set<string>()
   for (const supplier of selectedSuppliers) {
     const records = await service.listRawSupplierRecords(
       { supplier_id: supplier.id, record_type: "product" },
@@ -34,17 +34,35 @@ export async function ensureCategoryMappings(
     for (const category of new Set<string>(
       records.map((record: any) => supplierCategory(record.payload))
     )) {
+      discovered.add(category)
       if (known.has(category.toLowerCase())) continue
-      const suggestion = suggestCategory(category)
       await service.createCategoryMappings({
         supplier_id: supplier.id,
         supplier_category: category,
-        suggested_category: suggestion.category,
-        confidence: suggestion.confidence,
+        suggested_category: category,
+        confidence: 1,
         status: "pending",
       })
       known.add(category.toLowerCase())
     }
+  }
+  const { data: nativeCategories } = await query.graph({
+    entity: "product_category",
+    fields: ["id", "name"],
+    pagination: { take: 5000 },
+  })
+  const nativeNames = new Set(
+    nativeCategories.map((category: any) => category.name.toLowerCase())
+  )
+  const missing = [...discovered].filter(
+    (category) => !nativeNames.has(category.toLowerCase())
+  )
+  if (missing.length) {
+    await createProductCategoriesWorkflow(container).run({
+      input: {
+        product_categories: missing.map((name) => ({ name, is_active: true })),
+      },
+    })
   }
 }
 

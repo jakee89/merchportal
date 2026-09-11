@@ -1,16 +1,11 @@
 import {
   productAttributes,
   sellingPrice,
-  suggestCategory,
   supplierCategory,
 } from "../catalog-rules"
 
 describe("catalog rules", () => {
-  it("maps supplier categories into the shared taxonomy", () => {
-    expect(suggestCategory("Travel backpacks")).toEqual({
-      category: "Bags / Backpacks",
-      confidence: 0.97,
-    })
+  it("reads the supplier's original category", () => {
     expect(supplierCategory({ product: { family: "Drink Bottles" } }))
       .toBe("Drink Bottles")
   })

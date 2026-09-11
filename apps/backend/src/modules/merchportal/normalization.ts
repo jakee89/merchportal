@@ -245,9 +245,7 @@ export async function normalizeSupplierCatalog(
       category:
         categoryMapping?.status === "approved"
           ? categoryMapping.approved_category || categoryMapping.suggested_category
-          : categoryMapping?.status === "ignored"
-            ? undefined
-            : categoryMapping?.suggested_category || originalCategory,
+          : originalCategory,
       supplier_category: originalCategory,
       category_mapping_id: categoryMapping?.id,
       category_status: categoryMapping?.status || "unmapped",

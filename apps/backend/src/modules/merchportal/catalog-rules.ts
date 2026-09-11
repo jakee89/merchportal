@@ -32,26 +32,6 @@ export function supplierCategory(payload: unknown) {
   ]) || "Uncategorized"
 }
 
-const categoryRules: Array<[RegExp, string, number]> = [
-  [/backpack|rucksack|bag|tote|luggage/i, "Bags / Backpacks", 0.97],
-  [/bottle|mug|cup|tumbler|drink/i, "Drinkware", 0.97],
-  [/shirt|polo|hood|sweat|jacket|textile|apparel/i, "Apparel", 0.95],
-  [/pen|pencil|writing/i, "Writing Instruments", 0.96],
-  [/notebook|notepad|office|stationery/i, "Office / Notebooks", 0.94],
-  [/umbrella/i, "Umbrellas", 0.99],
-  [/charger|speaker|headphone|electronic|usb|power bank/i, "Technology", 0.95],
-  [/keyring|lanyard|badge/i, "Events / Lanyards", 0.93],
-  [/sport|fitness|outdoor/i, "Sport & Outdoor", 0.91],
-  [/home|kitchen/i, "Home & Living", 0.9],
-]
-
-export function suggestCategory(input: string) {
-  const match = categoryRules.find(([pattern]) => pattern.test(input))
-  return match
-    ? { category: match[1], confidence: match[2] }
-    : { category: "General Merchandise", confidence: 0.7 }
-}
-
 export function productAttributes(payload: unknown) {
   const leadTime = fieldValue(payload, [
     "lead_time",

@@ -29,6 +29,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
     const found = selected[key]
     if (typeof found === "string" && found) query.set(key, found)
   }
+  const hasFilters = Boolean(query.toString())
   const catalog = await sdk.client.fetch<{ products: Product[]; facets: Facets; total: number }>(`/portal-api/catalog?${query}`, { headers, cache: "no-store" })
   const backend = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
   return <div className={styles.page} style={{ "--client-color": me.organization.primary_color } as React.CSSProperties}>
@@ -47,7 +48,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
         <button className={styles.primary} type="submit">Apply filters</button><Link className={styles.secondary} href="/portal/account">Clear</Link>
       </form>
       <p className={styles.resultCount}>{catalog.total} products found</p>
-      {catalog.products.length ? <div className={styles.grid}>{catalog.products.map((product) => <article className={styles.card} key={product.id}><ProductImage src={productImageUrl(backend, product.image_url)} name={product.name} /><div className={styles.badges}>{product.category && <span>{product.category}</span>}{product.sustainable && <span>Sustainable</span>}</div><h3>{product.name}</h3><p className={styles.muted}>{product.description}</p>{product.price_eur !== undefined && <p className={styles.price}>From EUR {product.price_eur.toFixed(2)}</p>}<p className={styles.status}>{product.stock_quantity !== undefined ? `${product.stock_quantity} available` : "Availability on request"}{product.sku ? ` · Code ${product.sku}` : ""}</p>{product.lead_time && <p className={styles.detail}>Lead time: {product.lead_time}</p>}{product.print_methods.length > 0 && <p className={styles.detail}>Print: {product.print_methods.join(", ")}</p>}</article>)}</div> : <div className={styles.empty}><h2>No products match these filters</h2><p>Clear some filters and try again.</p></div>}
+      {catalog.products.length ? <div className={styles.grid}>{catalog.products.map((product) => <article className={styles.card} key={product.id}><ProductImage src={productImageUrl(backend, product.image_url)} name={product.name} /><div className={styles.badges}>{product.category && <span>{product.category}</span>}{product.sustainable && <span>Sustainable</span>}</div><h3>{product.name}</h3><p className={styles.muted}>{product.description}</p>{product.price_eur !== undefined && <p className={styles.price}>From EUR {product.price_eur.toFixed(2)}</p>}<p className={styles.status}>{product.stock_quantity !== undefined ? `${product.stock_quantity} available` : "Availability on request"}{product.sku ? ` · Code ${product.sku}` : ""}</p>{product.lead_time && <p className={styles.detail}>Lead time: {product.lead_time}</p>}{product.print_methods.length > 0 && <p className={styles.detail}>Print: {product.print_methods.join(", ")}</p>}</article>)}</div> : <div className={styles.empty}><h2>{hasFilters ? "No products match these filters" : "No approved products yet"}</h2><p>{hasFilters ? "Clear some filters and try again." : "A staff member must approve products in MerchPortal before clients can see them."}</p></div>}
     </main>
   </div>
 }
