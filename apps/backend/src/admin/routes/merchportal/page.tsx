@@ -13,8 +13,18 @@ type Supplier = {
   last_error?: string
 }
 
-type Organization = { id: string; name: string; join_code: string; status: string }
-type PricingRule = { id: string; scope_key: string; organization_id?: string; markup_percentage: number }
+type Organization = {
+  id: string
+  name: string
+  join_code: string
+  status: string
+}
+type PricingRule = {
+  id: string
+  scope_key: string
+  organization_id?: string
+  markup_percentage: number
+}
 type Job = {
   id: string
   supplier_name: string
@@ -22,6 +32,10 @@ type Job = {
   kind: string
   trigger: string
   status: string
+  phase: string
+  current_message?: string
+  total_records: number
+  progress_percent: number
   processed: number
   created_count: number
   updated_count: number
@@ -81,10 +95,18 @@ const MerchPortalPage = () => {
     refresh().catch((error) => toast.error(error.message))
   }, [refresh])
 
+  useEffect(() => {
+    if (!jobs.some((job) => job.status === "running" || job.status === "queued")) return
+    const timer = window.setInterval(() => refresh().catch(() => undefined), 2500)
+    return () => window.clearInterval(timer)
+  }, [jobs, refresh])
+
   const setup = async () => {
     setBusy("setup")
     try {
-      const result = await api<{ setup: { publishable_api_key: { token: string } } }>("/admin/merchportal/setup", { method: "POST" })
+      const result = await api<{
+        setup: { publishable_api_key: { token: string } }
+      }>("/admin/merchportal/setup", { method: "POST" })
       setPublishableKey(result.setup.publishable_api_key.token)
       toast.success("Malta shop configured. The publishable key is shown below.")
     } catch (error) {
@@ -122,10 +144,17 @@ const MerchPortalPage = () => {
     setBusy(key)
     try {
       if (action === "test") {
-        const result = await api<{ connection: { ok: boolean; message: string } }>(`/admin/merchportal/suppliers/${code}/connection`, { method: "POST" })
+        const result = await api<{
+          connection: { ok: boolean; message: string }
+        }>(`/admin/merchportal/suppliers/${code}/connection`, {
+          method: "POST",
+        })
         result.connection.ok ? toast.success(result.connection.message) : toast.error(result.connection.message)
       } else {
-        await api(`/admin/merchportal/suppliers/${code}/sync`, { method: "POST", body: JSON.stringify({ kind: action }) })
+        await api(`/admin/merchportal/suppliers/${code}/sync`, {
+          method: "POST",
+          body: JSON.stringify({ kind: action }),
+        })
         toast.success(`${action} update started`)
       }
       setTimeout(() => refresh().catch(() => undefined), 1200)
@@ -168,7 +197,10 @@ const MerchPortalPage = () => {
     try {
       await api("/admin/merchportal/pricing-rules", {
         method: "POST",
-        body: JSON.stringify({ organization_id: organizationId || null, markup_percentage: Number(value) }),
+        body: JSON.stringify({
+          organization_id: organizationId || null,
+          markup_percentage: Number(value),
+        }),
       })
       toast.success("Pricing rule saved")
       await refresh()
@@ -209,6 +241,31 @@ const MerchPortalPage = () => {
         <div className="flex flex-col gap-y-3">
           {suppliers.map((supplier) => (
             <div key={supplier.code} className="rounded border p-4">
+              {(() => {
+                const active = jobs.find((job) => job.supplier_code === supplier.code && (job.status === "running" || job.status === "queued"))
+                return active ? (
+                  <div className="mb-4 rounded bg-ui-bg-subtle p-3">
+                    <div className="mb-2 flex justify-between gap-3">
+                      <Text size="small" weight="plus">
+                        {active.current_message || `Updating ${active.kind}`}
+                      </Text>
+                      <Text size="small">{active.progress_percent || 0}%</Text>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-ui-bg-disabled">
+                      <div
+                        className="h-full rounded-full bg-ui-tag-blue-icon transition-all"
+                        style={{
+                          width: `${Math.max(2, Math.min(100, active.progress_percent || 0))}%`,
+                        }}
+                      />
+                    </div>
+                    <Text size="xsmall" className="mt-2 text-ui-fg-subtle">
+                      Phase: {active.phase || "starting"}
+                      {active.total_records ? ` · ${active.processed.toLocaleString()} of ${active.total_records.toLocaleString()} records` : ""}
+                    </Text>
+                  </div>
+                ) : null
+              })()}
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <Text weight="plus">{supplier.display_name}</Text>
@@ -222,7 +279,7 @@ const MerchPortalPage = () => {
               </div>
               <div className="flex flex-wrap gap-2">
                 {(["catalog", "price", "stock"] as const).map((kind) => (
-                  <Button key={kind} size="small" variant={supplier.due[kind] ? "primary" : "secondary"} disabled={!supplier.configured} isLoading={busy === `${supplier.code}-${kind}`} onClick={() => supplierAction(supplier.code, kind)}>
+                  <Button key={kind} size="small" variant={supplier.due[kind] ? "primary" : "secondary"} disabled={!supplier.configured || jobs.some((job) => job.supplier_code === supplier.code && job.kind === kind && (job.status === "running" || job.status === "queued"))} isLoading={busy === `${supplier.code}-${kind}`} onClick={() => supplierAction(supplier.code, kind)}>
                     Update {kind}
                   </Button>
                 ))}
@@ -289,7 +346,19 @@ const MerchPortalPage = () => {
                   </Text>
                 </div>
                 <div className="flex gap-2">
-                  <Input type="number" min="0" max="1000" placeholder={globalMarkup} value={clientMarkups[organization.id] || ""} onChange={(event) => setClientMarkups((current) => ({ ...current, [organization.id]: event.target.value }))} />
+                  <Input
+                    type="number"
+                    min="0"
+                    max="1000"
+                    placeholder={globalMarkup}
+                    value={clientMarkups[organization.id] || ""}
+                    onChange={(event) =>
+                      setClientMarkups((current) => ({
+                        ...current,
+                        [organization.id]: event.target.value,
+                      }))
+                    }
+                  />
                   <Button size="small" variant="secondary" disabled={!clientMarkups[organization.id]} isLoading={busy === `pricing-${organization.id}`} onClick={() => saveMarkup(organization.id)}>
                     Save client markup
                   </Button>
@@ -311,13 +380,23 @@ const MerchPortalPage = () => {
                     {job.supplier_name} · {job.kind} · {job.status}
                   </Text>
                   <Text size="xsmall" className="text-ui-fg-subtle">
-                    {job.trigger} update · {date(job.created_at)}
+                    {job.trigger} update · {date(job.created_at)} · {job.current_message || job.phase}
                   </Text>
                 </div>
                 <Text size="small" className="text-ui-fg-subtle">
                   {job.processed || 0} processed · {job.created_count || 0} new · {job.updated_count || 0} changed · {job.skipped_count || 0} unchanged · {job.error_count || 0} errors
                 </Text>
               </div>
+              {(job.status === "running" || job.status === "queued") && (
+                <div className="mt-2 h-2 overflow-hidden rounded-full bg-ui-bg-disabled">
+                  <div
+                    className="h-full rounded-full bg-ui-tag-blue-icon transition-all"
+                    style={{
+                      width: `${Math.max(2, Math.min(100, job.progress_percent || 0))}%`,
+                    }}
+                  />
+                </div>
+              )}
               {job.error_message && (
                 <div className="mt-2 rounded bg-ui-bg-component p-2">
                   <Text size="small" className="text-ui-fg-error">

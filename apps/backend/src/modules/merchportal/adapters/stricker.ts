@@ -44,4 +44,12 @@ export class StrickerAdapter implements SupplierAdapter {
   fetchStock() {
     return this.download("stocks")
   }
+
+  async fetchDecorations() {
+    return this.download("customizationOptions")
+  }
+
+  fetchDecorationPrices() {
+    return this.download("customizationTables")
+  }
 }

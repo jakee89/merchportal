@@ -24,6 +24,8 @@ type Product = {
   stock_quantity?: number
   category?: string
   colors: string[]
+  materials: string[]
+  brand?: string
   lead_time?: string
   sustainable: boolean
   print_methods: string[]
@@ -31,6 +33,8 @@ type Product = {
 type Facets = {
   categories: string[]
   colors: string[]
+  materials: string[]
+  brands: string[]
   lead_times: string[]
   print_methods: string[]
 }
@@ -61,7 +65,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   const selected = await searchParams
   const chosen = (key: string) => (typeof selected[key] === "string" ? (selected[key] as string) : "")
   const query = new URLSearchParams()
-  for (const key of ["q", "category", "color", "min_price", "max_price", "lead_time", "print_method", "in_stock", "sustainable"]) {
+  for (const key of ["q", "category", "color", "material", "brand", "min_price", "max_price", "lead_time", "print_method", "in_stock", "sustainable"]) {
     const found = selected[key]
     if (typeof found === "string" && found) query.set(key, found)
   }
@@ -123,6 +127,24 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
             </select>
           </label>
           <label>
+            Material
+            <select name="material" defaultValue={chosen("material")}>
+              <option value="">All materials</option>
+              {catalog.facets.materials.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Brand
+            <select name="brand" defaultValue={chosen("brand")}>
+              <option value="">All brands</option>
+              {catalog.facets.brands.map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <label>
             Minimum price
             <input type="number" min="0" step="0.01" name="min_price" defaultValue={chosen("min_price")} />
           </label>
@@ -175,6 +197,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
                 </div>
                 <h3>{product.name}</h3>
                 <p className={styles.muted}>{product.description}</p>
+                {(product.brand || product.materials?.length > 0) && <p className={styles.detail}>{[product.brand, product.materials?.join(", ")].filter(Boolean).join(" · ")}</p>}
                 {product.price_eur !== undefined && <p className={styles.price}>From EUR {product.price_eur.toFixed(2)}</p>}
                 <p className={styles.status}>
                   {product.stock_quantity !== undefined ? `${product.stock_quantity} available` : "Availability on request"}

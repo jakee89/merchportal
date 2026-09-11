@@ -11,6 +11,7 @@ export interface SupplierAdapter {
   fetchPrices(): Promise<unknown[]>
   fetchStock(): Promise<unknown[]>
   fetchDecorations?(): Promise<unknown[]>
+  fetchDecorationPrices?(): Promise<unknown[]>
 }
 
 export function asRecords(payload: unknown): unknown[] {
@@ -18,8 +19,9 @@ export function asRecords(payload: unknown): unknown[] {
   if (!payload || typeof payload !== "object") return []
 
   const object = payload as Record<string, unknown>
-  for (const key of ["products", "items", "data", "stock", "price", "prices", "result"]) {
-    if (Array.isArray(object[key])) return object[key] as unknown[]
+  const recordKeys = new Set(["products", "items", "data", "stock", "price", "prices", "result", "optionalscomplete", "optionalsprice", "stocks", "customizationoptions", "customizationtables"])
+  for (const [key, value] of Object.entries(object)) {
+    if (recordKeys.has(key.toLowerCase()) && Array.isArray(value)) return value
   }
 
   return [payload]

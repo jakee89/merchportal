@@ -5,7 +5,7 @@ const RawSupplierRecord = model
     id: model.id().primaryKey(),
     supplier_id: model.text(),
     import_job_id: model.text(),
-    record_type: model.enum(["product", "price", "stock", "category", "decoration"]),
+    record_type: model.enum(["product", "price", "stock", "category", "decoration", "decoration_price"]),
     external_id: model.text(),
     sku: model.text().nullable(),
     checksum: model.text(),

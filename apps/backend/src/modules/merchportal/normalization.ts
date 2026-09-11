@@ -13,6 +13,8 @@ export type NormalizedVariant = {
   sku: string
   title: string
   color: string
+  color_code?: string
+  color_group?: string
   size: string
   images: string[]
   price_eur?: number
@@ -33,6 +35,14 @@ export type NormalizedProduct = {
   sustainable: boolean
   print_methods: string[]
   decoration_options: DecorationMethod[]
+  attributes: {
+    materials: string[]
+    brand?: string
+    country_of_origin?: string
+    dimensions?: string
+    weight?: string
+    keywords: string[]
+  }
   images: string[]
   variants: NormalizedVariant[]
   published: boolean
@@ -109,8 +119,18 @@ function proxyImages(urls: string[]) {
 export async function normalizeSupplierCatalog(container: MedusaContainer, options: { source_keys?: string[]; take?: number; skip?: number } = {}): Promise<NormalizedProduct[]> {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const [records, prices, stocks, decorations, suppliers] = await Promise.all([service.listRawSupplierRecords({ record_type: "product" }, { take: 50000, order: { updated_at: "DESC" } }), service.listRawSupplierRecords({ record_type: "price" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "stock" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "decoration" }, { take: 50000 }), service.listSuppliers({})])
+  const [allRecords, allPrices, allStocks, allDecorations, allDecorationPrices, suppliers] = await Promise.all([service.listRawSupplierRecords({ record_type: "product" }, { take: 50000, order: { updated_at: "DESC" } }), service.listRawSupplierRecords({ record_type: "price" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "stock" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "decoration" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "decoration_price" }, { take: 50000 }), service.listSuppliers({})])
   const supplierById = new Map<string, any>(suppliers.map((supplier: any) => [supplier.id, supplier]))
+  const currentRecords = (items: any[], syncField: string) =>
+    items.filter((item) => {
+      const syncedAt = supplierById.get(item.supplier_id)?.[syncField]
+      return !syncedAt || new Date(item.last_seen_at).getTime() >= new Date(syncedAt).getTime() - 15 * 60_000
+    })
+  const records = currentRecords(allRecords, "product_sync_at")
+  const prices = currentRecords(allPrices, "price_sync_at")
+  const stocks = currentRecords(allStocks, "stock_sync_at")
+  const decorations = currentRecords(allDecorations, "product_sync_at")
+  const decorationPrices = currentRecords(allDecorationPrices, "product_sync_at")
   const groups = new Map<string, { supplier_id: string; master_id: string; records: any[] }>()
   for (const record of records) {
     const payload = (record.payload || {}) as ObjectValue
@@ -144,9 +164,10 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const payload = (record.payload || {}) as ObjectValue
     const supplier = supplierById.get(group.supplier_id)
     const originalCategory = supplierCategory(payload)
-    const attributes = productAttributes(payload)
+    const attributes = productAttributes(group.records.map((item) => item.payload))
     const decorationPayloads = decorations.filter((item: any) => item.supplier_id === group.supplier_id && (item.external_id === group.master_id || (item.payload as ObjectValue)?.master_code === group.master_id || (item.payload as ObjectValue)?.master_id === group.master_id)).map((item: any) => item.payload)
-    const decorationOptions = normalizeDecorationOptions([...group.records.map((item) => item.payload), ...decorationPayloads], attributes.print_methods)
+    const supplierDecorationPrices = decorationPrices.filter((item: any) => item.supplier_id === group.supplier_id).map((item: any) => item.payload)
+    const decorationOptions = normalizeDecorationOptions([...group.records.map((item) => item.payload), ...decorationPayloads], attributes.print_methods, supplierDecorationPrices)
     const rows = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue))
     const seen = new Set<string>()
     const seenSkus = new Set<string>()
@@ -154,6 +175,8 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
       .map((row, index) => {
         const sku = value(row, ["sku", "SKU", "optionalReference", "reference", "variant_id"]) || `${record.external_id}-${index + 1}`
         const color = value(row, ["color_description", "colour_description", "color", "colour", "color_group"]) || "Standard"
+        const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode"])
+        const colorGroup = value(row, ["color_group", "colour_group", "color_family", "colour_family"]) || color
         let size = value(row, ["size", "size_description", "format", "dimension"]) || "Standard"
         const combination = `${color}:${size}`
         if (seen.has(combination)) size = sku
@@ -174,6 +197,8 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
           sku,
           title: [color, size === "Standard" ? "" : size].filter(Boolean).join(" "),
           color,
+          color_code: colorCode,
+          color_group: colorGroup,
           size,
           images: proxyImages(variantImages),
           price_eur: pricesFound.length ? Math.min(...pricesFound) : undefined,
@@ -201,6 +226,14 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
       sustainable: attributes.sustainable,
       print_methods: [...new Set([...attributes.print_methods, ...decorationOptions.map((method) => method.name)])],
       decoration_options: decorationOptions,
+      attributes: {
+        materials: attributes.materials,
+        brand: attributes.brand,
+        country_of_origin: attributes.country_of_origin,
+        dimensions: attributes.dimensions,
+        weight: attributes.weight,
+        keywords: attributes.keywords,
+      },
       images: productImages,
       variants,
       published: published.has(sourceKey),

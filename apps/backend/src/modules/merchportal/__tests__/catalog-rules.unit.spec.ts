@@ -1,23 +1,26 @@
-import {
-  productAttributes,
-  sellingPrice,
-  supplierCategory,
-} from "../catalog-rules"
+import { productAttributes, sellingPrice, supplierCategory } from "../catalog-rules"
 
 describe("catalog rules", () => {
   it("reads the supplier's original category", () => {
-    expect(supplierCategory({ product: { family: "Drink Bottles" } }))
-      .toBe("Drink Bottles")
+    expect(supplierCategory({ product: { family: "Drink Bottles" } })).toBe("Drink Bottles")
   })
 
   it("extracts safe searchable product attributes", () => {
-    expect(productAttributes({
+    expect(
+      productAttributes({
+        lead_time: "5 working days",
+        print_methods: ["Laser", "Pad Print"],
+        material: "Recycled aluminium",
+      }),
+    ).toEqual({
       lead_time: "5 working days",
       print_methods: ["Laser", "Pad Print"],
-      material: "Recycled aluminium",
-    })).toEqual({
-      lead_time: "5 working days",
-      print_methods: ["Laser", "Pad Print"],
+      materials: ["Recycled aluminium"],
+      brand: undefined,
+      country_of_origin: undefined,
+      dimensions: undefined,
+      weight: undefined,
+      keywords: [],
       sustainable: true,
     })
   })

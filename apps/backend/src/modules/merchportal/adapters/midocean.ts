@@ -64,5 +64,9 @@ export class MidoceanAdapter implements SupplierAdapter {
         : [],
     }))
   }
+
+  fetchDecorationPrices() {
+    return this.request("/gateway/printpricelist/2.0")
+  }
 }
 import { MedusaError } from "@medusajs/framework/utils"

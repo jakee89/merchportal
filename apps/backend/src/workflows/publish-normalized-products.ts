@@ -1,6 +1,6 @@
 import { createStep, createWorkflow, StepResponse, WorkflowResponse } from "@medusajs/framework/workflows-sdk"
 import { ContainerRegistrationKeys, MedusaError, ProductStatus } from "@medusajs/framework/utils"
-import { createInventoryLevelsWorkflow, createProductCategoriesWorkflow, createProductsWorkflow, updateInventoryLevelsWorkflow, updateProductVariantsWorkflow } from "@medusajs/medusa/core-flows"
+import { createInventoryLevelsWorkflow, createProductCategoriesWorkflow, createProductVariantsWorkflow, createProductsWorkflow, updateInventoryLevelsWorkflow, updateProductVariantsWorkflow } from "@medusajs/medusa/core-flows"
 import { normalizeSupplierCatalog, normalizedProductHandle, type NormalizedProduct } from "../modules/merchportal/normalization"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
 import { sellingPrice } from "../modules/merchportal/catalog-rules"
@@ -8,15 +8,28 @@ import { resolveMarkup } from "./manage-pricing-rules"
 
 type Input = { source_keys: string[] }
 
+function batches<T>(items: T[], size = 250) {
+  const output: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    output.push(items.slice(index, index + size))
+  }
+  return output
+}
+
 async function persistProductSources(container: any, normalized: NormalizedProduct[], nativeProducts: any[]) {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const suppliers = await service.listSuppliers({})
   const supplierByCode = new Map<string, any>(suppliers.map((supplier: any) => [supplier.code, supplier]))
   const nativeByKey = new Map<string, any>(nativeProducts.map((product: any) => [product.external_id, product]))
+  const existingSources = await service.listPublishedProductSources({}, { take: 50000 })
+  const existingByKey = new Map<string, any>(existingSources.map((source: any) => [source.source_key, source]))
+  const creates: any[] = []
+  const updates: any[] = []
   for (const product of normalized) {
     const native = nativeByKey.get(product.source_key)
     const supplier = supplierByCode.get(product.supplier_code)
     if (!native || !supplier) continue
+    const stockQuantities = product.variants.map((variant) => variant.stock_quantity).filter((value): value is number => value !== undefined)
     const data = {
       source_key: product.source_key,
       product_id: native.id,
@@ -26,17 +39,56 @@ async function persistProductSources(container: any, normalized: NormalizedProdu
       sustainable: product.sustainable,
       print_methods: product.print_methods,
       decoration_options: product.decoration_options,
+      attributes: product.attributes,
+      catalog_document: {
+        id: native.id,
+        name: product.title,
+        description: product.description,
+        image_url: product.images[0] || null,
+        images: product.images,
+        category: product.category,
+        colors: [...new Set(product.variants.map((variant) => variant.color_group || variant.color))],
+        materials: product.attributes.materials,
+        brand: product.attributes.brand,
+        country_of_origin: product.attributes.country_of_origin,
+        dimensions: product.attributes.dimensions,
+        weight: product.attributes.weight,
+        keywords: product.attributes.keywords,
+        stock_quantity: stockQuantities.length ? stockQuantities.reduce((total, value) => total + value, 0) : undefined,
+        lead_time: product.lead_time,
+        sustainable: product.sustainable,
+        print_methods: product.print_methods,
+        variants: product.variants.map((variant) => {
+          const nativeVariant = native.variants?.find((item: any) => item.sku === variant.sku)
+          return {
+            id: nativeVariant?.id,
+            title: variant.title,
+            sku: variant.sku,
+            color: variant.color,
+            color_code: variant.color_code,
+            color_group: variant.color_group,
+            size: variant.size,
+            stock_quantity: variant.stock_quantity,
+          }
+        }),
+      },
     }
-    const existing = await service.listPublishedProductSources({ source_key: product.source_key }, { take: 1 })
-    if (existing.length) {
-      await service.updatePublishedProductSources({ id: existing[0].id, ...data })
+    const existing = existingByKey.get(product.source_key)
+    if (existing) {
+      updates.push({ id: existing.id, ...data })
     } else {
-      await service.createPublishedProductSources(data)
+      creates.push(data)
     }
+  }
+  for (const batch of batches(creates)) {
+    await service.createPublishedProductSources(batch)
+  }
+  for (const batch of batches(updates)) {
+    await service.updatePublishedProductSources(batch)
   }
 }
 
-export async function refreshPublishedSupplierProducts(container: any, supplierCode?: "stricker" | "midocean") {
+export async function refreshPublishedSupplierProducts(container: any, supplierCode?: "stricker" | "midocean", normalizedProducts?: NormalizedProduct[], onProgress?: (percent: number, message: string) => Promise<void>) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const markup = await resolveMarkup(service)
@@ -58,18 +110,71 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     return { updated_products: 0, updated_prices: 0, updated_stock: 0 }
   }
 
-  const normalized = await normalizeSupplierCatalog(container, {
-    source_keys: published.map((product: any) => product.external_id),
-    take: published.length,
-  })
+  const normalized =
+    normalizedProducts ||
+    (await normalizeSupplierCatalog(container, {
+      source_keys: published.map((product: any) => product.external_id),
+      take: published.length,
+    }))
   const selected = supplierCode ? normalized.filter((product) => product.supplier_code === supplierCode) : normalized
+  if (supplierCode && selected.length) {
+    const suppliers = await service.listSuppliers({ code: supplierCode }, { take: 1 })
+    const currentSources = suppliers.length ? await service.listPublishedProductSources({ supplier_id: suppliers[0].id }, { take: 50000 }) : []
+    const currentKeys = new Set(selected.map((product) => product.source_key))
+    const staleIds = currentSources.filter((source: any) => !currentKeys.has(source.source_key)).map((source: any) => source.id)
+    if (staleIds.length) await service.deletePublishedProductSources(staleIds)
+  }
   const normalizedByKey = new Map(selected.map((product) => [product.source_key, product]))
   const variantBySku = new Map<string, any>()
+  const nativeProductByKey = new Map<string, any>(published.map((product: any) => [product.external_id, product]))
   for (const product of published) {
     if (!normalizedByKey.has(product.external_id)) continue
     for (const variant of product.variants || []) {
       if (variant.sku) variantBySku.set(variant.sku, variant)
     }
+  }
+
+  const missingVariants = selected.flatMap((product) => {
+    const nativeProduct = nativeProductByKey.get(product.source_key)
+    if (!nativeProduct) return []
+    return product.variants
+      .filter((variant) => !variantBySku.has(variant.sku))
+      .map((variant) => ({
+        product_id: nativeProduct.id,
+        title: variant.title,
+        sku: variant.sku,
+        manage_inventory: true,
+        options: { Color: variant.color, Size: variant.size },
+        prices:
+          variant.price_eur === undefined
+            ? []
+            : [
+                {
+                  currency_code: "eur",
+                  amount: sellingPrice(variant.price_eur, markup),
+                },
+              ],
+      }))
+  })
+  if (missingVariants.length) {
+    for (const batch of batches(missingVariants, 100)) {
+      await createProductVariantsWorkflow(container).run({
+        input: { product_variants: batch } as any,
+      })
+    }
+    const { data: refreshedProducts } = await query.graph({
+      entity: "product",
+      fields: ["id", "external_id", "variants.id", "variants.sku"],
+      filters: { id: published.map((product: any) => product.id) },
+      pagination: { take: 50000 },
+    })
+    for (const product of refreshedProducts) {
+      nativeProductByKey.set(product.external_id, product)
+      for (const variant of product.variants || []) {
+        if (variant.sku) variantBySku.set(variant.sku, variant)
+      }
+    }
+    await onProgress?.(94, `Added ${missingVariants.length.toLocaleString()} new product options`)
   }
 
   const variantUpdates = selected.flatMap((product) =>
@@ -90,15 +195,19 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     }),
   )
   if (variantUpdates.length) {
-    await updateProductVariantsWorkflow(container).run({
-      input: { product_variants: variantUpdates },
-    })
+    for (const batch of batches(variantUpdates)) {
+      await updateProductVariantsWorkflow(container).run({
+        input: { product_variants: batch },
+      })
+    }
+    await onProgress?.(96, `Updated ${variantUpdates.length.toLocaleString()} client prices`)
   }
 
   const stockBySku = new Map(selected.flatMap((product) => product.variants.flatMap((variant) => (variant.stock_quantity === undefined ? [] : [[variant.sku, variant.stock_quantity] as const]))))
   const skus = [...stockBySku.keys()].filter((sku) => variantBySku.has(sku))
   if (!skus.length) {
-    await persistProductSources(container, selected, published)
+    await persistProductSources(container, selected, [...nativeProductByKey.values()])
+    await onProgress?.(99, "Updated catalog search and filters")
     return {
       updated_products: selected.length,
       updated_prices: variantUpdates.length,
@@ -131,14 +240,22 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     }
   }
   if (updates.length) {
-    await updateInventoryLevelsWorkflow(container).run({ input: { updates } })
+    for (const batch of batches(updates, 500)) {
+      await updateInventoryLevelsWorkflow(container).run({
+        input: { updates: batch },
+      })
+    }
   }
   if (creates.length) {
-    await createInventoryLevelsWorkflow(container).run({
-      input: { inventory_levels: creates },
-    })
+    for (const batch of batches(creates, 500)) {
+      await createInventoryLevelsWorkflow(container).run({
+        input: { inventory_levels: batch as any },
+      })
+    }
   }
-  await persistProductSources(container, selected, published)
+  await onProgress?.(98, `Updated ${(updates.length + creates.length).toLocaleString()} stock quantities`)
+  await persistProductSources(container, selected, [...nativeProductByKey.values()])
+  await onProgress?.(99, "Updated catalog search and filters")
   return {
     updated_products: selected.length,
     updated_prices: variantUpdates.length,
@@ -244,27 +361,37 @@ export async function publishNormalizedProductBatch(container: any, pending: Nor
       stocked_quantity: Math.max(0, Math.floor(stockBySku.get(item.sku) || 0)),
     }))
   if (levels.length) {
-    await createInventoryLevelsWorkflow(container).run({
-      input: { inventory_levels: levels },
-    })
+    for (const batch of batches(levels, 500)) {
+      await createInventoryLevelsWorkflow(container).run({
+        input: { inventory_levels: batch as any },
+      })
+    }
   }
   await persistProductSources(container, pending, products)
 
   return {
     created: products.length,
-    products: products.map((product: any) => ({ id: product.id, title: product.title })),
+    products: products.map((product: any) => ({
+      id: product.id,
+      title: product.title,
+    })),
   }
 }
 
-export async function autoPublishSupplierCatalog(container: any, supplierCode: "stricker" | "midocean") {
+export async function autoPublishSupplierCatalog(container: any, supplierCode: "stricker" | "midocean", onProgress?: (published: number, total: number) => Promise<void>) {
   const normalized = await normalizeSupplierCatalog(container, { take: 50000 })
   const pending = normalized.filter((product) => product.supplier_code === supplierCode && !product.published)
   let created = 0
   for (let index = 0; index < pending.length; index += 100) {
     const result = await publishNormalizedProductBatch(container, pending.slice(index, index + 100))
     created += result.created
+    await onProgress?.(Math.min(index + 100, pending.length), pending.length)
   }
-  return { created, total: normalized.filter((product) => product.supplier_code === supplierCode).length }
+  return {
+    created,
+    total: normalized.filter((product) => product.supplier_code === supplierCode).length,
+    normalized,
+  }
 }
 
 const publishNormalizedProductsStep = createStep("publish-normalized-products", async (input: Input, { container }) => {

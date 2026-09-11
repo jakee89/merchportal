@@ -1,4 +1,4 @@
-import { model } from "@medusajs/framework/utils";
+import { model } from "@medusajs/framework/utils"
 
 const ProductConfiguration = model
   .define("merchportal_product_configuration", {
@@ -11,6 +11,9 @@ const ProductConfiguration = model
     color: model.text(),
     branding_method: model.text().nullable(),
     print_position: model.text().nullable(),
+    print_colours: model.number().nullable(),
+    print_width_mm: model.number().nullable(),
+    print_height_mm: model.number().nullable(),
     artwork_file_id: model.text().nullable(),
     artwork_filename: model.text().nullable(),
     base_unit_price: model.number(),
@@ -20,10 +23,6 @@ const ProductConfiguration = model
     branding_price_pending: model.boolean().default(false),
     status: model.enum(["draft", "ready"]).default("draft"),
   })
-  .indexes([
-    { on: ["organization_id", "created_at"] },
-    { on: ["actor_id", "created_at"] },
-    { on: ["product_id"] },
-  ]);
+  .indexes([{ on: ["organization_id", "created_at"] }, { on: ["actor_id", "created_at"] }, { on: ["product_id"] }])
 
-export default ProductConfiguration;
+export default ProductConfiguration
