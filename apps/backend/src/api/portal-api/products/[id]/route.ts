@@ -38,8 +38,11 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
       const nativePrice = Number(variant.prices?.find((item: any) => item.currency_code === "eur")?.amount)
       return {
         id: variant.id,
+        sku: variant.sku,
         title: indexedVariant?.title || variant.title,
         color,
+        size: indexedVariant?.size,
+        images: Array.isArray(indexedVariant?.images) ? indexedVariant.images : [],
         stock_quantity: variant.inventory_quantity,
         price_eur: Number.isFinite(cost) ? sellingPrice(cost, markup) : nativePrice,
         price_breaks: Array.isArray(indexedVariant?.price_breaks)

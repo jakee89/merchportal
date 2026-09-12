@@ -1,7 +1,7 @@
 import { createHash, createHmac } from "node:crypto"
 import type { MedusaContainer } from "@medusajs/framework/types"
 import { MERCHPORTAL_MODULE } from "."
-import { fieldValue, productAttributes, supplierCategory } from "./catalog-rules"
+import { fieldValue, normalizedFieldName, productAttributes, supplierCategory } from "./catalog-rules"
 import { normalizeDecorationOptions, type DecorationMethod } from "./decoration"
 import { supplierImageToken } from "./media"
 
@@ -51,9 +51,10 @@ export type NormalizedProduct = {
 }
 
 function value(object: ObjectValue, keys: string[]) {
-  const accepted = new Set(keys.map((key) => key.toLowerCase()))
-  for (const [key, found] of Object.entries(object || {})) {
-    if (accepted.has(key.toLowerCase()) && found !== undefined && found !== null && String(found).trim()) return String(found).trim()
+  const entries = new Map(Object.entries(object || {}).map(([key, found]) => [normalizedFieldName(key), found]))
+  for (const requested of keys) {
+    const found = entries.get(normalizedFieldName(requested))
+    if (found !== undefined && found !== null && typeof found !== "object" && String(found).trim()) return String(found).trim()
   }
 }
 
@@ -95,7 +96,7 @@ function imageUrls(object: unknown, output = new Set<string>()): string[] {
 
 function variantRows(payload: ObjectValue) {
   for (const [key, child] of Object.entries(payload)) {
-    if (["variants", "optionals", "productoptionals", "productoptional", "items", "skus", "colours", "colors"].includes(key.toLowerCase()) && Array.isArray(child) && child.length) {
+    if (["variants", "optionals", "productoptionals", "productoptional", "items", "skus", "colours", "colors"].includes(normalizedFieldName(key)) && Array.isArray(child) && child.length) {
       return child as ObjectValue[]
     }
   }
@@ -137,6 +138,14 @@ function proxyImages(urls: string[]) {
     const token = supplierImageToken(url)
     return token ? [`${backend}/media/${token}`] : []
   })
+}
+
+function supplierAssetUrl(value: string, supplierCode?: string) {
+  if (/^https:\/\//iu.test(value)) return value
+  if (supplierCode !== "stricker") return value
+  const clean = value.replace(/^\/+/, "")
+  if (clean.startsWith("public/")) return `https://cdn.hideacontent.com/${clean}`
+  return `https://cdn.hideacontent.com/public/products/printings/printinglines/500x500/${clean}`
 }
 
 function indexedRecords(items: any[], supplierById: Map<string, any>) {
@@ -275,7 +284,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const record = group.records[0]
     const payload = (record.payload || {}) as ObjectValue
     const supplier = supplierById.get(group.supplier_id)
-    const originalCategory = supplierCategory(payload)
+    const originalCategory = supplierCategory(group.records.map((item) => item.payload))
     const attributes = productAttributes(group.records.map((item) => item.payload))
     const decorationPayloads = (decorationIndex.byMaster.get(`${group.supplier_id}:${group.master_id}`) || []).map((item: any) => item.payload)
     const supplierDecorationPrices = decorationPricesBySupplier.get(group.supplier_id) || []
@@ -283,7 +292,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
       ...method,
       positions: method.positions.map((position) => ({
         ...position,
-        image_url: position.image_url ? proxyImages([position.image_url])[0] : undefined,
+        image_url: position.image_url ? proxyImages([supplierAssetUrl(position.image_url, supplier?.code)])[0] : undefined,
       })),
     }))
     const rows = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue))
@@ -292,10 +301,10 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const variants = rows
       .map((row, index) => {
         const sku = value(row, ["sku", "SKU", "optionalReference", "reference", "variant_id"]) || `${record.external_id}-${index + 1}`
-        const color = value(row, ["color_description", "colour_description", "color", "colour", "color_group"]) || "Standard"
-        const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode"])
+        const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "color"])
+        const color = value(row, ["color_description", "colour_description", "color_name", "colour_name", "color", "colour", "color_group"]) || colorCode || "Standard"
         const colorGroup = value(row, ["color_group", "colour_group", "color_family", "colour_family"]) || color
-        let size = value(row, ["size", "size_description", "format", "dimension"]) || "Standard"
+        let size = value(row, ["size_description", "size", "combined_sizes", "capacity", "format", "dimension"]) || "Standard"
         const combination = `${color}:${size}`
         if (seen.has(combination)) size = sku
         seen.add(`${color}:${size}`)

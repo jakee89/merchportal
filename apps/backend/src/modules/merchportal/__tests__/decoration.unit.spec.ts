@@ -47,7 +47,7 @@ describe("supplier-neutral decoration normalization", () => {
       expect.objectContaining({
         id: "LAS",
         name: "Laser engraving",
-        positions: [expect.objectContaining({ name: "Barrel" })],
+        positions: [expect.objectContaining({ name: "Barrel", max_width_mm: 45, max_height_mm: 6 })],
       }),
     )
   })

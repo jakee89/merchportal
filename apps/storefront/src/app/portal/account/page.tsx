@@ -24,6 +24,7 @@ type Product = {
   stock_quantity?: number
   category?: string
   colors: string[]
+  variant_count?: number
   materials: string[]
   brand?: string
   lead_time?: string
@@ -199,6 +200,12 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
                 <p className={styles.muted}>{product.description}</p>
                 {(product.brand || product.materials?.length > 0) && <p className={styles.detail}>{[product.brand, product.materials?.join(", ")].filter(Boolean).join(" · ")}</p>}
                 {product.price_eur !== undefined && <p className={styles.price}>From EUR {product.price_eur.toFixed(2)}</p>}
+                {product.colors.length > 0 && (
+                  <div className={styles.variantPreview}>
+                    {product.colors.slice(0, 5).map((color) => <span key={color}>{color}</span>)}
+                    {product.colors.length > 5 && <span>+{product.colors.length - 5}</span>}
+                  </div>
+                )}
                 <p className={styles.status}>
                   {product.stock_quantity !== undefined ? `${product.stock_quantity} available` : "Availability on request"}
                   {product.sku ? ` · Code ${product.sku}` : ""}

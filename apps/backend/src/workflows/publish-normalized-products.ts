@@ -456,8 +456,8 @@ export async function autoPublishSupplierCatalog(container: any, supplierCode: "
   let consecutiveErrors = 0
   const errors: string[] = []
   await onProgress?.(0, pending.length)
-  for (let index = 0; index < pending.length; index += 5) {
-    const group = pending.slice(index, index + 5)
+  for (let index = 0; index < pending.length; index += 20) {
+    const group = pending.slice(index, index + 20)
     try {
       const result = await publishNormalizedProductBatch(container, group)
       created += result.created

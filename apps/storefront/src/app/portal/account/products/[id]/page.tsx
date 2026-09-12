@@ -13,8 +13,11 @@ type Product = {
   images: string[]
   variants: Array<{
     id: string
+    sku?: string
     title: string
     color: string
+    size?: string
+    images: string[]
     stock_quantity?: number
     price_eur: number
     price_breaks?: Array<{ quantity: number; price_eur: number }>
@@ -67,8 +70,6 @@ export default async function ProductConfiguratorPage({ params }: { params: Prom
     notFound()
   }
   const backend = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
-  const image = product.images[0]
-  const imageUrl = image && /^https?:\/\//i.test(image) ? image : image ? `${backend}${image}` : undefined
   return (
     <div className={styles.page}>
       <header className={styles.topbar}>
@@ -80,8 +81,7 @@ export default async function ProductConfiguratorPage({ params }: { params: Prom
         </Link>
       </header>
       <main className={styles.main}>
-        <div className={styles.productDetail}>
-          <div className={styles.detailVisual}>{imageUrl ? <img src={imageUrl} alt={product.name} /> : <span>No image available</span>}</div>
+        <div className={styles.productDetailHeader}>
           <div>
             <span className={styles.eyebrow}>Product configurator</span>
             <h1>{product.name}</h1>
@@ -89,7 +89,7 @@ export default async function ProductConfiguratorPage({ params }: { params: Prom
             <p className={styles.status}>{product.variants.length} colour and product options</p>
           </div>
         </div>
-        <Configurator productId={product.id} variants={product.variants} methods={product.decoration_options} />
+        <Configurator productId={product.id} productName={product.name} productImages={product.images} backend={backend} variants={product.variants} methods={product.decoration_options} />
       </main>
     </div>
   )

@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import styles from "../../../../portal-shell.module.css"
 import { savePortalConfiguration, uploadPortalArtwork } from "../actions"
 
@@ -34,8 +34,11 @@ type PriceBreak = {
 }
 type Variant = {
   id: string
+  sku?: string
   title: string
   color: string
+  size?: string
+  images: string[]
   stock_quantity?: number
   price_eur: number
   price_breaks?: Array<{ quantity: number; price_eur: number }>
@@ -43,7 +46,14 @@ type Variant = {
   color_code?: string
 }
 
-export default function Configurator({ productId, variants, methods }: { productId: string; variants: Variant[]; methods: Method[] }) {
+type Props = { productId: string; productName: string; productImages: string[]; backend: string; variants: Variant[]; methods: Method[] }
+
+function mediaUrl(backend: string, value?: string) {
+  if (!value) return
+  return /^https?:\/\//i.test(value) ? value : `${backend}${value}`
+}
+
+export default function Configurator({ productId, productName, productImages, backend, variants, methods }: Props) {
   const [variantId, setVariantId] = useState(variants[0]?.id || "")
   const [quantity, setQuantity] = useState(25)
   const [methodId, setMethodId] = useState("")
@@ -55,6 +65,9 @@ export default function Configurator({ productId, variants, methods }: { product
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const variant = variants.find((item) => item.id === variantId) || variants[0]
+  const gallery = useMemo(() => [...(variant?.images || []), ...productImages].filter((item, index, all) => item && all.indexOf(item) === index), [productImages, variant?.images])
+  const [activeImage, setActiveImage] = useState(gallery[0] || "")
+  useEffect(() => setActiveImage(gallery[0] || ""), [gallery])
   const method = methods.find((item) => item.id === methodId)
   const position = method?.positions.find((item) => item.id === positionId)
   const pricingType = method?.pricing_type?.toLowerCase() || ""
@@ -126,7 +139,20 @@ export default function Configurator({ productId, variants, methods }: { product
   }
 
   return (
-    <section className={styles.configurator}>
+    <>
+      <section className={styles.productGallery}>
+        <div className={styles.detailVisual}>{activeImage ? <img src={mediaUrl(backend, activeImage)} alt={productName} /> : <span>No image available</span>}</div>
+        {gallery.length > 1 && (
+          <div className={styles.thumbnails} aria-label="Product images">
+            {gallery.map((image, index) => (
+              <button className={image === activeImage ? styles.activeThumbnail : ""} type="button" key={`${image}-${index}`} onClick={() => setActiveImage(image)}>
+                <img src={mediaUrl(backend, image)} alt={`${productName} view ${index + 1}`} />
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+      <section className={styles.configurator}>
       <div className={styles.configForm}>
         <span className={styles.eyebrow}>Configure your product</span>
         <label>
@@ -134,7 +160,7 @@ export default function Configurator({ productId, variants, methods }: { product
           <select value={variantId} onChange={(event) => setVariantId(event.target.value)}>
             {variants.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.color} · {item.title}
+                {item.color}{item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}{item.sku ? ` · ${item.sku}` : ""}
                 {item.stock_quantity !== undefined ? ` · ${item.stock_quantity} available` : ""}
               </option>
             ))}
@@ -179,7 +205,7 @@ export default function Configurator({ productId, variants, methods }: { product
         )}
         {position && (
           <>
-            {position.image_url && <img src={position.image_url} alt={`${position.name} print area`} style={{ maxWidth: "240px", borderRadius: "12px" }} />}
+            {position.image_url && <img src={mediaUrl(backend, position.image_url)} alt={`${position.name} print area`} className={styles.printAreaImage} />}
             <p className={styles.helper}>
               {position.max_width_mm && position.max_height_mm ? `Maximum artwork: ${position.max_width_mm} × ${position.max_height_mm} mm. ` : ""}
               {position.max_colours ? `Up to ${position.max_colours} colours.` : ""}
@@ -249,6 +275,7 @@ export default function Configurator({ productId, variants, methods }: { product
           </p>
         )}
       </aside>
-    </section>
+      </section>
+    </>
   )
 }

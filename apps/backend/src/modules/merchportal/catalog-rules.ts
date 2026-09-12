@@ -1,10 +1,15 @@
 type ObjectValue = Record<string, unknown>
 
+export function normalizedFieldName(value: string) {
+  return value.replace(/[^a-z0-9]/giu, "").toLowerCase()
+}
+
 export function fieldValue(object: unknown, keys: string[]): string | undefined {
   if (!object || typeof object !== "object") return
-  const accepted = new Set(keys.map((key) => key.toLowerCase()))
-  for (const [key, found] of Object.entries(object as ObjectValue)) {
-    if (accepted.has(key.toLowerCase()) && found !== undefined && found !== null) {
+  const entries = new Map(Object.entries(object as ObjectValue).map(([key, found]) => [normalizedFieldName(key), found]))
+  for (const requested of keys) {
+    const found = entries.get(normalizedFieldName(requested))
+    if (found !== undefined && found !== null) {
       if (Array.isArray(found)) {
         const joined = found.filter((item) => typeof item === "string").join(", ")
         if (joined) return joined
@@ -23,9 +28,9 @@ export function fieldValues(object: unknown, keys: string[], output = new Set<st
   if (Array.isArray(object)) {
     object.forEach((item) => fieldValues(item, keys, output))
   } else if (object && typeof object === "object") {
-    const accepted = new Set(keys.map((key) => key.toLowerCase()))
+    const accepted = new Set(keys.map(normalizedFieldName))
     for (const [key, child] of Object.entries(object as ObjectValue)) {
-      if (accepted.has(key.toLowerCase())) {
+      if (accepted.has(normalizedFieldName(key))) {
         const values = Array.isArray(child) ? child : [child]
         for (const item of values) {
           if (typeof item !== "object" && item !== undefined && item !== null) {
@@ -44,23 +49,23 @@ export function fieldValues(object: unknown, keys: string[], output = new Set<st
 }
 
 export function supplierCategory(payload: unknown) {
-  return fieldValue(payload, ["category_level3", "category_level_3", "sub_type_description", "subtypedescription", "category", "category_name", "product_class", "family", "product_family", "subcategory"]) || "Uncategorized"
+  return fieldValue(payload, ["sub_type_description", "sub_type", "category_level3", "category", "category_name", "product_class", "product_family", "family", "type_description", "type"]) || "Uncategorized"
 }
 
 export function productAttributes(payload: unknown) {
   const leadTime = fieldValue(payload, ["lead_time", "delivery_time", "production_time", "delivery_days", "leadtime"])
-  const printValue = fieldValue(payload, ["print_methods", "printing_methods", "printing_techniques", "printing_technique", "printingTechnique", "decoration_methods", "decoration", "print_method"])
+  const printValue = fieldValue(payload, ["customization_types", "customization_type_name", "print_methods", "printing_methods", "printing_techniques", "printing_technique", "decoration_methods", "decoration", "print_method"])
   const printMethods = printValue
     ? printValue
         .split(/[,;|]/)
         .map((item) => item.trim())
         .filter(Boolean)
     : []
-  const sustainabilityText = fieldValue(payload, ["sustainable", "sustainability", "eco", "eco_friendly", "recycled", "material"]) || ""
-  const materials = fieldValues(payload, ["material", "materials", "material_description", "materialdescription"])
+  const sustainabilityText = fieldValue(payload, ["sustainable", "sustainability", "sustainability_certificate", "eco", "eco_friendly", "recycled", "material", "composition"]) || ""
+  const materials = fieldValues(payload, ["material", "materials", "material_description", "composition"])
     .filter((item) => !/^(true|false|yes|no)$/i.test(item))
     .slice(0, 20)
-  const keywords = fieldValues(payload, ["keywords", "product_keywords", "tags", "features"]).slice(0, 40)
+  const keywords = fieldValues(payload, ["keywords", "product_keywords", "tags", "features", "properties"]).slice(0, 40)
   return {
     lead_time: leadTime,
     print_methods: [...new Set(printMethods)].slice(0, 20),

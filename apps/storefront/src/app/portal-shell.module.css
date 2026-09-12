@@ -514,6 +514,65 @@
   grid-template-columns: minmax(280px, 0.8fr) 1fr;
   margin-bottom: 28px;
 }
+.productDetailHeader {
+  margin-bottom: 24px;
+  max-width: 900px;
+}
+.productDetailHeader h1 {
+  font-size: clamp(30px, 5vw, 48px);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  margin: 9px 0 14px;
+}
+.productGallery {
+  margin-bottom: 24px;
+}
+.thumbnails {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  overflow-x: auto;
+  padding: 2px;
+}
+.thumbnails button {
+  background: #fff;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  flex: 0 0 82px;
+  height: 82px;
+  overflow: hidden;
+  padding: 4px;
+}
+.thumbnails button.activeThumbnail {
+  border-color: var(--client-color, #0878e8);
+}
+.thumbnails img {
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+.printAreaImage {
+  background: #edf5f7;
+  border-radius: 12px;
+  max-height: 260px;
+  max-width: 100%;
+  object-fit: contain;
+}
+.variantPreview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.variantPreview span {
+  background: #eef4fb;
+  border-radius: 999px;
+  color: #34465d;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 8px;
+}
 .productDetail h1 {
   font-size: clamp(30px, 5vw, 48px);
   font-weight: 800;
