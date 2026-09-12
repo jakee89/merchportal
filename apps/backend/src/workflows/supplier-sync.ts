@@ -38,6 +38,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   try {
     let publication: Awaited<ReturnType<typeof autoPublishSupplierCatalog>> | undefined
+    const livePublicationErrors: string[] = []
     if (input.kind === "catalog" && !input.dry_run) {
       await updateImportJobActivity(service, job.id, {
         phase: "publishing",
@@ -55,9 +56,14 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
           current_message: total ? `Publishing parent products (${published.toLocaleString()} of ${total.toLocaleString()})` : "All parent products are already published",
         })
       }, async (message) => {
-        await updateImportJobActivity(service, job.id, {
-          current_message: `Skipped one invalid supplier product: ${message}`,
-        })
+        livePublicationErrors.push(message)
+        if (livePublicationErrors.length <= 5 || livePublicationErrors.length % 25 === 0) {
+          await updateImportJobActivity(service, job.id, {
+            current_message: `Publishing continued with ${livePublicationErrors.length.toLocaleString()} product errors`,
+            error_count: livePublicationErrors.length,
+            log: { publication_errors: livePublicationErrors },
+          })
+        }
       })
     }
     const catalog = input.dry_run
@@ -85,12 +91,13 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
       progress_percent: 100,
       completed_at: new Date(),
       error_count: publication?.errors.length || 0,
-      error_message: publication?.errors.length ? `${publication.errors.length} supplier products could not be published. Open the activity log for details.` : null,
+      error_message: publication?.errors.length ? `${publication.errors.length} supplier products could not be published. Download the full log for exact validation details.` : null,
       log: {
         message: "Supplier update completed",
         dry_run: Boolean(input.dry_run),
         published_count: publication?.created || 0,
         catalog_total: publication?.total || catalog.updated_products,
+        publication_errors: publication?.errors || [],
       },
     })
     return new StepResponse({

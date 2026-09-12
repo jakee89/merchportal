@@ -16,6 +16,20 @@ function batches<T>(items: T[], size = 250) {
   return output
 }
 
+function publishErrorDetails(error: unknown) {
+  if (!error || typeof error !== "object") return String(error || "Unknown publishing error")
+  const candidate = error as Record<string, unknown>
+  const details: Record<string, unknown> = {}
+  for (const key of ["name", "message", "type", "code", "status", "statusCode", "detail", "hint", "constraint", "column", "table", "cause", "errors"]) {
+    if (candidate[key] !== undefined) details[key] = candidate[key]
+  }
+  try {
+    const serialized = JSON.stringify(Object.keys(details).length ? details : candidate, Object.getOwnPropertyNames(error))
+    if (serialized && serialized !== "{}") return serialized.slice(0, 4_000)
+  } catch {}
+  return error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+}
+
 async function listAllPublishedProductSources(service: any, filters: Record<string, unknown>) {
   const sources: any[] = []
   const take = 5000
@@ -418,13 +432,25 @@ export async function autoPublishSupplierCatalog(container: any, supplierCode: "
     try {
       const result = await publishNormalizedProductBatch(container, group)
       created += result.created
-    } catch {
+    } catch (groupError) {
       for (const product of group) {
         try {
           const result = await publishNormalizedProductBatch(container, [product])
           created += result.created
         } catch (error) {
-          const message = `${product.title}: ${error instanceof Error ? error.message : "Could not publish product"}`.slice(0, 500)
+          const variantSummary = product.variants
+            .slice(0, 5)
+            .map((variant) => `${variant.sku} [${variant.color} / ${variant.size}]`)
+            .join(", ")
+          const message = [
+            `Supplier=${product.supplier_code}`,
+            `Product=${product.title}`,
+            `Source=${product.source_key}`,
+            `Variants=${product.variants.length}`,
+            `Sample=${variantSummary}`,
+            `Error=${publishErrorDetails(error)}`,
+            `BatchError=${publishErrorDetails(groupError)}`,
+          ].join(" | ").slice(0, 8_000)
           errors.push(message)
           await onIssue?.(message)
         }

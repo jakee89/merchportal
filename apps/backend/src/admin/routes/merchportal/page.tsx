@@ -494,7 +494,12 @@ const MerchPortalPage = () => {
               )}
               {job.error_message && (
                 <div className="mt-2 rounded bg-ui-bg-component p-2">
-                  <Text size="small" className="text-ui-fg-error">Error details</Text>
+                  <div className="flex items-center justify-between gap-3">
+                    <Text size="small" className="text-ui-fg-error">Error details</Text>
+                    <a className="text-ui-fg-interactive text-sm font-medium" href={`/admin/merchportal/import-jobs/${job.id}/log`} download>
+                      Download full log
+                    </a>
+                  </div>
                   <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-ui-fg-error">{job.error_message}</pre>
                 </div>
               )}
