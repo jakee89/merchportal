@@ -346,48 +346,64 @@ export async function publishNormalizedProductBatch(container: any, pending: Nor
     createdCategories.forEach((category: any) => categoryByName.set(category.name, category))
   }
 
-  const { result: products } = await createProductsWorkflow(container).run({
-    input: {
-      products: pending.map((product) => ({
-        title: product.title,
-        subtitle: product.category,
-        description: product.description,
-        handle: normalizedProductHandle(product),
-        external_id: product.source_key,
-        category_ids: product.category ? [categoryByName.get(product.category)?.id].filter(Boolean) : [],
-        status: ProductStatus.PUBLISHED,
-        shipping_profile_id: profiles[0].id,
-        sales_channels: [{ id: salesChannels[0].id }],
-        thumbnail: product.images[0],
-        images: product.images.map((url) => ({ url })),
-        options: [
-          {
-            title: "Color",
-            values: [...new Set(product.variants.map((variant) => variant.color))],
-          },
-          {
-            title: "Size",
-            values: [...new Set(product.variants.map((variant) => variant.size))],
-          },
-        ],
-        variants: product.variants.map((variant) => ({
-          title: variant.title,
-          sku: variant.sku,
-          manage_inventory: true,
-          options: { Color: variant.color, Size: variant.size },
-          prices:
-            variant.price_eur !== undefined
-              ? [
-                  {
-                    currency_code: "eur",
-                    amount: sellingPrice(variant.price_eur, markup),
-                  },
-                ]
-              : [],
-        })),
-      })) as any,
-    },
+  const { data: existingProducts } = await query.graph({
+    entity: "product",
+    fields: ["id", "title", "external_id", "variants.id", "variants.sku"],
+    filters: { external_id: pending.map((product) => product.source_key) },
   })
+  const existingKeys = new Set(existingProducts.map((product: any) => product.external_id))
+  const productsToCreate = pending.filter((product) => !existingKeys.has(product.source_key))
+  let createdProducts: any[] = []
+  if (productsToCreate.length) {
+    const created = await createProductsWorkflow(container).run({
+      input: {
+        products: productsToCreate.map((product) => ({
+          title: product.title,
+          subtitle: product.category,
+          description: product.description,
+          handle: normalizedProductHandle(product),
+          external_id: product.source_key,
+          category_ids: product.category ? [categoryByName.get(product.category)?.id].filter(Boolean) : [],
+          status: ProductStatus.PUBLISHED,
+          shipping_profile_id: profiles[0].id,
+          sales_channels: [{ id: salesChannels[0].id }],
+          thumbnail: product.images[0],
+          images: product.images.map((url) => ({ url })),
+          options: [
+            {
+              title: "Color",
+              values: [...new Set(product.variants.map((variant) => variant.color))],
+            },
+            {
+              title: "Size",
+              values: [...new Set(product.variants.map((variant) => variant.size))],
+            },
+          ],
+          variants: product.variants.map((variant) => ({
+            title: variant.title,
+            sku: variant.sku,
+            manage_inventory: true,
+            options: { Color: variant.color, Size: variant.size },
+            prices:
+              variant.price_eur !== undefined
+                ? [
+                    {
+                      currency_code: "eur",
+                      amount: sellingPrice(variant.price_eur, markup),
+                    },
+                  ]
+                : [],
+          })),
+        })) as any,
+      },
+    })
+    createdProducts = created.result
+  }
+  const products = [...existingProducts, ...createdProducts]
+
+  // Make products client-visible before optional inventory work. A stock failure
+  // must never leave valid native products disconnected from the client catalog.
+  await persistProductSources(container, pending, products)
 
   const stockBySku = new Map(pending.flatMap((product) => product.variants.map((variant) => [variant.sku, variant.stock_quantity] as const)))
   const skus = [...stockBySku.keys()]
@@ -410,10 +426,8 @@ export async function publishNormalizedProductBatch(container: any, pending: Nor
       })
     }
   }
-  await persistProductSources(container, pending, products)
-
   return {
-    created: products.length,
+    created: createdProducts.length,
     products: products.map((product: any) => ({
       id: product.id,
       title: product.title,
@@ -425,6 +439,7 @@ export async function autoPublishSupplierCatalog(container: any, supplierCode: "
   const normalized = await normalizeSupplierCatalog(container, { supplier_code: supplierCode, take: Number.MAX_SAFE_INTEGER })
   const pending = normalized.filter((product) => !product.published && product.variants.length)
   let created = 0
+  let consecutiveErrors = 0
   const errors: string[] = []
   await onProgress?.(0, pending.length)
   for (let index = 0; index < pending.length; index += 5) {
@@ -432,11 +447,13 @@ export async function autoPublishSupplierCatalog(container: any, supplierCode: "
     try {
       const result = await publishNormalizedProductBatch(container, group)
       created += result.created
+      consecutiveErrors = 0
     } catch (groupError) {
       for (const product of group) {
         try {
           const result = await publishNormalizedProductBatch(container, [product])
           created += result.created
+          consecutiveErrors = 0
         } catch (error) {
           const variantSummary = product.variants
             .slice(0, 5)
@@ -452,7 +469,11 @@ export async function autoPublishSupplierCatalog(container: any, supplierCode: "
             `BatchError=${publishErrorDetails(groupError)}`,
           ].join(" | ").slice(0, 8_000)
           errors.push(message)
+          consecutiveErrors += 1
           await onIssue?.(message)
+          if (consecutiveErrors >= 10) {
+            throw new Error(`Publishing stopped after ${consecutiveErrors} consecutive product failures. Latest diagnostic: ${message}`)
+          }
         }
       }
     }

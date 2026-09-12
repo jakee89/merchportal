@@ -57,7 +57,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
         })
       }, async (message) => {
         livePublicationErrors.push(message)
-        if (livePublicationErrors.length <= 5 || livePublicationErrors.length % 25 === 0) {
+        if (livePublicationErrors.length <= 10 || livePublicationErrors.length % 25 === 0) {
           await updateImportJobActivity(service, job.id, {
             current_message: `Publishing continued with ${livePublicationErrors.length.toLocaleString()} product errors`,
             error_count: livePublicationErrors.length,
