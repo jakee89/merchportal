@@ -42,13 +42,15 @@ export async function updateImportJobActivity(service: any, id: string, data: Re
 
 export async function stopIfImportCancelled(service: any, id: string) {
   const job = await service.retrieveImportJob(id)
-  if (job.status !== "cancelling") return false
-  await updateImportJobActivity(service, id, {
-    status: "cancelled",
-    phase: "cancelled",
-    current_message: "Stopped by staff",
-    completed_at: new Date(),
-  })
+  if (job.status !== "cancelling" && job.status !== "cancelled") return false
+  if (job.status === "cancelling") {
+    await updateImportJobActivity(service, id, {
+      status: "cancelled",
+      phase: "cancelled",
+      current_message: "Stopped by staff",
+      completed_at: new Date(),
+    })
+  }
   throw new ImportCancelledError()
 }
 
