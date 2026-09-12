@@ -3,15 +3,7 @@ import { ContainerRegistrationKeys, ProductStatus } from "@medusajs/framework/ut
 import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
 import { sellingPrice } from "../../../modules/merchportal/catalog-rules"
 import { resolveMarkup } from "../../../workflows/manage-pricing-rules"
-
-const catalogCache = new Map<string, { expires: number; products: any[]; facets: any }>()
-
-function removeExpiredCatalogCacheEntries() {
-  const now = Date.now()
-  for (const [key, value] of catalogCache) {
-    if (value.expires <= now) catalogCache.delete(key)
-  }
-}
+import { portalCatalogCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
 
 function queryText(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
@@ -43,8 +35,8 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     service.listImportJobs({ status: "completed" }, { take: 1, order: { completed_at: "DESC" } }),
   ])
   const cacheKey = `${markup}:${completedJobs[0]?.id || "initial"}`
-  removeExpiredCatalogCacheEntries()
-  const cached = catalogCache.get(cacheKey)
+  removeExpiredPortalCatalogCacheEntries()
+  const cached = portalCatalogCache.get(cacheKey)
   let safeProducts: any[]
   let facets: any
   if (cached && cached.expires > Date.now()) {
@@ -136,7 +128,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
       lead_times: [...new Set(safeProducts.map((product) => product.lead_time).filter(Boolean))].sort(),
       print_methods: [...new Set(safeProducts.flatMap((product) => product.print_methods))].sort(),
     }
-    catalogCache.set(cacheKey, {
+    portalCatalogCache.set(cacheKey, {
       expires: Date.now() + 60_000,
       products: safeProducts,
       facets,

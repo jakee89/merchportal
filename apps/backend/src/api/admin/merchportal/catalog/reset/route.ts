@@ -1,5 +1,6 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { MedusaError } from "@medusajs/framework/utils"
+import { clearPortalCatalogCache } from "../../../../../modules/merchportal/catalog-cache"
 import { resetSupplierCatalogWorkflow } from "../../../../../workflows/reset-supplier-catalog"
 import { requireStaff } from "../../auth"
 
@@ -11,5 +12,6 @@ export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaRes
     throw new MedusaError(MedusaError.Types.INVALID_DATA, "Type RESET to confirm")
   }
   const { result } = await resetSupplierCatalogWorkflow(req.scope).run()
+  clearPortalCatalogCache()
   res.json({ reset: result })
 }

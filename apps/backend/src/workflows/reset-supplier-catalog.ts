@@ -1,5 +1,5 @@
 import { createStep, createWorkflow, StepResponse, WorkflowResponse } from "@medusajs/framework/workflows-sdk"
-import { MedusaError, Modules } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, MedusaError, Modules } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
 
 function batches<T>(items: T[], size = 250) {
@@ -25,6 +25,8 @@ const resetSupplierCatalogStep = createStep(
   async (_, { container }) => {
     const service = container.resolve(MERCHPORTAL_MODULE) as any
     const productService = container.resolve(Modules.PRODUCT) as any
+    const inventoryService = container.resolve(Modules.INVENTORY) as any
+    const query = container.resolve(ContainerRegistrationKeys.QUERY)
     const activeJobs = await service.listImportJobs(
       { status: ["queued", "running", "cancelling"] },
       { take: 1 }
@@ -46,6 +48,18 @@ const resetSupplierCatalogStep = createStep(
 
     for (const batch of batches(productIds, 100)) {
       await productService.deleteProducts(batch)
+    }
+
+    const { data: inventoryItems } = await query.graph({
+      entity: "inventory_item",
+      fields: ["id", "variants.id"],
+      pagination: { take: 50000 },
+    })
+    const orphanInventoryIds = inventoryItems
+      .filter((item: any) => !item.variants?.length)
+      .map((item: any) => item.id)
+    for (const batch of batches(orphanInventoryIds)) {
+      await inventoryService.deleteInventoryItems(batch)
     }
     for (const batch of batches(configurations.map((record) => record.id))) {
       await service.deleteProductConfigurations(batch)
@@ -70,6 +84,7 @@ const resetSupplierCatalogStep = createStep(
       deleted_products: productIds.length,
       deleted_supplier_records: rawRecords.length,
       deleted_configurations: configurations.length,
+      deleted_inventory_items: orphanInventoryIds.length,
     })
   }
 )
