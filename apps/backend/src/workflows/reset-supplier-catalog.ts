@@ -108,6 +108,6 @@ const resetSupplierCatalogStep = createStep(
 )
 
 export const resetSupplierCatalogWorkflow = createWorkflow(
-  "reset-supplier-catalog-workflow",
+  "reset-supplier-catalog",
   () => new WorkflowResponse(resetSupplierCatalogStep())
 )

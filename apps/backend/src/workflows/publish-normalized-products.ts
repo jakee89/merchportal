@@ -1,5 +1,5 @@
 import { createStep, createWorkflow, StepResponse, WorkflowResponse } from "@medusajs/framework/workflows-sdk"
-import { ContainerRegistrationKeys, MedusaError, ProductStatus } from "@medusajs/framework/utils"
+import { ContainerRegistrationKeys, MedusaError, Modules, ProductStatus } from "@medusajs/framework/utils"
 import { createInventoryLevelsWorkflow, createProductCategoriesWorkflow, createProductVariantsWorkflow, createProductsWorkflow, updateInventoryLevelsWorkflow, updateProductVariantsWorkflow } from "@medusajs/medusa/core-flows"
 import { normalizeSupplierCatalog, normalizedProductHandle, type NormalizedProduct } from "../modules/merchportal/normalization"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
@@ -486,7 +486,7 @@ export async function autoPublishSupplierCatalog(container: any, supplierCode: "
           consecutiveErrors += 1
           await onIssue?.(message)
           if (consecutiveErrors >= 10) {
-            throw new Error(`Publishing stopped after ${consecutiveErrors} consecutive product failures. Latest diagnostic: ${message}`)
+            throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, `Publishing stopped after ${consecutiveErrors} consecutive product failures. Latest diagnostic: ${message}`)
           }
         }
       }
