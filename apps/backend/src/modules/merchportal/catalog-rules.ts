@@ -52,6 +52,42 @@ export function supplierCategory(payload: unknown) {
   return fieldValue(payload, ["sub_type_description", "sub_type", "category_level3", "category", "category_name", "product_class", "product_family", "family", "type_description", "type"]) || "Uncategorized"
 }
 
+export function categoryHierarchy(payload: unknown) {
+  return [
+    fieldValue(payload, ["category_level1", "type_description", "type"]),
+    fieldValue(payload, ["category_level2", "sub_type_description", "sub_type", "subcategory"]),
+    fieldValue(payload, ["category_level3", "category", "category_name"]),
+  ].filter((item, index, all): item is string => Boolean(item) && all.indexOf(item) === index)
+}
+
+export function productSpecifications(payload: unknown) {
+  const fields: Array<[string, string[]]> = [
+    ["Material", ["material_description", "materials", "material", "composition"]],
+    ["Dimensions", ["combined_sizes", "product_dimensions", "dimensions"]],
+    ["Width", ["width_mm", "product_width", "width"]],
+    ["Height", ["height_mm", "product_height", "height"]],
+    ["Length", ["length_mm", "product_length", "length"]],
+    ["Diameter", ["diameter_mm", "diameter"]],
+    ["Capacity", ["capacity_ml", "capacity"]],
+    ["Net weight", ["net_weight", "product_weight", "weight"]],
+    ["Gross weight", ["gross_weight"]],
+    ["Country of origin", ["country_of_origin", "origin_country"]],
+    ["Tariff code", ["taric_code", "tariff_code", "customs_code", "commodity_code"]],
+    ["EAN", ["ean", "ean13", "barcode", "gtin"]],
+    ["Units per carton", ["units_per_carton", "carton_quantity", "master_carton_quantity"]],
+    ["Inner carton", ["inner_carton_quantity", "inner_quantity"]],
+    ["Carton dimensions", ["carton_dimensions", "master_carton_dimensions"]],
+    ["Carton weight", ["carton_weight", "carton_gross_weight"]],
+    ["Certificates", ["certificates", "certifications"]],
+    ["Recycled content", ["recycled_content", "recycled_percentage"]],
+    ["Properties", ["properties", "product_indicators", "labels"]],
+  ]
+  return fields.flatMap(([label, keys]) => {
+    const value = fieldValue(payload, keys)
+    return value ? [{ label, value }] : []
+  })
+}
+
 export function productAttributes(payload: unknown) {
   const leadTime = fieldValue(payload, ["lead_time", "delivery_time", "production_time", "delivery_days", "leadtime"])
   const printValue = fieldValue(payload, ["customization_types", "customization_type_name", "print_methods", "printing_methods", "printing_techniques", "printing_technique", "decoration_methods", "decoration", "print_method"])

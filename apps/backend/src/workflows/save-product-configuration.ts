@@ -5,6 +5,14 @@ import { sellingPrice } from "../modules/merchportal/catalog-rules"
 import { decorationPrice, type DecorationMethod } from "../modules/merchportal/decoration"
 import { resolveMarkup } from "./manage-pricing-rules"
 
+type DecorationInput = {
+  branding_method: string
+  print_position: string
+  print_colours?: number
+  print_width_mm?: number
+  print_height_mm?: number
+}
+
 type Input = {
   actor_id: string
   product_id: string
@@ -16,6 +24,7 @@ type Input = {
   print_colours?: number
   print_width_mm?: number
   print_height_mm?: number
+  decorations?: DecorationInput[]
   artwork_file_id?: string
   artwork_filename?: string
 }
@@ -24,53 +33,43 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const memberships = await service.listMemberships({ actor_id: input.actor_id, actor_type: "customer", status: "active" }, { take: 1 })
   if (!memberships.length) throw new MedusaError(MedusaError.Types.UNAUTHORIZED, "Active company membership required")
-  if (!Number.isInteger(input.quantity) || input.quantity < 1 || input.quantity > 100000) {
-    throw new MedusaError(MedusaError.Types.INVALID_DATA, "Quantity must be between 1 and 100,000")
-  }
+  if (!Number.isInteger(input.quantity) || input.quantity < 1 || input.quantity > 100000) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Quantity must be between 1 and 100,000")
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const { data: products } = await query.graph({
-    entity: "product",
-    fields: ["id", "variants.id", "variants.sku", "variants.prices.amount", "variants.prices.currency_code"],
-    filters: { id: input.product_id },
-  })
-  const product = products[0]
-  const variant = product?.variants?.find((item: any) => item.id === input.variant_id) as any
+  const { data: products } = await query.graph({ entity: "product", fields: ["id", "variants.id", "variants.sku", "variants.prices.amount", "variants.prices.currency_code"], filters: { id: input.product_id } })
+  const variant = products[0]?.variants?.find((item: any) => item.id === input.variant_id) as any
   if (!variant) throw new MedusaError(MedusaError.Types.NOT_FOUND, "Product option no longer exists")
   const sources = await service.listPublishedProductSources({ product_id: input.product_id }, { take: 1 })
   if (!sources.length) throw new MedusaError(MedusaError.Types.NOT_FOUND, "Product configuration is unavailable")
   const source = sources[0]
   const methods = (Array.isArray(source.decoration_options) ? source.decoration_options : []) as DecorationMethod[]
-  const method = input.branding_method ? methods.find((item) => item.id === input.branding_method) : undefined
-  if (input.branding_method && !method) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose an available branding method")
-  if (method && input.print_position && !method.positions.some((item) => item.id === input.print_position)) {
-    throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose an available print position")
-  }
-  const position = method?.positions.find((item) => item.id === input.print_position)
-  if (input.print_colours && (input.print_colours < 1 || (position?.max_colours && input.print_colours > position.max_colours))) {
-    throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose a valid number of print colours")
-  }
-  if ((input.print_width_mm && input.print_width_mm < 1) || (input.print_height_mm && input.print_height_mm < 1) || (position?.max_width_mm && input.print_width_mm && input.print_width_mm > position.max_width_mm) || (position?.max_height_mm && input.print_height_mm && input.print_height_mm > position.max_height_mm)) {
-    throw new MedusaError(MedusaError.Types.INVALID_DATA, "Artwork dimensions exceed the selected print area")
-  }
+  const requested: DecorationInput[] = input.decorations?.length
+    ? input.decorations
+    : input.branding_method && input.print_position
+      ? [{ branding_method: input.branding_method, print_position: input.print_position, print_colours: input.print_colours, print_width_mm: input.print_width_mm, print_height_mm: input.print_height_mm }]
+      : []
   const indexedVariant = ((source.catalog_document as any)?.variants || []).find((item: any) => item.sku === variant.sku)
   const priceBreaks = Array.isArray(indexedVariant?.price_breaks) ? indexedVariant.price_breaks : []
-  const selectedCost = [...priceBreaks]
-    .filter((item: any) => Number(item.quantity) <= input.quantity)
-    .sort((left: any, right: any) => Number(right.quantity) - Number(left.quantity))[0]?.price_eur
+  const selectedCost = [...priceBreaks].filter((item: any) => Number(item.quantity) <= input.quantity).sort((left: any, right: any) => Number(right.quantity) - Number(left.quantity))[0]?.price_eur
   const cost = Number(selectedCost ?? (source.cost_by_sku || {})[String(variant.sku || "")])
   const nativePrice = Number(variant.prices?.find((item: any) => item.currency_code === "eur")?.amount)
   const markup = await resolveMarkup(service, memberships[0].organization_id)
   const baseUnitPrice = Number.isFinite(cost) ? sellingPrice(cost, markup) : nativePrice
   if (!Number.isFinite(baseUnitPrice)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Price is unavailable for this option")
-  const branding = decorationPrice(method, input.quantity, {
-    colours: input.print_colours,
-    width_mm: input.print_width_mm,
-    height_mm: input.print_height_mm,
-    color_code: indexedVariant?.color_code,
+
+  const decorationLines = requested.map((line) => {
+    const method = methods.find((item) => item.id === line.branding_method)
+    if (!method) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose an available branding method")
+    const position = method.positions.find((item) => item.id === line.print_position)
+    if (!position) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose an available print position")
+    if (line.print_colours && (line.print_colours < 1 || (position.max_colours && line.print_colours > position.max_colours))) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose a valid number of print colours")
+    if ((line.print_width_mm && line.print_width_mm < 1) || (line.print_height_mm && line.print_height_mm < 1) || (position.max_width_mm && line.print_width_mm && line.print_width_mm > position.max_width_mm) || (position.max_height_mm && line.print_height_mm && line.print_height_mm > position.max_height_mm)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Artwork dimensions exceed the selected print area")
+    const price = decorationPrice(method, input.quantity, { colours: line.print_colours, width_mm: line.print_width_mm, height_mm: line.print_height_mm, color_code: indexedVariant?.color_code })
+    return { ...line, method_name: method.name, position_name: position.name, unit_price_eur: sellingPrice(price.unit + price.handling, markup), setup_price_eur: sellingPrice(price.setup, markup), price_pending: price.pending }
   })
-  const brandingUnitPrice = sellingPrice(branding.unit + branding.handling, markup)
-  const setupPrice = sellingPrice(branding.setup, markup)
+  const brandingUnitPrice = decorationLines.reduce((sum, line) => sum + line.unit_price_eur, 0)
+  const setupPrice = decorationLines.reduce((sum, line) => sum + line.setup_price_eur, 0)
   const total = Math.round(((baseUnitPrice + brandingUnitPrice) * input.quantity + setupPrice) * 100) / 100
+  const first = decorationLines[0]
   const configuration = await service.createProductConfigurations({
     organization_id: memberships[0].organization_id,
     actor_id: input.actor_id,
@@ -78,29 +77,22 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
     variant_id: input.variant_id,
     quantity: input.quantity,
     color: input.color,
-    branding_method: input.branding_method || null,
-    print_position: input.print_position || null,
-    print_colours: input.print_colours || null,
-    print_width_mm: input.print_width_mm || null,
-    print_height_mm: input.print_height_mm || null,
+    branding_method: first?.branding_method || null,
+    print_position: first?.print_position || null,
+    print_colours: first?.print_colours || null,
+    print_width_mm: first?.print_width_mm || null,
+    print_height_mm: first?.print_height_mm || null,
+    decoration_lines: decorationLines,
     artwork_file_id: input.artwork_file_id || null,
     artwork_filename: input.artwork_filename || null,
     base_unit_price: baseUnitPrice,
     branding_unit_price: brandingUnitPrice,
     setup_price: setupPrice,
     estimated_total: total,
-    branding_price_pending: Boolean(method) && branding.pending,
-    status: input.artwork_file_id || !method ? "ready" : "draft",
+    branding_price_pending: decorationLines.some((line) => line.price_pending),
+    status: input.artwork_file_id || !decorationLines.length ? "ready" : "draft",
   })
-  return new StepResponse({
-    id: configuration.id,
-    base_unit_price: baseUnitPrice,
-    branding_unit_price: brandingUnitPrice,
-    setup_price: setupPrice,
-    estimated_total: total,
-    branding_price_pending: Boolean(method) && branding.pending,
-    status: configuration.status,
-  })
+  return new StepResponse({ id: configuration.id, base_unit_price: baseUnitPrice, branding_unit_price: brandingUnitPrice, setup_price: setupPrice, estimated_total: total, branding_price_pending: decorationLines.some((line) => line.price_pending), decoration_lines: decorationLines, status: configuration.status })
 })
 
 export const saveProductConfigurationWorkflow = createWorkflow("save-product-configuration", (input: Input) => new WorkflowResponse(saveConfigurationStep(input)))

@@ -18,7 +18,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
   const { data } = await query.graph({
     entity: "product",
-    fields: ["id", "title", "description", "thumbnail", "images.url", "status", "sales_channels.name", "variants.id", "variants.title", "variants.sku", "variants.inventory_quantity", "variants.prices.amount", "variants.prices.currency_code", "variants.options.value", "variants.options.option.title"],
+    fields: ["id", "title", "description", "thumbnail", "images.url", "status", "categories.name", "sales_channels.name", "variants.id", "variants.title", "variants.sku", "variants.inventory_quantity", "variants.prices.amount", "variants.prices.currency_code", "variants.options.value", "variants.options.option.title"],
     filters: { id: req.params.id, status: ProductStatus.PUBLISHED },
   })
   const product = data[0]
@@ -42,6 +42,9 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         title: indexedVariant?.title || variant.title,
         color,
         size: indexedVariant?.size,
+        ean: indexedVariant?.ean,
+        pantone: indexedVariant?.pantone,
+        dimensions: indexedVariant?.dimensions,
         images: Array.isArray(indexedVariant?.images) ? indexedVariant.images : [],
         stock_quantity: variant.inventory_quantity,
         price_eur: Number.isFinite(cost) ? sellingPrice(cost, markup) : nativePrice,
@@ -83,14 +86,37 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           : [],
       }))
     : []
+  const relatedSources = await service.listPublishedProductSources({}, { take: 200, order: { updated_at: "DESC" } })
+  const related = relatedSources
+    .filter((item: any) => item.product_id !== product.id && item.catalog_document?.category === catalogDocument.category)
+    .slice(0, 6)
+    .map((item: any) => {
+      const document = item.catalog_document || {}
+      const costs = Object.values(item.cost_by_sku || {}).map(Number).filter(Number.isFinite)
+      return {
+        id: item.product_id,
+        name: document.name,
+        image_url: document.image_url,
+        price_eur: costs.length ? sellingPrice(Math.min(...costs), markup) : undefined,
+      }
+    })
   res.json({
     product: {
       id: product.id,
       name: catalogDocument.name || product.title,
       description: catalogDocument.description || product.description,
+      short_description: catalogDocument.short_description,
+      code: catalogDocument.supplier_product_code || catalogDocument.variants?.[0]?.sku,
+      category: catalogDocument.category || product.categories?.[0]?.name,
+      category_hierarchy: catalogDocument.category_hierarchy || [catalogDocument.category].filter(Boolean),
+      brand: catalogDocument.brand,
+      sustainable: Boolean(catalogDocument.sustainable),
+      specifications: catalogDocument.specifications || (source.attributes as any)?.specifications || [],
+      downloads: catalogDocument.downloads || [],
       images: [...(catalogDocument.images || []), product.thumbnail, ...(product.images || []).map((item: any) => item.url)].filter((item, index, all) => item && all.indexOf(item) === index),
       variants,
       decoration_options: decorationOptions,
+      related,
     },
   })
 }
@@ -106,6 +132,13 @@ type Body = {
   print_height_mm?: number
   artwork_file_id?: string
   artwork_filename?: string
+  decorations?: Array<{
+    branding_method: string
+    print_position: string
+    print_colours?: number
+    print_width_mm?: number
+    print_height_mm?: number
+  }>
 }
 
 export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaResponse) {
@@ -125,6 +158,7 @@ export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaRes
       print_height_mm: req.body.print_height_mm,
       artwork_file_id: req.body.artwork_file_id,
       artwork_filename: req.body.artwork_filename,
+      decorations: req.body.decorations,
     },
   })
   res.status(201).json({ configuration: result })

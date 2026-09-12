@@ -16,6 +16,19 @@ function queryNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
+function queryValues(value: unknown) {
+  const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : []
+  return values.map((item) => String(item).trim()).filter(Boolean)
+}
+
+function facet(items: any[], values: (product: any) => string[]) {
+  const counts = new Map<string, number>()
+  for (const product of items) {
+    for (const value of new Set(values(product).filter(Boolean))) counts.set(value, (counts.get(value) || 0) + 1)
+  }
+  return [...counts].map(([value, count]) => ({ value, count })).sort((left, right) => left.value.localeCompare(right.value))
+}
+
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
   const membership = await service.listMemberships(
@@ -61,11 +74,29 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         })
         const prices = variants.map((variant: any) => variant.price_eur).filter(Number.isFinite)
         return {
-          ...document,
+          id: document.id,
+          name: document.name,
           description: document.short_description || document.description,
           sku: variants[0]?.sku,
+          image_url: document.image_url,
+          category: document.category,
+          category_hierarchy: document.category_hierarchy || [document.category].filter(Boolean),
+          colors: document.colors || [],
+          materials: document.materials || [],
+          brand: document.brand,
+          lead_time: document.lead_time,
+          sustainable: Boolean(document.sustainable),
+          print_methods: document.print_methods || [],
+          keywords: document.keywords || [],
           price_eur: prices.length ? Math.min(...prices) : undefined,
-          variants,
+          max_price_eur: prices.length ? Math.max(...prices) : undefined,
+          stock_quantity: document.stock_quantity,
+          color_options: variants.reduce((items: any[], variant: any) => {
+            const color = variant.color_group || variant.color
+            if (!color || items.some((item) => item.name === color)) return items
+            items.push({ name: color, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })
+            return items
+          }, []).slice(0, 12),
         }
       })
     } else {
@@ -121,12 +152,12 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     }
 
     facets = {
-      categories: [...new Set(safeProducts.map((product) => product.category).filter(Boolean))].sort(),
-      colors: [...new Set(safeProducts.flatMap((product) => product.colors))].sort(),
-      materials: [...new Set(safeProducts.flatMap((product) => product.materials || []))].sort(),
-      brands: [...new Set(safeProducts.map((product) => product.brand).filter(Boolean))].sort(),
-      lead_times: [...new Set(safeProducts.map((product) => product.lead_time).filter(Boolean))].sort(),
-      print_methods: [...new Set(safeProducts.flatMap((product) => product.print_methods))].sort(),
+      categories: facet(safeProducts, (product) => product.category_hierarchy || [product.category]),
+      colors: facet(safeProducts, (product) => product.colors || []),
+      materials: facet(safeProducts, (product) => product.materials || []),
+      brands: facet(safeProducts, (product) => [product.brand]),
+      lead_times: facet(safeProducts, (product) => [product.lead_time]),
+      print_methods: facet(safeProducts, (product) => product.print_methods || []),
     }
     portalCatalogCache.set(cacheKey, {
       expires: Date.now() + 60_000,
@@ -135,29 +166,37 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     })
   }
   const search = queryText(req.query.q).toLowerCase()
-  const category = queryText(req.query.category)
-  const color = queryText(req.query.color)
-  const material = queryText(req.query.material)
-  const brand = queryText(req.query.brand)
-  const leadTime = queryText(req.query.lead_time)
-  const printMethod = queryText(req.query.print_method)
+  const categories = queryValues(req.query.category)
+  const colors = queryValues(req.query.color)
+  const materials = queryValues(req.query.material)
+  const brands = queryValues(req.query.brand)
+  const leadTimes = queryValues(req.query.lead_time)
+  const printMethods = queryValues(req.query.print_method)
   const minPrice = queryNumber(req.query.min_price)
   const maxPrice = queryNumber(req.query.max_price)
   const inStock = req.query.in_stock === "true"
   const sustainable = req.query.sustainable === "true"
   const filtered = safeProducts.filter((product) => {
     if (search && !`${product.name} ${product.description || ""} ${product.sku || ""} ${(product.keywords || []).join(" ")}`.toLowerCase().includes(search)) return false
-    if (category && product.category !== category) return false
-    if (color && !product.colors.includes(color)) return false
-    if (material && !(product.materials || []).includes(material)) return false
-    if (brand && product.brand !== brand) return false
-    if (leadTime && product.lead_time !== leadTime) return false
-    if (printMethod && !product.print_methods.includes(printMethod)) return false
+    if (categories.length && !categories.some((category) => (product.category_hierarchy || [product.category]).includes(category))) return false
+    if (colors.length && !colors.some((color) => product.colors.includes(color))) return false
+    if (materials.length && !materials.some((material) => (product.materials || []).includes(material))) return false
+    if (brands.length && !brands.includes(product.brand)) return false
+    if (leadTimes.length && !leadTimes.includes(product.lead_time)) return false
+    if (printMethods.length && !printMethods.some((method) => product.print_methods.includes(method))) return false
     if (minPrice !== undefined && (product.price_eur === undefined || product.price_eur < minPrice)) return false
     if (maxPrice !== undefined && (product.price_eur === undefined || product.price_eur > maxPrice)) return false
     if (inStock && !(product.stock_quantity && product.stock_quantity > 0)) return false
     if (sustainable && !product.sustainable) return false
     return true
+  })
+  const sort = queryText(req.query.sort)
+  filtered.sort((left, right) => {
+    if (sort === "price_asc") return (left.price_eur ?? Number.POSITIVE_INFINITY) - (right.price_eur ?? Number.POSITIVE_INFINITY)
+    if (sort === "price_desc") return (right.price_eur ?? Number.NEGATIVE_INFINITY) - (left.price_eur ?? Number.NEGATIVE_INFINITY)
+    if (sort === "name_asc") return left.name.localeCompare(right.name)
+    if (sort === "name_desc") return right.name.localeCompare(left.name)
+    return String(left.name).localeCompare(String(right.name))
   })
   const pageSize = Math.max(12, Math.min(48, Math.floor(queryNumber(req.query.page_size) || 24)))
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))

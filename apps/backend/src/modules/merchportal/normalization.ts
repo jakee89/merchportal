@@ -1,7 +1,7 @@
 import { createHash, createHmac } from "node:crypto"
 import type { MedusaContainer } from "@medusajs/framework/types"
 import { MERCHPORTAL_MODULE } from "."
-import { fieldValue, normalizedFieldName, productAttributes, supplierCategory } from "./catalog-rules"
+import { categoryHierarchy, fieldValue, normalizedFieldName, productAttributes, productSpecifications, supplierCategory } from "./catalog-rules"
 import { normalizeDecorationOptions, type DecorationMethod } from "./decoration"
 import { supplierImageToken } from "./media"
 
@@ -15,6 +15,9 @@ export type NormalizedVariant = {
   color_code?: string
   color_group?: string
   size: string
+  ean?: string
+  pantone?: string
+  dimensions?: string
   images: string[]
   price_eur?: number
   price_breaks: Array<{ quantity: number; price_eur: number }>
@@ -44,7 +47,10 @@ export type NormalizedProduct = {
     dimensions?: string
     weight?: string
     keywords: string[]
+    specifications: Array<{ label: string; value: string }>
   }
+  category_hierarchy: string[]
+  downloads: Array<{ name: string; url: string }>
   images: string[]
   variants: NormalizedVariant[]
   published: boolean
@@ -61,7 +67,7 @@ function value(object: ObjectValue, keys: string[]) {
 function numberValue(object: unknown, keys: string[]): number | undefined {
   if (!object || typeof object !== "object") return
   for (const [key, child] of Object.entries(object as ObjectValue)) {
-    if (keys.some((candidate) => candidate.toLowerCase() === key.toLowerCase())) {
+    if (keys.some((candidate) => normalizedFieldName(candidate) === normalizedFieldName(key))) {
       const parsed = Number(typeof child === "string" ? child.replace(",", ".") : child)
       if (Number.isFinite(parsed)) return parsed
     }
@@ -101,6 +107,20 @@ function variantRows(payload: ObjectValue) {
     }
   }
   return [payload]
+}
+
+function downloadUrls(object: unknown, output = new Map<string, string>()): Array<{ name: string; url: string }> {
+  if (Array.isArray(object)) object.forEach((item) => downloadUrls(item, output))
+  else if (object && typeof object === "object") {
+    for (const [name, candidate] of Object.entries(object as ObjectValue)) {
+      const key = normalizedFieldName(name)
+      if (typeof candidate === "string" && /^https:\/\//iu.test(candidate) && /(document|download|datasheet|productsheet|specification|template|certificate|instruction|manual|pdf)/iu.test(key)) {
+        output.set(candidate, name.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " "))
+      }
+      downloadUrls(candidate, output)
+    }
+  }
+  return [...output].map(([url, name]) => ({ name, url }))
 }
 
 function opaqueSourceKey(supplierId: string, externalId: string) {
@@ -286,6 +306,8 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const supplier = supplierById.get(group.supplier_id)
     const originalCategory = supplierCategory(group.records.map((item) => item.payload))
     const attributes = productAttributes(group.records.map((item) => item.payload))
+    const specifications = productSpecifications(group.records.map((item) => item.payload))
+    const hierarchy = categoryHierarchy(group.records.map((item) => item.payload))
     const decorationPayloads = (decorationIndex.byMaster.get(`${group.supplier_id}:${group.master_id}`) || []).map((item: any) => item.payload)
     const supplierDecorationPrices = decorationPricesBySupplier.get(group.supplier_id) || []
     const decorationOptions = normalizeDecorationOptions([...group.records.map((item) => item.payload), ...decorationPayloads], attributes.print_methods, supplierDecorationPrices).map((method) => ({
@@ -327,6 +349,9 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
           color_code: colorCode,
           color_group: colorGroup,
           size,
+          ean: value(row, ["ean", "ean13", "barcode", "gtin"]),
+          pantone: value(row, ["pantone", "pms", "pms_color", "pms_colour"]),
+          dimensions: value(row, ["combined_sizes", "dimensions", "size_description"]),
           images: proxyImages(variantImages),
           price_eur: priceBreaks[0]?.price_eur,
           price_breaks: priceBreaks,
@@ -364,7 +389,10 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         dimensions: attributes.dimensions,
         weight: attributes.weight,
         keywords: attributes.keywords,
+        specifications,
       },
+      category_hierarchy: hierarchy.length ? hierarchy : [originalCategory],
+      downloads: downloadUrls(group.records.map((item) => item.payload)),
       images: productImages,
       variants,
       published: published.has(sourceKey),

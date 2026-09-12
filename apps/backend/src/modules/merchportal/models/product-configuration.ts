@@ -14,6 +14,7 @@ const ProductConfiguration = model
     print_colours: model.number().nullable(),
     print_width_mm: model.number().nullable(),
     print_height_mm: model.number().nullable(),
+    decoration_lines: model.json().nullable(),
     artwork_file_id: model.text().nullable(),
     artwork_filename: model.text().nullable(),
     base_unit_price: model.number(),
