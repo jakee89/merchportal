@@ -12,6 +12,18 @@ type Input = {
   job_id?: string
 }
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === "object") {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === "string" && message.length) return message
+    try {
+      return JSON.stringify(error).slice(0, 2_000)
+    } catch {}
+  }
+  return "Supplier catalog update failed"
+}
+
 const syncSupplierStep = createStep("sync-supplier", async (input: Input, { container }) => {
   const job = await runSupplierSync(container, input.supplier_code, input.kind, input.trigger, {
     dryRun: input.dry_run,
@@ -82,7 +94,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
       catalog,
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Supplier catalog update failed"
+    const message = errorMessage(error)
     await service.updateImportJobs({
       id: job.id,
       status: "failed",

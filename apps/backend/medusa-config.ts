@@ -94,6 +94,11 @@ module.exports = defineConfig({
       resolve: "@medusajs/medusa/event-bus-redis",
       options: {
         redisUrl: process.env.EVENTS_REDIS_URL || process.env.REDIS_URL,
+        workerOptions: {
+          concurrency: 5,
+          lockDuration: 3_600_000,
+          stalledInterval: 300_000,
+        },
         jobOptions: {
           removeOnComplete: { age: 3600, count: 1000 },
           removeOnFail: { age: 86400, count: 1000 },
