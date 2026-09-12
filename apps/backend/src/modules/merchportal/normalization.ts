@@ -78,24 +78,39 @@ function numberValue(object: unknown, keys: string[]): number | undefined {
   }
 }
 
-function imageUrls(object: unknown, output = new Set<string>()): string[] {
+function trustedImageHost(hostname: string) {
+  const host = hostname.toLowerCase()
+  return ["cdn.hideacontent.com", "cdn1.midocean.com", "cdn.aodaci.com", "content.aodaci.com"].includes(host) || host.endsWith(".cdn.midocean.com")
+}
+
+function strickerProductImage(value: string) {
+  const filename = value.split(",")[0].trim().replace(/^\/+/, "")
+  if (!filename) return
+  if (/^https:\/\//iu.test(filename)) return filename
+  return `https://cdn.hideacontent.com/public/products/1000x1000/${filename}`
+}
+
+function imageUrls(object: unknown, supplierCode?: string, output = new Set<string>()): string[] {
   if (Array.isArray(object)) {
-    object.forEach((item) => imageUrls(item, output))
+    object.forEach((item) => imageUrls(item, supplierCode, output))
   } else if (object && typeof object === "object") {
     const entry = object as ObjectValue
     if (entry.type !== "document") {
-      const imageKeys = new Set(["url", "urlhighress", "image", "imageurl", "picture"])
       for (const [key, candidate] of Object.entries(entry)) {
-        if (!imageKeys.has(key.replace(/[^a-z]/giu, "").toLowerCase())) continue
-        if (typeof candidate === "string" && /^https:\/\//i.test(candidate)) {
+        const normalized = key.replace(/[^a-z0-9]/giu, "").toLowerCase()
+        const isProductImage = /^(mainimage|optionalimage\d*|image|imageurl|urlhighress|picture|itempicturefront)$/u.test(normalized)
+        const isAssetUrl = normalized === "url" && typeof candidate === "string" && /\.(avif|gif|jpe?g|png|webp)(?:$|\?)/iu.test(candidate)
+        if ((!isProductImage && !isAssetUrl) || typeof candidate !== "string") continue
+        const resolved = supplierCode === "stricker" && isProductImage ? strickerProductImage(candidate) : candidate
+        if (resolved && /^https:\/\//iu.test(resolved)) {
           try {
-            const url = new URL(candidate)
-            if (["cdn.hideacontent.com", "cdn1.midocean.com"].includes(url.hostname) && (/\.(avif|gif|jpe?g|png|webp)(?:$|\?)/i.test(url.href) || url.pathname.toLowerCase().includes("/image/"))) output.add(candidate)
+            const url = new URL(resolved)
+            if (trustedImageHost(url.hostname) && (/\.(avif|gif|jpe?g|png|webp)(?:$|\?)/iu.test(url.href) || url.pathname.toLowerCase().includes("/image/"))) output.add(resolved)
           } catch {}
         }
       }
     }
-    Object.values(entry).forEach((child) => imageUrls(child, output))
+    Object.values(entry).forEach((child) => imageUrls(child, supplierCode, output))
   }
   return [...output]
 }
@@ -165,7 +180,7 @@ function supplierAssetUrl(value: string, supplierCode?: string) {
   if (supplierCode !== "stricker") return value
   const clean = value.replace(/^\/+/, "")
   if (clean.startsWith("public/")) return `https://cdn.hideacontent.com/${clean}`
-  return `https://cdn.hideacontent.com/public/products/printings/printinglines/500x500/${clean}`
+  return `https://cdn.hideacontent.com/public/printings/printinglines/500x500/${clean}`
 }
 
 function indexedRecords(items: any[], supplierById: Map<string, any>) {
@@ -315,6 +330,10 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
       positions: method.positions.map((position) => ({
         ...position,
         image_url: position.image_url ? proxyImages([supplierAssetUrl(position.image_url, supplier?.code)])[0] : undefined,
+        images: position.images?.map((image) => ({
+          ...image,
+          url: proxyImages([supplierAssetUrl(image.url, supplier?.code)])[0],
+        })).filter((image) => image.url),
       })),
     }))
     const rows = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue))
@@ -323,8 +342,8 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const variants = rows
       .map((row, index) => {
         const sku = value(row, ["sku", "SKU", "optionalReference", "reference", "variant_id"]) || `${record.external_id}-${index + 1}`
-        const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "color"])
-        const color = value(row, ["color_description", "colour_description", "color_name", "colour_name", "color", "colour", "color_group"]) || colorCode || "Standard"
+        const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "ColorCode", "Color1", "color"])
+        const color = value(row, ["ColorDesc1", "ColorDescription", "color_description", "colour_description", "color_name", "colour_name", "color", "colour", "color_group"]) || colorCode || "Standard"
         const colorGroup = value(row, ["color_group", "colour_group", "color_family", "colour_family"]) || color
         let size = value(row, ["size_description", "size", "combined_sizes", "capacity", "format", "dimension"]) || "Standard"
         const combination = `${color}:${size}`
@@ -334,9 +353,9 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         const stockMatches = matchingRecords(stockIndex, group.supplier_id, sku, group.master_id)
         const priceBreaks = productPriceBreaks(priceMatches.length ? priceMatches : [row])
         const stocksFound = stockMatches.map((item) => numberValue(item.payload, ["qty", "stock", "quantity", "available", "free_stock"])).filter((item): item is number => item !== undefined)
-        let variantImages = imageUrls(row)
+        let variantImages = imageUrls(row, supplier?.code)
         if (!variantImages.length && supplier?.code === "stricker") {
-          const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "color"])
+          const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "ColorCode", "Color1", "color"])
           if (colorCode) {
             variantImages = [`https://cdn.hideacontent.com/public/products/1000x1000/${group.master_id}_${colorCode}.jpg`]
           }
@@ -365,7 +384,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         return true
       })
     const sourceKey = opaqueSourceKey(group.supplier_id, group.master_id)
-    const productImages = [...proxyImages(imageUrls(group.records.map((item) => item.payload))), ...variants.flatMap((variant) => variant.images)].filter((url, index, all) => all.indexOf(url) === index)
+    const productImages = [...proxyImages(imageUrls(group.records.map((item) => item.payload), supplier?.code)), ...variants.flatMap((variant) => variant.images)].filter((url, index, all) => all.indexOf(url) === index)
     const description = value(payload, ["long_description", "longDescription", "seo_description", "seodescription", "description", "Description"])
     return {
       source_key: sourceKey,

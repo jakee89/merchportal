@@ -941,6 +941,41 @@
 .printLine .helper,
 .printLine .linePrice,
 .printLine .printAreaImage { grid-column: 1 / -1; }
+.positionCards {
+  display: grid;
+  gap: 10px;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.positionCards button {
+  background: #fff;
+  border: 2px solid #dfe7ef;
+  border-radius: 11px;
+  display: grid;
+  gap: 7px;
+  min-height: 150px;
+  padding: 10px;
+  text-align: left;
+}
+.positionCards button.activePositionCard { border-color: #0875eb; box-shadow: 0 0 0 2px #d9ecff; }
+.positionCards img { height: 100px; object-fit: contain; width: 100%; }
+.positionCards strong { color: #1c2e44; font-size: 13px; }
+.positionCards span { color: #718095; font-size: 11px; }
+.imageUnavailable {
+  align-items: center;
+  background: #eef4f7;
+  color: #718095;
+  display: flex;
+  font-size: 11px;
+  justify-content: center;
+  min-height: 80px;
+  width: 100%;
+}
+.sizeOptions { display: grid; gap: 9px; grid-column: 1 / -1; }
+.sizeOptions > span { color: #4f5f73; font-size: 12px; font-weight: 700; }
+.sizeOptions > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.sizeOptions button { background: #fff; border: 1px solid #cad6e2; border-radius: 8px; color: #46586d; padding: 9px 12px; }
+.sizeOptions button.activeSizeOption { background: #173451; border-color: #173451; color: #fff; }
 .linePrice { color: #173451; font-size: 13px; font-weight: 750; }
 .dimensionInputs { display: grid; gap: 10px; grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
 .addPrint {

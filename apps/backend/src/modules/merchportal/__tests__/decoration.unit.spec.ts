@@ -10,6 +10,7 @@ describe("supplier-neutral decoration normalization", () => {
             print_position_type: "Front",
             max_print_size_width: 80,
             max_print_size_height: 50,
+            images: [{ variant_color: "Red", print_position_image_with_area: "https://images.cdn.midocean.com/front-red.png" }],
             printing_techniques: [{ id: "S1", name: "Screen print", max_colours: 4 }],
           },
         ],
@@ -24,6 +25,7 @@ describe("supplier-neutral decoration normalization", () => {
             name: "Front",
             max_width_mm: 80,
             max_colours: 4,
+            images: [{ variant_color: "Red", url: "https://images.cdn.midocean.com/front-red.png" }],
           }),
         ],
       }),
@@ -50,6 +52,48 @@ describe("supplier-neutral decoration normalization", () => {
         positions: [expect.objectContaining({ name: "Barrel", max_width_mm: 45, max_height_mm: 6 })],
       }),
     )
+  })
+
+  it("keeps Stricker CustomizationOptions position, technique, image, and allowed size together", () => {
+    const methods = normalizeDecorationOptions([
+      {
+        CustomizationOptions: [
+          {
+            ProdReference: "99164",
+            Component: "Ball pen",
+            Location: "Barrel",
+            ComposedLocation: "Ball pen - Barrel",
+            CustomizationTypeName: "Digital UV",
+            TableCode: "DUV1-01",
+            TableCodeOption: "DUV1-01-01",
+            TableMaxAreaCM: "6 x 2",
+            LocationMaxPrintingAreaMM: "60 x 20",
+            MaxColors: 4,
+            AreaImage: "99164_103_C1_L1_DUV1.png",
+          },
+        ],
+      },
+    ])
+
+    expect(methods).toHaveLength(1)
+    expect(methods[0]).toEqual(expect.objectContaining({
+      id: "DUV1",
+      name: "Digital UV",
+      positions: [expect.objectContaining({
+        id: "ball-pen-barrel",
+        name: "Ball pen - Barrel",
+        max_width_mm: 60,
+        max_height_mm: 20,
+        max_colours: 4,
+        image_url: "99164_103_C1_L1_DUV1.png",
+        size_options: [expect.objectContaining({
+          id: "DUV1-01-01",
+          label: "6.0 × 2.0 cm",
+          width_mm: 60,
+          height_mm: 20,
+        })],
+      })],
+    }))
   })
 
   it("uses the best eligible quantity price break", () => {

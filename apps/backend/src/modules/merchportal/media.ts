@@ -6,7 +6,17 @@ import {
   timingSafeEqual,
 } from "node:crypto"
 
-const allowedHosts = new Set(["cdn.hideacontent.com", "cdn1.midocean.com"])
+const allowedHosts = new Set([
+  "cdn.hideacontent.com",
+  "cdn1.midocean.com",
+  "cdn.aodaci.com",
+  "content.aodaci.com",
+])
+
+function isAllowedHost(hostname: string) {
+  const host = hostname.toLowerCase()
+  return allowedHosts.has(host) || host.endsWith(".cdn.midocean.com")
+}
 
 function secret() {
   return process.env.MEDIA_PROXY_SECRET || process.env.JWT_SECRET || ""
@@ -15,7 +25,7 @@ function secret() {
 export function isAllowedSupplierImage(value: string) {
   try {
     const url = new URL(value)
-    return url.protocol === "https:" && allowedHosts.has(url.hostname)
+    return url.protocol === "https:" && isAllowedHost(url.hostname)
   } catch {
     return false
   }

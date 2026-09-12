@@ -9,6 +9,14 @@ export type DecorationPosition = {
   max_height_mm?: number
   max_colours?: number
   image_url?: string
+  images?: Array<{ variant_color?: string; url: string }>
+  size_options?: Array<{
+    id: string
+    label: string
+    width_mm: number
+    height_mm: number
+    pricing_code?: string
+  }>
 }
 
 export type DecorationMethod = {
@@ -63,6 +71,28 @@ function printingArea(value: unknown) {
   if (typeof value !== "string") return {}
   const dimensions = value.match(/([\d.,]+)\s*(?:x|×)\s*([\d.,]+)/iu)
   return dimensions ? { width: number(dimensions[1]), height: number(dimensions[2]) } : {}
+}
+
+function centimetreArea(value: unknown) {
+  const area = printingArea(value)
+  return {
+    width: area.width === undefined ? undefined : area.width * 10,
+    height: area.height === undefined ? undefined : area.height * 10,
+  }
+}
+
+function positionImages(candidate: AnyObject) {
+  const imageRows = key(candidate, ["images", "position_images", "printing_images"])
+  if (!Array.isArray(imageRows)) return []
+  return imageRows.flatMap((image) => {
+    if (!image || typeof image !== "object") return []
+    const url = fieldValue(image, ["print_position_image_with_area", "image_url", "url", "image"])
+    if (!url) return []
+    return [{
+      variant_color: fieldValue(image, ["variant_color", "color_description", "colour_description", "color_code"]),
+      url,
+    }]
+  })
 }
 
 function directValue(object: AnyObject, names: string[]) {
@@ -154,7 +184,16 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
       positions: [],
       price_breaks: [],
     }
-    if (!current.positions.some((item) => item.id === position.id)) current.positions.push(position)
+    const existingPosition = current.positions.find((item) => item.id === position.id)
+    if (!existingPosition) current.positions.push(position)
+    else {
+      existingPosition.max_width_mm = Math.max(existingPosition.max_width_mm || 0, position.max_width_mm || 0) || undefined
+      existingPosition.max_height_mm = Math.max(existingPosition.max_height_mm || 0, position.max_height_mm || 0) || undefined
+      existingPosition.max_colours = Math.max(existingPosition.max_colours || 0, position.max_colours || 0) || undefined
+      existingPosition.image_url ||= position.image_url
+      existingPosition.images = [...(existingPosition.images || []), ...(position.images || [])].filter((item, index, all) => all.findIndex((other) => other.url === item.url && other.variant_color === item.variant_color) === index)
+      existingPosition.size_options = [...(existingPosition.size_options || []), ...(position.size_options || [])].filter((item, index, all) => all.findIndex((other) => other.id === item.id) === index)
+    }
     const matchedPrices = matchingPrices(id)
     const priceSources = matchedPrices.length ? matchedPrices : [candidate]
     const prices = priceSources.flatMap(priceBreaks)
@@ -179,10 +218,46 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
     methods.set(id, current)
   }
 
+  const handled = new WeakSet<object>()
   for (const candidate of payloads.flatMap((payload) => objects(payload))) {
+    const component = fieldValue(candidate, ["component", "product_component"])
+    const location = fieldValue(candidate, ["location", "customization_location"])
+    const tableCode = fieldValue(candidate, ["table_code", "tablecode"])
+    const strickerMethodName = fieldValue(candidate, ["customization_type_name", "customization_type", "technique"])
+    if (component && location && tableCode && strickerMethodName) {
+      const locationArea = printingArea(key(candidate, ["location_max_printing_area_mm"]))
+      const tableArea = centimetreArea(key(candidate, ["table_max_area_cm"]))
+      const placeholder = (tableArea.width || 0) >= 9900 && (tableArea.height || 0) >= 9900
+      const width = placeholder ? locationArea.width : Math.min(tableArea.width || locationArea.width || 0, locationArea.width || tableArea.width || 0)
+      const height = placeholder ? locationArea.height : Math.min(tableArea.height || locationArea.height || 0, locationArea.height || tableArea.height || 0)
+      const positionName = fieldValue(candidate, ["composed_location"]) || `${component} - ${location}`
+      const positionId = slug(`${component}-${location}`)
+      const image = fieldValue(candidate, ["area_image", "location_image"])
+      const methodId = tableCode.split("-")[0] || slug(strickerMethodName)
+      add(strickerMethodName, methodId, {
+        id: positionId,
+        name: positionName,
+        max_width_mm: locationArea.width,
+        max_height_mm: locationArea.height,
+        max_colours: number(key(candidate, ["max_colors", "max_colours"])),
+        image_url: image,
+        images: image ? [{ variant_color: fieldValue(candidate, ["color_desc_1", "color_description", "color_code"]), url: image }] : undefined,
+        size_options: width && height ? [{
+          id: fieldValue(candidate, ["table_code_option"]) || tableCode,
+          label: `${(width / 10).toFixed(1)} × ${(height / 10).toFixed(1)} cm`,
+          width_mm: width,
+          height_mm: height,
+          pricing_code: fieldValue(candidate, ["table_code_option"]) || tableCode,
+        }] : undefined,
+      }, candidate)
+      handled.add(candidate)
+      continue
+    }
+    if (handled.has(candidate)) continue
     const positionName = fieldValue(candidate, ["product_component_locations", "product_composed_locations", "product_component_default_location", "print_position_type", "print_position_description", "position_name", "position_description", "position", "location_name", "location_description", "location", "customization_area", "area"])
     const techniques = key(candidate, ["customization_types", "customization_table_options", "printing_techniques", "customization_techniques"])
     const area = printingArea(key(candidate, ["location_max_printing_area_mm", "product_component_default_location_area_mm", "max_printing_area_mm"]))
+    const supplierPositionImages = positionImages(candidate)
     if (positionName && Array.isArray(techniques)) {
       for (const technique of techniques) {
         if (!technique || typeof technique !== "object") continue
@@ -198,7 +273,8 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
             max_width_mm: number(key(candidate, ["max_print_size_width", "max_width_mm", "width_mm", "width"])) ?? techniqueArea.width ?? area.width,
             max_height_mm: number(key(candidate, ["max_print_size_height", "max_height_mm", "height_mm", "height"])) ?? techniqueArea.height ?? area.height,
             max_colours: number(key(technique, ["max_number_of_colours", "max_printing_colours", "max_colours", "max_colors", "colours", "colors"])),
-            image_url: fieldValue(candidate, ["image_url", "customization_default_printing_lines", "printing_line", "location_image", "url"]),
+            image_url: supplierPositionImages[0]?.url || fieldValue(candidate, ["image_url", "customization_default_printing_lines", "printing_line", "location_image", "url"]),
+            images: supplierPositionImages,
           },
           technique,
         )
@@ -217,7 +293,8 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
           max_width_mm: number(key(candidate, ["max_print_size_width", "max_width_mm", "width_mm"])) ?? area.width,
           max_height_mm: number(key(candidate, ["max_print_size_height", "max_height_mm", "height_mm"])) ?? area.height,
           max_colours: number(key(candidate, ["max_number_of_colours", "max_printing_colours", "max_colours", "max_colors", "colours", "colors"])),
-          image_url: fieldValue(candidate, ["image_url", "customization_default_printing_lines", "printing_line", "location_image", "url"]),
+          image_url: supplierPositionImages[0]?.url || fieldValue(candidate, ["image_url", "customization_default_printing_lines", "printing_line", "location_image", "url"]),
+          images: supplierPositionImages,
         },
         candidate,
       )
