@@ -125,7 +125,7 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
   }
 
   for (const candidate of payloads.flatMap((payload) => objects(payload))) {
-    const positionName = fieldValue(candidate, ["print_position_type", "position_name", "position", "location_name", "location", "customization_area", "customisation_area", "area"])
+    const positionName = fieldValue(candidate, ["print_position_type", "print_position_description", "position_name", "position_description", "position", "location_name", "location_description", "location", "customization_area", "customisation_area", "area"])
     const techniques = key(candidate, ["printing_techniques", "customization_techniques", "customisation_techniques"])
     if (positionName && Array.isArray(techniques)) {
       for (const technique of techniques) {
@@ -148,11 +148,11 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
       continue
     }
 
-    const methodName = fieldValue(candidate, ["technique_name", "printing_technique", "customization_type", "customisation_type", "customizationtype", "customisationtype", "customizationtypename", "customisationtypename", "technique"])
+    const methodName = fieldValue(candidate, ["technique_name", "technique_description", "service_name", "service_description", "printing_technique", "customization_type", "customisation_type", "customizationtype", "customisationtype", "customizationtypename", "customisationtypename", "technique"])
     if (methodName && positionName) {
       add(
         methodName,
-        fieldValue(candidate, ["technique_id", "service_code", "servicecode", "code"]) || slug(methodName),
+        fieldValue(candidate, ["technique_id", "service_code", "servicecode", "table_full_code", "tablefullcode", "code"]) || slug(methodName),
         {
           id: fieldValue(candidate, ["position_id", "location_id", "location_code"]) || slug(positionName),
           name: positionName,

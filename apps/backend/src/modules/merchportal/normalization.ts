@@ -2,8 +2,7 @@ import { createHash, createHmac } from "node:crypto"
 import type { MedusaContainer } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "."
-import { supplierImageToken } from "./media"
-import { productAttributes, supplierCategory } from "./catalog-rules"
+import { fieldValue, productAttributes, supplierCategory } from "./catalog-rules"
 import { normalizeDecorationOptions, type DecorationMethod } from "./decoration"
 
 type ObjectValue = Record<string, any>
@@ -27,6 +26,7 @@ export type NormalizedProduct = {
   supplier_name: string
   title: string
   description?: string
+  short_description?: string
   category?: string
   supplier_category: string
   category_mapping_id?: string
@@ -102,24 +102,65 @@ function opaqueSourceKey(supplierId: string, externalId: string) {
   return `mp_${createHmac("sha256", secret).update(`${supplierId}:${externalId}`).digest("hex").slice(0, 32)}`
 }
 
+export function supplierMasterReference(supplierCode: string | undefined, payload: ObjectValue, fallback: string) {
+  const explicit = value(payload, ["product_reference", "productReference", "master_id", "master_code", "parent_reference", "main_reference"])
+  const reference = explicit || value(payload, ["reference", "Reference", "sku", "optionalReference"]) || fallback
+  if (supplierCode === "stricker") {
+    return reference.replace(/^(\d{4,})-\d{3,}$/u, "$1")
+  }
+  return reference
+}
+
+export function catalogSummary(fullDescription?: string, suppliedSummary?: string) {
+  const source = (suppliedSummary || fullDescription || "").replace(/\s+/g, " ").trim()
+  if (source.length <= 180) return source || undefined
+  const sentence = source.slice(0, 181).match(/^(.{1,180})(?:\s|$)/u)?.[1]?.trim()
+  return `${sentence || source.slice(0, 180).trim()}…`
+}
+
 function relatedRecords(items: any[], supplierId: string, sku: string, masterId: string) {
-  const exact = items.filter((item) => item.supplier_id === supplierId && item.sku === sku)
+  const keys = [sku]
+  const exact = items.filter((item) => {
+    if (item.supplier_id !== supplierId) return false
+    const references = [
+      item.sku,
+      fieldValue(item.payload, ["sku", "optional_reference", "optionalReference", "reference", "product_reference", "productReference"]),
+    ].filter((value): value is string => Boolean(value))
+    return references.some((reference) => keys.includes(reference))
+  })
   if (exact.length) return exact
-  return items.filter((item) => item.supplier_id === supplierId && typeof item.sku === "string" && item.sku.startsWith(`${masterId}-`))
+  return items.filter((item) => {
+    if (item.supplier_id !== supplierId) return false
+    const reference = item.sku || fieldValue(item.payload, ["reference", "product_reference", "productReference"])
+    return typeof reference === "string" && (reference === masterId || reference.startsWith(`${masterId}-`))
+  })
 }
 
 function proxyImages(urls: string[]) {
-  const backend = (process.env.MEDUSA_BACKEND_URL || "http://localhost:9000").replace(/\/$/, "")
   return urls
-    .map(supplierImageToken)
-    .filter((token): token is string => Boolean(token))
-    .map((token) => `${backend}/media/${token}`)
+}
+
+async function listAllRawSupplierRecords(service: any, filters: Record<string, unknown>, order?: Record<string, "ASC" | "DESC">) {
+  const records: any[] = []
+  const take = 5000
+  for (let skip = 0; ; skip += take) {
+    const batch = await service.listRawSupplierRecords(filters, { take, skip, order })
+    records.push(...batch)
+    if (batch.length < take) return records
+  }
 }
 
 export async function normalizeSupplierCatalog(container: MedusaContainer, options: { source_keys?: string[]; take?: number; skip?: number } = {}): Promise<NormalizedProduct[]> {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const [allRecords, allPrices, allStocks, allDecorations, allDecorationPrices, suppliers] = await Promise.all([service.listRawSupplierRecords({ record_type: "product" }, { take: 50000, order: { updated_at: "DESC" } }), service.listRawSupplierRecords({ record_type: "price" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "stock" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "decoration" }, { take: 50000 }), service.listRawSupplierRecords({ record_type: "decoration_price" }, { take: 50000 }), service.listSuppliers({})])
+  const [allRecords, allPrices, allStocks, allDecorations, allDecorationPrices, suppliers] = await Promise.all([
+    listAllRawSupplierRecords(service, { record_type: "product" }, { updated_at: "DESC" }),
+    listAllRawSupplierRecords(service, { record_type: "price" }),
+    listAllRawSupplierRecords(service, { record_type: "stock" }),
+    listAllRawSupplierRecords(service, { record_type: "decoration" }),
+    listAllRawSupplierRecords(service, { record_type: "decoration_price" }),
+    service.listSuppliers({}),
+  ])
   const supplierById = new Map<string, any>(suppliers.map((supplier: any) => [supplier.id, supplier]))
   const currentRecords = (items: any[], syncField: string) =>
     items.filter((item) => {
@@ -135,7 +176,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
   for (const record of records) {
     const payload = (record.payload || {}) as ObjectValue
     const supplier = supplierById.get(record.supplier_id)
-    const masterId = supplier?.code === "stricker" ? value(payload, ["reference", "Reference", "productReference", "product_reference"]) || record.external_id : record.external_id
+    const masterId = supplierMasterReference(supplier?.code, payload, record.external_id)
     const groupId = `${record.supplier_id}:${masterId}`
     const group: { supplier_id: string; master_id: string; records: any[] } = groups.get(groupId) || {
       supplier_id: record.supplier_id,
@@ -150,7 +191,8 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const selected = new Set(options.source_keys)
     selectedGroups = selectedGroups.filter((group) => selected.has(opaqueSourceKey(group.supplier_id, group.master_id)))
   } else {
-    selectedGroups = selectedGroups.slice(options.skip || 0, (options.skip || 0) + (options.take || 24))
+    const skip = options.skip || 0
+    selectedGroups = selectedGroups.slice(skip, skip + (options.take ?? 24))
   }
   const sourceKeys = selectedGroups.map((group) => opaqueSourceKey(group.supplier_id, group.master_id))
   const { data: existing } = await query.graph({
@@ -165,7 +207,14 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const supplier = supplierById.get(group.supplier_id)
     const originalCategory = supplierCategory(payload)
     const attributes = productAttributes(group.records.map((item) => item.payload))
-    const decorationPayloads = decorations.filter((item: any) => item.supplier_id === group.supplier_id && (item.external_id === group.master_id || (item.payload as ObjectValue)?.master_code === group.master_id || (item.payload as ObjectValue)?.master_id === group.master_id)).map((item: any) => item.payload)
+    const decorationPayloads = decorations
+      .filter((item: any) => {
+        if (item.supplier_id !== group.supplier_id) return false
+        if (item.external_id === group.master_id || item.external_id.startsWith(`${group.master_id}:`)) return true
+        const reference = supplierMasterReference(supplier?.code, (item.payload || {}) as ObjectValue, item.external_id)
+        return reference === group.master_id
+      })
+      .map((item: any) => item.payload)
     const supplierDecorationPrices = decorationPrices.filter((item: any) => item.supplier_id === group.supplier_id).map((item: any) => item.payload)
     const decorationOptions = normalizeDecorationOptions([...group.records.map((item) => item.payload), ...decorationPayloads], attributes.print_methods, supplierDecorationPrices)
     const rows = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue))
@@ -212,12 +261,14 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
       })
     const sourceKey = opaqueSourceKey(group.supplier_id, group.master_id)
     const productImages = [...proxyImages(imageUrls(group.records.map((item) => item.payload))), ...variants.flatMap((variant) => variant.images)].filter((url, index, all) => all.indexOf(url) === index)
+    const description = value(payload, ["long_description", "longDescription", "description", "Description"])
     return {
       source_key: sourceKey,
       supplier_code: supplier?.code || "unknown",
       supplier_name: supplier?.display_name || "Unknown supplier",
       title: value(payload, ["product_name", "name", "Name", "description", "Description"]) || "Merchandise product",
-      description: value(payload, ["long_description", "short_description", "description", "Description"]),
+      description,
+      short_description: catalogSummary(description, value(payload, ["short_description", "shortDescription", "summary"])),
       category: originalCategory,
       supplier_category: originalCategory,
       category_mapping_id: undefined,

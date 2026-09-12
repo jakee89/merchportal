@@ -45,17 +45,18 @@ services:
         "-c",
         "npm exec -- medusa db:migrate && npm exec -- medusa start --host 0.0.0.0 --port 9000",
       ]
-    environment:
+    environment: &backend-environment
       NODE_ENV: production
       PORT: 9000
       DATABASE_URL: postgres://${POSTGRES_USER:-merchportal}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-merchportal}
       REDIS_URL: redis://redis:6379
+      EVENTS_REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
       COOKIE_SECRET: ${COOKIE_SECRET:?Set COOKIE_SECRET}
       STORE_CORS: ${STOREFRONT_URL:-http://192.168.1.214:8100}
       ADMIN_CORS: ${ADMIN_URL:-http://192.168.1.214:9100}
       AUTH_CORS: ${STOREFRONT_URL:-http://192.168.1.214:8100},${ADMIN_URL:-http://192.168.1.214:9100}
-      MEDUSA_WORKER_MODE: shared
+      MEDUSA_WORKER_MODE: server
       DISABLE_MEDUSA_ADMIN: "false"
       MEDUSA_BACKEND_URL: ${BACKEND_URL:-http://192.168.1.214:9100}
       TYPESENSE_HOST: http://typesense:8108
@@ -82,6 +83,23 @@ services:
       timeout: 5s
       retries: 30
       start_period: 90s
+
+  worker:
+    image: ghcr.io/jakee89/merchportal-backend:latest
+    pull_policy: always
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    command: ["sh", "-c", "npm exec -- medusa start"]
+    environment:
+      <<: *backend-environment
+      MEDUSA_WORKER_MODE: worker
+      DISABLE_MEDUSA_ADMIN: "true"
 
   postgres:
     image: postgres:17-alpine

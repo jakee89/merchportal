@@ -11,7 +11,7 @@ services:
       backend:
         condition: service_started
 
-    environment:
+    environment: &backend-environment
       MEDUSA_BACKEND_URL: http://backend:9000
 
       NEXT_PUBLIC_MEDUSA_BACKEND_URL: ${BACKEND_URL:-http://localhost:9000}
@@ -66,7 +66,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-merchportal}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-merchportal}
 
       REDIS_URL: redis://redis:6379
-
+      EVENTS_REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
 
       COOKIE_SECRET: ${COOKIE_SECRET:?Set COOKIE_SECRET}
@@ -79,9 +79,7 @@ services:
 
       # Both storefront + admin must be allowed for authentication.
       AUTH_CORS: ${STOREFRONT_URL:-http://localhost:8000},${ADMIN_URL:-http://localhost:9000}
-
-      MEDUSA_WORKER_MODE: shared
-
+      MEDUSA_WORKER_MODE: server
       DISABLE_MEDUSA_ADMIN: "false"
 
       # Used by Medusa/backend integrations.
@@ -146,6 +144,20 @@ services:
       retries: 30
       start_period: 90s
 
+  worker:
+    image: ghcr.io/jakee89/merchportal-backend:latest
+    pull_policy: always
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["sh", "-c", "npm exec -- medusa start"]
+    environment:
+      <<: *backend-environment
+      MEDUSA_WORKER_MODE: worker
+      DISABLE_MEDUSA_ADMIN: "true"
 
   postgres:
     image: postgres:17-alpine

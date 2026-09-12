@@ -92,6 +92,16 @@ function isExistingRawRecordError(error: unknown) {
   return error instanceof Error && /raw supplier record.+already exists/i.test(error.message)
 }
 
+async function listAllRawSupplierRecords(service: any, filters: Record<string, unknown>) {
+  const records: any[] = []
+  const take = 5000
+  for (let skip = 0; ; skip += take) {
+    const batch = await service.listRawSupplierRecords(filters, { take, skip })
+    records.push(...batch)
+    if (batch.length < take) return records
+  }
+}
+
 export async function ensureSuppliers(container: MedusaContainer) {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   for (const [code, definition] of Object.entries(suppliers)) {
@@ -103,7 +113,7 @@ export async function ensureSuppliers(container: MedusaContainer) {
   return service.listSuppliers({}, { order: { display_name: "ASC" } })
 }
 
-export async function runSupplierSync(
+export async function queueSupplierSync(
   container: MedusaContainer,
   supplierCode: SupplierCode,
   kind: SyncKind,
@@ -114,19 +124,64 @@ export async function runSupplierSync(
   const supplier = (await ensureSuppliers(container)).find((item: any) => item.code === supplierCode)
   if (!supplier) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Supplier is not configured")
 
-  const running = await service.listImportJobs({ supplier_id: supplier.id, kind, status: "running" }, { take: 1 })
-  if (running.length) return { ...running[0], already_running: true }
+  const active = await service.listImportJobs({ supplier_id: supplier.id }, { take: 10, order: { created_at: "DESC" } })
+  const existing = active.find((job: any) => job.status === "queued" || job.status === "running")
+  if (existing) return { ...existing, already_running: true }
 
   const job = await service.createImportJobs({
     supplier_id: supplier.id,
     kind,
     trigger,
-    status: "running",
-    phase: "downloading",
-    current_message: `Downloading ${kind} data from ${supplier.display_name}`,
-    progress_percent: 2,
-    started_at: new Date(),
+    status: "queued",
+    phase: "queued",
+    current_message: `Queued ${kind} update for ${supplier.display_name}`,
+    progress_percent: 0,
+    log: { dry_run: Boolean(options.dryRun) },
   })
+  return { ...job, already_running: false }
+}
+
+export async function runSupplierSync(
+  container: MedusaContainer,
+  supplierCode: SupplierCode,
+  kind: SyncKind,
+  trigger: "manual" | "scheduled",
+  options: { dryRun?: boolean; jobId?: string } = {},
+) {
+  const service = container.resolve(MERCHPORTAL_MODULE) as any
+  const supplier = (await ensureSuppliers(container)).find((item: any) => item.code === supplierCode)
+  if (!supplier) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Supplier is not configured")
+
+  let job: any
+  if (options.jobId) {
+    const queued = await service.retrieveImportJob(options.jobId)
+    if (queued.supplier_id !== supplier.id || queued.kind !== kind || queued.status !== "queued") {
+      return { ...queued, already_running: true }
+    }
+    await service.updateImportJobs({
+      id: queued.id,
+      status: "running",
+      phase: "downloading",
+      current_message: `Downloading ${kind} data from ${supplier.display_name}`,
+      progress_percent: 2,
+      started_at: new Date(),
+    })
+    job = await service.retrieveImportJob(queued.id)
+  } else {
+    const active = await service.listImportJobs({ supplier_id: supplier.id }, { take: 10, order: { created_at: "DESC" } })
+    const existing = active.find((item: any) => item.status === "queued" || item.status === "running")
+    if (existing) return { ...existing, already_running: true }
+    job = await service.createImportJobs({
+      supplier_id: supplier.id,
+      kind,
+      trigger,
+      status: "running",
+      phase: "downloading",
+      current_message: `Downloading ${kind} data from ${supplier.display_name}`,
+      progress_percent: 2,
+      started_at: new Date(),
+    })
+  }
 
   try {
     const adapter = createSupplierAdapter(supplierCode)
@@ -149,7 +204,7 @@ export async function runSupplierSync(
     })
 
     const persistRecords = async (items: unknown[], type: RawRecordType) => {
-      const existingRecords = await service.listRawSupplierRecords({ supplier_id: supplier.id, record_type: type }, { take: 50000 })
+      const existingRecords = await listAllRawSupplierRecords(service, { supplier_id: supplier.id, record_type: type })
       const existingById = new Map<string, any>(existingRecords.map((item: any) => [item.external_id, item]))
       const uniqueItems = deduplicateSupplierRecords(items, supplierCode, type)
       skipped += items.length - uniqueItems.length

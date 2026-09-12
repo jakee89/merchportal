@@ -9,11 +9,13 @@ type Input = {
   kind: SyncKind
   trigger: "manual" | "scheduled"
   dry_run?: boolean
+  job_id?: string
 }
 
 const syncSupplierStep = createStep("sync-supplier", async (input: Input, { container }) => {
   const job = await runSupplierSync(container, input.supplier_code, input.kind, input.trigger, {
     dryRun: input.dry_run,
+    jobId: input.job_id,
   })
   if (job.already_running) {
     return new StepResponse({
@@ -30,13 +32,16 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
         phase: "publishing",
         current_message: "Publishing products to the Malta catalog",
         progress_percent: 60,
+        processed: 0,
       })
       publication = await autoPublishSupplierCatalog(container, input.supplier_code, async (published, total) => {
         await service.updateImportJobs({
           id: job.id,
           phase: "publishing",
+          total_records: total,
+          processed: published,
           progress_percent: 60 + Math.floor((published / Math.max(1, total)) * 30),
-          current_message: `Publishing products (${published.toLocaleString()} of ${total.toLocaleString()})`,
+          current_message: total ? `Publishing parent products (${published.toLocaleString()} of ${total.toLocaleString()})` : "All parent products are already published",
         })
       })
     }

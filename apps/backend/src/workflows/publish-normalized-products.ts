@@ -16,12 +16,22 @@ function batches<T>(items: T[], size = 250) {
   return output
 }
 
+async function listAllPublishedProductSources(service: any, filters: Record<string, unknown>) {
+  const sources: any[] = []
+  const take = 5000
+  for (let skip = 0; ; skip += take) {
+    const batch = await service.listPublishedProductSources(filters, { take, skip })
+    sources.push(...batch)
+    if (batch.length < take) return sources
+  }
+}
+
 async function persistProductSources(container: any, normalized: NormalizedProduct[], nativeProducts: any[]) {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const suppliers = await service.listSuppliers({})
   const supplierByCode = new Map<string, any>(suppliers.map((supplier: any) => [supplier.code, supplier]))
   const nativeByKey = new Map<string, any>(nativeProducts.map((product: any) => [product.external_id, product]))
-  const existingSources = await service.listPublishedProductSources({}, { take: 50000 })
+  const existingSources = await listAllPublishedProductSources(service, {})
   const existingByKey = new Map<string, any>(existingSources.map((source: any) => [source.source_key, source]))
   const creates: any[] = []
   const updates: any[] = []
@@ -44,6 +54,7 @@ async function persistProductSources(container: any, normalized: NormalizedProdu
         id: native.id,
         name: product.title,
         description: product.description,
+        short_description: product.short_description,
         image_url: product.images[0] || null,
         images: product.images,
         category: product.category,
@@ -96,7 +107,9 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     query.graph({
       entity: "product",
       fields: ["id", "external_id", "variants.id", "variants.sku"],
-      filters: { status: ProductStatus.PUBLISHED },
+      filters: normalizedProducts
+        ? { status: ProductStatus.PUBLISHED, external_id: normalizedProducts.map((product) => product.source_key) }
+        : { status: ProductStatus.PUBLISHED },
       pagination: { take: 50000 },
     }),
     query.graph({
@@ -119,7 +132,7 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
   const selected = supplierCode ? normalized.filter((product) => product.supplier_code === supplierCode) : normalized
   if (supplierCode && selected.length) {
     const suppliers = await service.listSuppliers({ code: supplierCode }, { take: 1 })
-    const currentSources = suppliers.length ? await service.listPublishedProductSources({ supplier_id: suppliers[0].id }, { take: 50000 }) : []
+    const currentSources = suppliers.length ? await listAllPublishedProductSources(service, { supplier_id: suppliers[0].id }) : []
     const currentKeys = new Set(selected.map((product) => product.source_key))
     const staleIds = currentSources.filter((source: any) => !currentKeys.has(source.source_key)).map((source: any) => source.id)
     if (staleIds.length) await service.deletePublishedProductSources(staleIds)
@@ -379,13 +392,14 @@ export async function publishNormalizedProductBatch(container: any, pending: Nor
 }
 
 export async function autoPublishSupplierCatalog(container: any, supplierCode: "stricker" | "midocean", onProgress?: (published: number, total: number) => Promise<void>) {
-  const normalized = await normalizeSupplierCatalog(container, { take: 50000 })
+  const normalized = await normalizeSupplierCatalog(container, { take: Number.MAX_SAFE_INTEGER })
   const pending = normalized.filter((product) => product.supplier_code === supplierCode && !product.published)
   let created = 0
-  for (let index = 0; index < pending.length; index += 100) {
-    const result = await publishNormalizedProductBatch(container, pending.slice(index, index + 100))
+  await onProgress?.(0, pending.length)
+  for (let index = 0; index < pending.length; index += 25) {
+    const result = await publishNormalizedProductBatch(container, pending.slice(index, index + 25))
     created += result.created
-    await onProgress?.(Math.min(index + 100, pending.length), pending.length)
+    await onProgress?.(Math.min(index + 25, pending.length), pending.length)
   }
   return {
     created,

@@ -63,6 +63,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         const prices = variants.map((variant: any) => variant.price_eur).filter(Number.isFinite)
         return {
           ...document,
+          description: document.short_description || document.description,
           sku: variants[0]?.sku,
           price_eur: prices.length ? Math.min(...prices) : undefined,
           variants,
@@ -105,7 +106,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         return {
           id: product.id,
           name: product.title,
-          description: product.description,
+          description: source?.catalog_document?.short_description || product.description,
           sku: variants[0]?.sku,
           image_url: product.thumbnail || product.images?.[0]?.url || null,
           category: product.categories?.[0]?.name,
