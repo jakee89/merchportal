@@ -11,7 +11,7 @@ services:
       backend:
         condition: service_started
 
-    environment: &backend-environment
+    environment:
       MEDUSA_BACKEND_URL: http://backend:9000
 
       NEXT_PUBLIC_MEDUSA_BACKEND_URL: ${BACKEND_URL:-http://localhost:9000}
@@ -59,7 +59,7 @@ services:
         "npm exec -- medusa db:migrate && npm exec -- medusa start --host 0.0.0.0 --port 9000",
       ]
 
-    environment:
+    environment: &backend-environment
       NODE_ENV: production
       PORT: 9000
 
