@@ -38,7 +38,11 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     return res.status(403).json({ message: "Join a company before viewing the catalog" })
   }
 
-  const cacheKey = membership[0].organization_id
+  const [markup, completedJobs] = await Promise.all([
+    resolveMarkup(service, membership[0].organization_id),
+    service.listImportJobs({ status: "completed" }, { take: 1, order: { completed_at: "DESC" } }),
+  ])
+  const cacheKey = `${markup}:${completedJobs[0]?.id || "initial"}`
   removeExpiredCatalogCacheEntries()
   const cached = catalogCache.get(cacheKey)
   let safeProducts: any[]
@@ -47,7 +51,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     safeProducts = cached.products
     facets = cached.facets
   } else {
-    const [indexedSources, markup] = await Promise.all([service.listPublishedProductSources({}, { take: 50000 }), resolveMarkup(service, membership[0].organization_id)])
+    const indexedSources = await service.listPublishedProductSources({}, { take: 50000 })
     const indexed = indexedSources.filter((source: any) => source.catalog_document)
     if (indexed.length && indexed.length === indexedSources.length) {
       safeProducts = indexed.map((source: any) => {
@@ -58,6 +62,9 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           return {
             ...variant,
             price_eur: Number.isFinite(cost) ? sellingPrice(cost, markup) : undefined,
+            price_breaks: Array.isArray(variant.price_breaks)
+              ? variant.price_breaks.map((price: any) => ({ quantity: price.quantity, price_eur: sellingPrice(Number(price.price_eur), markup) }))
+              : [],
           }
         })
         const prices = variants.map((variant: any) => variant.price_eur).filter(Number.isFinite)

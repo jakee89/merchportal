@@ -80,6 +80,8 @@ async function persistProductSources(container: any, normalized: NormalizedProdu
             color_group: variant.color_group,
             size: variant.size,
             stock_quantity: variant.stock_quantity,
+            future_stock: variant.future_stock,
+            price_breaks: variant.price_breaks,
           }
         }),
       },
@@ -103,12 +105,19 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const markup = await resolveMarkup(service)
+  let selectedSourceKeys = normalizedProducts?.map((product) => product.source_key)
+  if (!selectedSourceKeys && supplierCode) {
+    const suppliers = await service.listSuppliers({ code: supplierCode }, { take: 1 })
+    const sources = suppliers.length ? await listAllPublishedProductSources(service, { supplier_id: suppliers[0].id }) : []
+    selectedSourceKeys = sources.map((source) => source.source_key)
+  }
+  await onProgress?.(92, "Loading the published supplier catalog")
   const [{ data: products }, { data: locations }] = await Promise.all([
     query.graph({
       entity: "product",
       fields: ["id", "external_id", "variants.id", "variants.sku"],
-      filters: normalizedProducts
-        ? { status: ProductStatus.PUBLISHED, external_id: normalizedProducts.map((product) => product.source_key) }
+      filters: selectedSourceKeys
+        ? { status: ProductStatus.PUBLISHED, external_id: selectedSourceKeys }
         : { status: ProductStatus.PUBLISHED },
       pagination: { take: 50000 },
     }),
@@ -127,16 +136,11 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     normalizedProducts ||
     (await normalizeSupplierCatalog(container, {
       source_keys: published.map((product: any) => product.external_id),
+      supplier_code: supplierCode,
       take: published.length,
     }))
   const selected = supplierCode ? normalized.filter((product) => product.supplier_code === supplierCode) : normalized
-  if (supplierCode && selected.length) {
-    const suppliers = await service.listSuppliers({ code: supplierCode }, { take: 1 })
-    const currentSources = suppliers.length ? await listAllPublishedProductSources(service, { supplier_id: suppliers[0].id }) : []
-    const currentKeys = new Set(selected.map((product) => product.source_key))
-    const staleIds = currentSources.filter((source: any) => !currentKeys.has(source.source_key)).map((source: any) => source.id)
-    if (staleIds.length) await service.deletePublishedProductSources(staleIds)
-  }
+  await onProgress?.(93, `Normalized ${selected.length.toLocaleString()} published products`)
   const normalizedByKey = new Map(selected.map((product) => [product.source_key, product]))
   const variantBySku = new Map<string, any>()
   const nativeProductByKey = new Map<string, any>(published.map((product: any) => [product.external_id, product]))
@@ -170,10 +174,13 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
       }))
   })
   if (missingVariants.length) {
-    for (const batch of batches(missingVariants, 100)) {
+    const groups = batches(missingVariants, 100)
+    for (let index = 0; index < groups.length; index += 1) {
+      const batch = groups[index]
       await createProductVariantsWorkflow(container).run({
         input: { product_variants: batch } as any,
       })
+      await onProgress?.(94, `Adding product options (${Math.min((index + 1) * 100, missingVariants.length).toLocaleString()} of ${missingVariants.length.toLocaleString()})`)
     }
     const { data: refreshedProducts } = await query.graph({
       entity: "product",
@@ -208,10 +215,13 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     }),
   )
   if (variantUpdates.length) {
-    for (const batch of batches(variantUpdates)) {
+    const groups = batches(variantUpdates)
+    for (let index = 0; index < groups.length; index += 1) {
+      const batch = groups[index]
       await updateProductVariantsWorkflow(container).run({
         input: { product_variants: batch },
       })
+      await onProgress?.(95, `Updating prices (${Math.min((index + 1) * 250, variantUpdates.length).toLocaleString()} of ${variantUpdates.length.toLocaleString()})`)
     }
     await onProgress?.(96, `Updated ${variantUpdates.length.toLocaleString()} client prices`)
   }
@@ -253,17 +263,23 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     }
   }
   if (updates.length) {
-    for (const batch of batches(updates, 500)) {
+    const groups = batches(updates, 500)
+    for (let index = 0; index < groups.length; index += 1) {
+      const batch = groups[index]
       await updateInventoryLevelsWorkflow(container).run({
         input: { updates: batch },
       })
+      await onProgress?.(97, `Updating stock (${Math.min((index + 1) * 500, updates.length).toLocaleString()} of ${updates.length.toLocaleString()})`)
     }
   }
   if (creates.length) {
-    for (const batch of batches(creates, 500)) {
+    const groups = batches(creates, 500)
+    for (let index = 0; index < groups.length; index += 1) {
+      const batch = groups[index]
       await createInventoryLevelsWorkflow(container).run({
         input: { inventory_levels: batch as any },
       })
+      await onProgress?.(97, `Creating stock records (${Math.min((index + 1) * 500, creates.length).toLocaleString()} of ${creates.length.toLocaleString()})`)
     }
   }
   await onProgress?.(98, `Updated ${(updates.length + creates.length).toLocaleString()} stock quantities`)
@@ -391,20 +407,36 @@ export async function publishNormalizedProductBatch(container: any, pending: Nor
   }
 }
 
-export async function autoPublishSupplierCatalog(container: any, supplierCode: "stricker" | "midocean", onProgress?: (published: number, total: number) => Promise<void>) {
-  const normalized = await normalizeSupplierCatalog(container, { take: Number.MAX_SAFE_INTEGER })
-  const pending = normalized.filter((product) => product.supplier_code === supplierCode && !product.published)
+export async function autoPublishSupplierCatalog(container: any, supplierCode: "stricker" | "midocean", onProgress?: (published: number, total: number) => Promise<void>, onIssue?: (message: string) => Promise<void>) {
+  const normalized = await normalizeSupplierCatalog(container, { supplier_code: supplierCode, take: Number.MAX_SAFE_INTEGER })
+  const pending = normalized.filter((product) => !product.published && product.variants.length)
   let created = 0
+  const errors: string[] = []
   await onProgress?.(0, pending.length)
-  for (let index = 0; index < pending.length; index += 25) {
-    const result = await publishNormalizedProductBatch(container, pending.slice(index, index + 25))
-    created += result.created
-    await onProgress?.(Math.min(index + 25, pending.length), pending.length)
+  for (let index = 0; index < pending.length; index += 5) {
+    const group = pending.slice(index, index + 5)
+    try {
+      const result = await publishNormalizedProductBatch(container, group)
+      created += result.created
+    } catch {
+      for (const product of group) {
+        try {
+          const result = await publishNormalizedProductBatch(container, [product])
+          created += result.created
+        } catch (error) {
+          const message = `${product.title}: ${error instanceof Error ? error.message : "Could not publish product"}`.slice(0, 500)
+          errors.push(message)
+          await onIssue?.(message)
+        }
+      }
+    }
+    await onProgress?.(Math.min(index + 5, pending.length), pending.length)
   }
   return {
     created,
     total: normalized.filter((product) => product.supplier_code === supplierCode).length,
     normalized,
+    errors,
   }
 }
 

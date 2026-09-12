@@ -4,6 +4,7 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "."
 import { fieldValue, productAttributes, supplierCategory } from "./catalog-rules"
 import { normalizeDecorationOptions, type DecorationMethod } from "./decoration"
+import { supplierImageToken } from "./media"
 
 type ObjectValue = Record<string, any>
 
@@ -17,7 +18,9 @@ export type NormalizedVariant = {
   size: string
   images: string[]
   price_eur?: number
+  price_breaks: Array<{ quantity: number; price_eur: number }>
   stock_quantity?: number
+  future_stock: Array<{ date: string; quantity: number }>
 }
 
 export type NormalizedProduct = {
@@ -91,8 +94,10 @@ function imageUrls(object: unknown, output = new Set<string>()): string[] {
 }
 
 function variantRows(payload: ObjectValue) {
-  for (const key of ["variants", "optionals", "items", "skus", "colours", "colors"]) {
-    if (Array.isArray(payload[key]) && payload[key].length) return payload[key] as ObjectValue[]
+  for (const [key, child] of Object.entries(payload)) {
+    if (["variants", "optionals", "productoptionals", "productoptional", "items", "skus", "colours", "colors"].includes(key.toLowerCase()) && Array.isArray(child) && child.length) {
+      return child as ObjectValue[]
+    }
   }
   return [payload]
 }
@@ -118,26 +123,83 @@ export function catalogSummary(fullDescription?: string, suppliedSummary?: strin
   return `${sentence || source.slice(0, 180).trim()}…`
 }
 
-function relatedRecords(items: any[], supplierId: string, sku: string, masterId: string) {
-  const keys = [sku]
-  const exact = items.filter((item) => {
-    if (item.supplier_id !== supplierId) return false
-    const references = [
-      item.sku,
-      fieldValue(item.payload, ["sku", "optional_reference", "optionalReference", "reference", "product_reference", "productReference"]),
-    ].filter((value): value is string => Boolean(value))
-    return references.some((reference) => keys.includes(reference))
-  })
-  if (exact.length) return exact
-  return items.filter((item) => {
-    if (item.supplier_id !== supplierId) return false
-    const reference = item.sku || fieldValue(item.payload, ["reference", "product_reference", "productReference"])
-    return typeof reference === "string" && (reference === masterId || reference.startsWith(`${masterId}-`))
-  })
+function recordKeys(item: any, supplierCode?: string) {
+  const payload = (item.payload || {}) as ObjectValue
+  const sku = item.sku || fieldValue(payload, ["sku", "optional_reference", "optionalReference", "web_sku", "websku", "reference"])
+  const master = supplierMasterReference(supplierCode, payload, item.external_id)
+  return { sku, master }
 }
 
 function proxyImages(urls: string[]) {
-  return urls
+  const backend = (process.env.MEDUSA_BACKEND_URL || "").replace(/\/$/u, "")
+  if (!backend) return []
+  return urls.flatMap((url) => {
+    const token = supplierImageToken(url)
+    return token ? [`${backend}/media/${token}`] : []
+  })
+}
+
+function indexedRecords(items: any[], supplierById: Map<string, any>) {
+  const bySku = new Map<string, any[]>()
+  const byMaster = new Map<string, any[]>()
+  const add = (map: Map<string, any[]>, key: string | undefined, item: any) => {
+    if (!key) return
+    const fullKey = `${item.supplier_id}:${key}`
+    const bucket = map.get(fullKey)
+    if (bucket) bucket.push(item)
+    else map.set(fullKey, [item])
+  }
+  for (const item of items) {
+    const supplier = supplierById.get(item.supplier_id)
+    const keys = recordKeys(item, supplier?.code)
+    add(bySku, keys.sku, item)
+    add(byMaster, keys.master, item)
+  }
+  return { bySku, byMaster }
+}
+
+function matchingRecords(index: ReturnType<typeof indexedRecords>, supplierId: string, sku: string, masterId: string) {
+  return index.bySku.get(`${supplierId}:${sku}`) || index.byMaster.get(`${supplierId}:${masterId}`) || []
+}
+
+export function productPriceBreaks(items: any[]) {
+  const breaks = new Map<number, number>()
+  const visit = (value: unknown) => {
+    if (Array.isArray(value)) return value.forEach(visit)
+    if (!value || typeof value !== "object") return
+    const item = value as ObjectValue
+    for (const [name, rawPrice] of Object.entries(item)) {
+      const match = name.replace(/[^a-z0-9]/giu, "").match(/^(?:your)?price(\d+)$/iu)
+      const price = Number(typeof rawPrice === "string" ? rawPrice.replace(",", ".") : rawPrice)
+      if (match && Number.isFinite(price) && price >= 0) breaks.set(Number(match[1]), price)
+    }
+    const quantity = numberValue(item, ["minimum_quantity", "min_quantity", "from_quantity", "quantity", "qty"])
+    const price = numberValue(item, ["price", "your_price", "yourprice", "unit_price", "net_price", "price_1"])
+    if (quantity !== undefined && price !== undefined && quantity > 0 && price >= 0) breaks.set(Math.floor(quantity), price)
+    Object.values(item).forEach(visit)
+  }
+  items.forEach((item) => {
+    const payload = item.payload || item
+    const base = numberValue(payload, ["your_price", "yourprice", "price", "unit_price", "net_price", "price_1"])
+    if (base !== undefined && base >= 0 && !breaks.has(1)) breaks.set(1, base)
+    visit(payload)
+  })
+  return [...breaks.entries()]
+    .map(([quantity, price_eur]) => ({ quantity, price_eur }))
+    .sort((left, right) => left.quantity - right.quantity)
+}
+
+export function futureStock(items: any[]) {
+  const arrivals: Array<{ date: string; quantity: number }> = []
+  for (const item of items) {
+    const payload = (item.payload || item) as ObjectValue
+    for (const prefix of ["first", "next", "second"]) {
+      const date = value(payload, [`${prefix}_arrival_date`, `${prefix}ArrivalDate`])
+      const quantity = numberValue(payload, [`${prefix}_arrival_qty`, `${prefix}_arrival_quantity`, `${prefix}ArrivalQty`])
+      if (date && quantity !== undefined && quantity > 0) arrivals.push({ date, quantity: Math.floor(quantity) })
+    }
+  }
+  return arrivals.filter((item, index, all) => all.findIndex((other) => other.date === item.date && other.quantity === item.quantity) === index).sort((left, right) => left.date.localeCompare(right.date))
 }
 
 async function listAllRawSupplierRecords(service: any, filters: Record<string, unknown>, order?: Record<string, "ASC" | "DESC">) {
@@ -150,28 +212,30 @@ async function listAllRawSupplierRecords(service: any, filters: Record<string, u
   }
 }
 
-export async function normalizeSupplierCatalog(container: MedusaContainer, options: { source_keys?: string[]; take?: number; skip?: number } = {}): Promise<NormalizedProduct[]> {
+export async function normalizeSupplierCatalog(container: MedusaContainer, options: { source_keys?: string[]; supplier_code?: string; take?: number; skip?: number } = {}): Promise<NormalizedProduct[]> {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
-  const [allRecords, allPrices, allStocks, allDecorations, allDecorationPrices, suppliers] = await Promise.all([
-    listAllRawSupplierRecords(service, { record_type: "product" }, { updated_at: "DESC" }),
-    listAllRawSupplierRecords(service, { record_type: "price" }),
-    listAllRawSupplierRecords(service, { record_type: "stock" }),
-    listAllRawSupplierRecords(service, { record_type: "decoration" }),
-    listAllRawSupplierRecords(service, { record_type: "decoration_price" }),
-    service.listSuppliers({}),
-  ])
+  const suppliers = await service.listSuppliers(options.supplier_code ? { code: options.supplier_code } : {})
   const supplierById = new Map<string, any>(suppliers.map((supplier: any) => [supplier.id, supplier]))
-  const currentRecords = (items: any[], syncField: string) =>
-    items.filter((item) => {
-      const syncedAt = supplierById.get(item.supplier_id)?.[syncField]
-      return !syncedAt || new Date(item.last_seen_at).getTime() >= new Date(syncedAt).getTime() - 15 * 60_000
-    })
-  const records = currentRecords(allRecords, "product_sync_at")
-  const prices = currentRecords(allPrices, "price_sync_at")
-  const stocks = currentRecords(allStocks, "stock_sync_at")
-  const decorations = currentRecords(allDecorations, "product_sync_at")
-  const decorationPrices = currentRecords(allDecorationPrices, "product_sync_at")
+  const supplierIds = [...supplierById.keys()]
+  if (!supplierIds.length) return []
+  const filters = (recordType: string) => ({ record_type: recordType, supplier_id: supplierIds })
+  const [records, prices, stocks, decorations, decorationPrices] = await Promise.all([
+    listAllRawSupplierRecords(service, filters("product"), { updated_at: "DESC" }),
+    listAllRawSupplierRecords(service, filters("price")),
+    listAllRawSupplierRecords(service, filters("stock")),
+    listAllRawSupplierRecords(service, filters("decoration")),
+    listAllRawSupplierRecords(service, filters("decoration_price")),
+  ])
+  const priceIndex = indexedRecords(prices, supplierById)
+  const stockIndex = indexedRecords(stocks, supplierById)
+  const decorationIndex = indexedRecords(decorations, supplierById)
+  const decorationPricesBySupplier = new Map<string, any[]>()
+  for (const item of decorationPrices) {
+    const bucket = decorationPricesBySupplier.get(item.supplier_id)
+    if (bucket) bucket.push(item.payload)
+    else decorationPricesBySupplier.set(item.supplier_id, [item.payload])
+  }
   const groups = new Map<string, { supplier_id: string; master_id: string; records: any[] }>()
   for (const record of records) {
     const payload = (record.payload || {}) as ObjectValue
@@ -207,16 +271,15 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const supplier = supplierById.get(group.supplier_id)
     const originalCategory = supplierCategory(payload)
     const attributes = productAttributes(group.records.map((item) => item.payload))
-    const decorationPayloads = decorations
-      .filter((item: any) => {
-        if (item.supplier_id !== group.supplier_id) return false
-        if (item.external_id === group.master_id || item.external_id.startsWith(`${group.master_id}:`)) return true
-        const reference = supplierMasterReference(supplier?.code, (item.payload || {}) as ObjectValue, item.external_id)
-        return reference === group.master_id
-      })
-      .map((item: any) => item.payload)
-    const supplierDecorationPrices = decorationPrices.filter((item: any) => item.supplier_id === group.supplier_id).map((item: any) => item.payload)
-    const decorationOptions = normalizeDecorationOptions([...group.records.map((item) => item.payload), ...decorationPayloads], attributes.print_methods, supplierDecorationPrices)
+    const decorationPayloads = (decorationIndex.byMaster.get(`${group.supplier_id}:${group.master_id}`) || []).map((item: any) => item.payload)
+    const supplierDecorationPrices = decorationPricesBySupplier.get(group.supplier_id) || []
+    const decorationOptions = normalizeDecorationOptions([...group.records.map((item) => item.payload), ...decorationPayloads], attributes.print_methods, supplierDecorationPrices).map((method) => ({
+      ...method,
+      positions: method.positions.map((position) => ({
+        ...position,
+        image_url: position.image_url ? proxyImages([position.image_url])[0] : undefined,
+      })),
+    }))
     const rows = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue))
     const seen = new Set<string>()
     const seenSkus = new Set<string>()
@@ -230,10 +293,10 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         const combination = `${color}:${size}`
         if (seen.has(combination)) size = sku
         seen.add(`${color}:${size}`)
-        const priceMatches = relatedRecords(prices, group.supplier_id, sku, group.master_id)
-        const stockMatches = relatedRecords(stocks, group.supplier_id, sku, group.master_id)
-        const pricesFound = priceMatches.map((item) => numberValue(item.payload, ["price", "unit_price", "net_price", "price_1"])).filter((item): item is number => item !== undefined)
-        const stocksFound = stockMatches.map((item) => numberValue(item.payload, ["stock", "quantity", "available", "free_stock"])).filter((item): item is number => item !== undefined)
+        const priceMatches = matchingRecords(priceIndex, group.supplier_id, sku, group.master_id)
+        const stockMatches = matchingRecords(stockIndex, group.supplier_id, sku, group.master_id)
+        const priceBreaks = productPriceBreaks(priceMatches.length ? priceMatches : [row])
+        const stocksFound = stockMatches.map((item) => numberValue(item.payload, ["qty", "stock", "quantity", "available", "free_stock"])).filter((item): item is number => item !== undefined)
         let variantImages = imageUrls(row)
         if (!variantImages.length && supplier?.code === "stricker") {
           const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "color"])
@@ -250,8 +313,10 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
           color_group: colorGroup,
           size,
           images: proxyImages(variantImages),
-          price_eur: pricesFound.length ? Math.min(...pricesFound) : undefined,
+          price_eur: priceBreaks[0]?.price_eur,
+          price_breaks: priceBreaks,
           stock_quantity: stocksFound.length ? stocksFound.reduce((sum, item) => sum + item, 0) : undefined,
+          future_stock: futureStock(stockMatches),
         }
       })
       .filter((variant) => {
@@ -261,12 +326,12 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
       })
     const sourceKey = opaqueSourceKey(group.supplier_id, group.master_id)
     const productImages = [...proxyImages(imageUrls(group.records.map((item) => item.payload))), ...variants.flatMap((variant) => variant.images)].filter((url, index, all) => all.indexOf(url) === index)
-    const description = value(payload, ["long_description", "longDescription", "description", "Description"])
+    const description = value(payload, ["long_description", "longDescription", "seo_description", "seodescription", "description", "Description"])
     return {
       source_key: sourceKey,
       supplier_code: supplier?.code || "unknown",
       supplier_name: supplier?.display_name || "Unknown supplier",
-      title: value(payload, ["product_name", "name", "Name", "description", "Description"]) || "Merchandise product",
+      title: value(payload, ["product_name", "seo_name", "seoname", "name", "Name", "description", "Description"]) || "Merchandise product",
       description,
       short_description: catalogSummary(description, value(payload, ["short_description", "shortDescription", "summary"])),
       category: originalCategory,

@@ -1,4 +1,4 @@
-import { asRecords, ConnectionResult, SupplierAdapter } from "./types"
+import { asRecords, ConnectionResult, responseJson, SupplierAdapter, SupplierFetchContext } from "./types"
 import { MedusaError } from "@medusajs/framework/utils"
 
 const BASE_URL = "https://ws.stricker-europe.com"
@@ -6,7 +6,7 @@ const BASE_URL = "https://ws.stricker-europe.com"
 export class StrickerAdapter implements SupplierAdapter {
   constructor(private readonly accessKey: string) {}
 
-  private async download(data: string): Promise<unknown[]> {
+  private async download(data: string, context?: SupplierFetchContext): Promise<unknown[]> {
     const url = new URL("/downloads/v1ssl/file", BASE_URL)
     url.search = new URLSearchParams({
       AccessKey: this.accessKey,
@@ -17,10 +17,10 @@ export class StrickerAdapter implements SupplierAdapter {
 
     const response = await fetch(url, {
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(120_000),
+      signal: context?.signal ? AbortSignal.any([context.signal, AbortSignal.timeout(300_000)]) : AbortSignal.timeout(300_000),
     })
     if (!response.ok) throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, `Stricker request failed (${response.status})`)
-    return asRecords(await response.json())
+    return asRecords(await responseJson(response, context))
   }
 
   async testConnection(): Promise<ConnectionResult> {
@@ -33,23 +33,23 @@ export class StrickerAdapter implements SupplierAdapter {
     }
   }
 
-  fetchProducts() {
-    return this.download("optionalscomplete")
+  fetchProducts(context?: SupplierFetchContext) {
+    return this.download("optionalscomplete", context)
   }
 
-  fetchPrices() {
-    return this.download("optionalsPrice")
+  fetchPrices(context?: SupplierFetchContext) {
+    return this.download("optionalsPrice", context)
   }
 
-  fetchStock() {
-    return this.download("stocks")
+  fetchStock(context?: SupplierFetchContext) {
+    return this.download("stocks", context)
   }
 
-  async fetchDecorations() {
-    return this.download("customizationOptions")
+  async fetchDecorations(context?: SupplierFetchContext) {
+    return this.download("customizationOptions", context)
   }
 
-  fetchDecorationPrices() {
-    return this.download("customizationTables")
+  fetchDecorationPrices(context?: SupplierFetchContext) {
+    return this.download("customizationTables", context)
   }
 }

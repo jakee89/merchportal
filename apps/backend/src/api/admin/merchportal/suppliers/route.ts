@@ -5,6 +5,7 @@ import type {
 import { MERCHPORTAL_MODULE } from "../../../../modules/merchportal"
 import {
   ensureSuppliers,
+  reconcileStaleImportJobs,
   supplierCredentialStatus,
 } from "../../../../modules/merchportal/sync"
 import { requireStaff } from "../auth"
@@ -12,6 +13,7 @@ import { requireStaff } from "../auth"
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   await requireStaff(req)
   const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
+  await reconcileStaleImportJobs(service)
   const suppliers = await ensureSuppliers(req.scope)
   const jobs = await service.listImportJobs({}, { take: 30, order: { created_at: "DESC" } })
   const suppliersById = new Map<string, any>(

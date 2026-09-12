@@ -67,7 +67,7 @@ describe("supplier-neutral decoration normalization", () => {
         },
         150,
       ),
-    ).toEqual({ unit: 1.25, setup: 20, pending: false })
+    ).toEqual({ unit: 1.25, handling: 0, setup: 20, pending: false })
   })
 
   it("joins supplier print-price scales to a technique", () => {
@@ -126,8 +126,29 @@ describe("supplier-neutral decoration normalization", () => {
     )
     expect(decorationPrice(methods[0], 60, { colours: 3 })).toEqual({
       unit: 1.54,
+      handling: 0,
       setup: 180,
       pending: false,
     })
+  })
+
+  it("adds midocean handling and the ST white underbase only to print cost", () => {
+    const method = {
+      id: "ST",
+      name: "Screen transfer",
+      positions: [],
+      pricing_type: "NumberOfColours",
+      next_colour_cost_indicator: true,
+      setup_price_eur: 10,
+      handling_price_breaks: [{ quantity: 1, unit_price_eur: 0.4 }],
+      price_breaks: [{ quantity: 1, unit_price_eur: 1, next_colour_price_eur: 0.5 }],
+    }
+    expect(decorationPrice(method, 25, { colours: 2, color_code: "03" })).toEqual({
+      unit: 2,
+      handling: 0.4,
+      setup: 20,
+      pending: false,
+    })
+    expect(decorationPrice(method, 25, { colours: 2, color_code: "WW" }).unit).toBe(1.5)
   })
 })

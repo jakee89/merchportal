@@ -8,6 +8,7 @@ export type DecorationPosition = {
   max_width_mm?: number
   max_height_mm?: number
   max_colours?: number
+  image_url?: string
 }
 
 export type DecorationMethod = {
@@ -21,6 +22,7 @@ export type DecorationMethod = {
     price_breaks: DecorationPriceBreak[]
   }>
   setup_price_eur?: number
+  handling_price_breaks?: DecorationPriceBreak[]
   pricing_type?: string
   next_colour_cost_indicator?: boolean
 }
@@ -31,6 +33,13 @@ type DecorationPriceBreak = {
   next_colour_price_eur?: number
 }
 
+type PricingIndex = {
+  candidates: AnyObject[]
+  byId: Map<string, AnyObject[]>
+}
+
+const pricingCache = new WeakMap<object, PricingIndex>()
+
 function number(value: unknown) {
   const parsed = Number(typeof value === "string" ? value.replace(",", ".") : value)
   return Number.isFinite(parsed) ? parsed : undefined
@@ -39,6 +48,11 @@ function number(value: unknown) {
 function key(object: AnyObject, names: string[]) {
   const accepted = new Set(names.map((name) => name.toLowerCase()))
   return Object.entries(object).find(([name]) => accepted.has(name.toLowerCase()))?.[1]
+}
+
+function directValue(object: AnyObject, names: string[]) {
+  const found = key(object, names)
+  return found !== undefined && found !== null && typeof found !== "object" && String(found).trim() ? String(found).trim() : undefined
 }
 
 function objects(value: unknown, output: AnyObject[] = []) {
@@ -89,15 +103,34 @@ function priceRanges(candidate: AnyObject) {
 
 export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods: string[] = [], pricingPayloads: unknown[] = []) {
   const methods = new Map<string, DecorationMethod>()
-  const pricingCandidates = pricingPayloads.flatMap((payload) => objects(payload))
-  const matchingPrices = (methodId: string) =>
-    pricingCandidates.filter((candidate) => {
-      const candidateId = fieldValue(candidate, ["id", "technique_id", "service_code", "servicecode", "table_code", "tablecode", "table_full_code", "tablefullcode"])
+  const cacheKey = pricingPayloads.find((payload) => payload && typeof payload === "object") as object | undefined
+  let pricingIndex = cacheKey ? pricingCache.get(cacheKey) : undefined
+  if (!pricingIndex) {
+    const candidates = pricingPayloads.flatMap((payload) => objects(payload))
+    const byId = new Map<string, AnyObject[]>()
+    for (const candidate of candidates) {
+      const id = directValue(candidate, ["id", "technique_id", "service_code", "servicecode", "table_code", "tablecode", "table_full_code", "tablefullcode"])
+      if (!id) continue
+      const key = id.toLowerCase()
+      const bucket = byId.get(key)
+      if (bucket) bucket.push(candidate)
+      else byId.set(key, [candidate])
+    }
+    pricingIndex = { candidates, byId }
+    if (cacheKey) pricingCache.set(cacheKey, pricingIndex)
+  }
+  const pricingCandidates = pricingIndex.candidates
+  const matchingPrices = (methodId: string) => {
+    const right = methodId.toLowerCase()
+    const exact = pricingIndex.byId.get(right)
+    if (exact?.length) return exact
+    return pricingCandidates.filter((candidate) => {
+      const candidateId = directValue(candidate, ["id", "technique_id", "service_code", "servicecode", "table_code", "tablecode", "table_full_code", "tablefullcode"])
       if (!candidateId) return false
       const left = candidateId.toLowerCase()
-      const right = methodId.toLowerCase()
-      return left === right || left.startsWith(right) || right.startsWith(left)
+      return left.startsWith(right) || right.startsWith(left)
     })
+  }
   const add = (methodName: string, methodId: string, position: DecorationPosition, candidate: AnyObject) => {
     const id = methodId || slug(methodName)
     const current = methods.get(id) || {
@@ -107,7 +140,8 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
       price_breaks: [],
     }
     if (!current.positions.some((item) => item.id === position.id)) current.positions.push(position)
-    const priceSources = [candidate, ...matchingPrices(id)]
+    const matchedPrices = matchingPrices(id)
+    const priceSources = matchedPrices.length ? matchedPrices : [candidate]
     const prices = priceSources.flatMap(priceBreaks)
     if (prices.length) {
       current.price_breaks = prices.filter((item, index, all) => all.findIndex((other) => other.quantity === item.quantity) === index).sort((left, right) => left.quantity - right.quantity)
@@ -120,6 +154,12 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
     const nextColourIndicator = priceSources.map((source) => fieldValue(source, ["next_colour_cost_indicator"])).find(Boolean)
     if (nextColourIndicator) {
       current.next_colour_cost_indicator = /^(x|true|yes|1)$/i.test(nextColourIndicator)
+    }
+    const manipulationCode = payloads.map((payload) => fieldValue(payload, ["print_manipulation", "printmanipulation", "handling_cost_code", "handlingcostcode"])).find(Boolean)
+    if (manipulationCode) {
+      const manipulation = pricingIndex.byId.get(manipulationCode.toLowerCase())?.[0] || pricingCandidates.find((source) => directValue(source, ["id", "code", "manipulation_id"])?.toLowerCase() === manipulationCode.toLowerCase())
+      const handlingBreaks = manipulation ? priceBreaks(manipulation) : []
+      if (handlingBreaks.length) current.handling_price_breaks = handlingBreaks
     }
     methods.set(id, current)
   }
@@ -141,6 +181,7 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
             max_width_mm: number(key(candidate, ["max_print_size_width", "max_width_mm", "width_mm", "width"])),
             max_height_mm: number(key(candidate, ["max_print_size_height", "max_height_mm", "height_mm", "height"])),
             max_colours: number(key(technique, ["max_colours", "max_colors", "colours", "colors"])),
+            image_url: fieldValue(candidate, ["image_url", "printing_line", "printingline", "location_image", "url"]),
           },
           technique,
         )
@@ -159,6 +200,7 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
           max_width_mm: number(key(candidate, ["max_print_size_width", "max_width_mm", "width_mm"])),
           max_height_mm: number(key(candidate, ["max_print_size_height", "max_height_mm", "height_mm"])),
           max_colours: number(key(candidate, ["max_colours", "max_colors", "colours", "colors"])),
+          image_url: fieldValue(candidate, ["image_url", "printing_line", "printingline", "location_image", "url"]),
         },
         candidate,
       )
@@ -178,8 +220,8 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
   return [...methods.values()].sort((left, right) => left.name.localeCompare(right.name))
 }
 
-export function decorationPrice(method: DecorationMethod | undefined, quantity: number, options: { colours?: number; width_mm?: number; height_mm?: number } = {}) {
-  if (!method) return { unit: 0, setup: 0, pending: false }
+export function decorationPrice(method: DecorationMethod | undefined, quantity: number, options: { colours?: number; width_mm?: number; height_mm?: number; color_code?: string } = {}) {
+  if (!method) return { unit: 0, handling: 0, setup: 0, pending: false }
   const pricingType = method.pricing_type?.toLowerCase() || ""
   const needsArea = pricingType.includes("area")
   const areaCm2 = options.width_mm && options.height_mm ? (options.width_mm * options.height_mm) / 100 : undefined
@@ -192,13 +234,18 @@ export function decorationPrice(method: DecorationMethod | undefined, quantity: 
     })
     .sort((left, right) => (right.area_from_cm2 || 0) - (left.area_from_cm2 || 0))[0]
   const breaks = range?.price_breaks?.length ? range.price_breaks : method.price_breaks
-  if (!breaks.length || (needsArea && areaCm2 === undefined)) return { unit: 0, setup: method?.setup_price_eur || 0, pending: true }
+  if (!breaks.length || (needsArea && areaCm2 === undefined)) return { unit: 0, handling: 0, setup: method?.setup_price_eur || 0, pending: true }
   const selected = [...breaks].filter((item) => item.quantity <= quantity).sort((left, right) => right.quantity - left.quantity)[0] || breaks[0]
   const colours = Math.max(1, Math.floor(options.colours || 1))
   const byColour = pricingType.includes("colour") || pricingType.includes("color")
-  const unit = byColour ? (method.next_colour_cost_indicator && selected.next_colour_price_eur !== undefined ? selected.unit_price_eur + selected.next_colour_price_eur * (colours - 1) : selected.unit_price_eur * colours) : selected.unit_price_eur
+  const whiteTextileCodes = new Set(["AS", "WW", "WD", "WH", "NB", "NW", "RH"])
+  const pricedColours = method.id.toUpperCase() === "ST" && options.color_code && !whiteTextileCodes.has(options.color_code.toUpperCase()) ? colours + 1 : colours
+  const unit = byColour ? (method.next_colour_cost_indicator && selected.next_colour_price_eur !== undefined ? selected.unit_price_eur + selected.next_colour_price_eur * (pricedColours - 1) : selected.unit_price_eur * pricedColours) : selected.unit_price_eur
+  const handlingBreaks = method.handling_price_breaks || []
+  const handling = [...handlingBreaks].filter((item) => item.quantity <= quantity).sort((left, right) => right.quantity - left.quantity)[0]?.unit_price_eur || handlingBreaks[0]?.unit_price_eur || 0
   return {
     unit,
+    handling,
     setup: (method.setup_price_eur || 0) * (byColour ? colours : 1),
     pending: false,
   }

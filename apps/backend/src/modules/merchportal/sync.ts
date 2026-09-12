@@ -52,6 +52,31 @@ export async function stopIfImportCancelled(service: any, id: string) {
   throw new ImportCancelledError()
 }
 
+export async function reconcileStaleImportJobs(service: any) {
+  const jobs = await service.listImportJobs({}, { take: 30, order: { created_at: "DESC" } })
+  const now = Date.now()
+  for (const job of jobs) {
+    const idleFor = now - new Date(job.updated_at || job.created_at).getTime()
+    if (job.status === "cancelling" && idleFor > 120_000) {
+      await updateImportJobActivity(service, job.id, {
+        status: "cancelled",
+        phase: "cancelled",
+        current_message: "Stopped after the worker became unresponsive",
+        completed_at: new Date(),
+      })
+    } else if ((job.status === "running" || job.status === "queued") && idleFor > 15 * 60_000) {
+      await updateImportJobActivity(service, job.id, {
+        status: "failed",
+        phase: "failed",
+        current_message: "The worker stopped reporting progress. Run the update again.",
+        error_message: "Import watchdog: no progress was reported for 15 minutes",
+        error_count: 1,
+        completed_at: new Date(),
+      })
+    }
+  }
+}
+
 function errorMessage(error: unknown) {
   if (error instanceof Error) return error.message
   if (error && typeof error === "object") {
@@ -65,9 +90,9 @@ function errorMessage(error: unknown) {
 }
 
 function objectValue(record: RecordObject, keys: string[]) {
-  for (const key of keys) {
-    const value = record[key]
-    if (value !== undefined && value !== null && String(value).length) {
+  const accepted = new Set(keys.map((key) => key.toLowerCase()))
+  for (const [key, value] of Object.entries(record)) {
+    if (accepted.has(key.toLowerCase()) && value !== undefined && value !== null && String(value).length) {
       return String(value).trim()
     }
   }
@@ -149,6 +174,7 @@ async function listAllRawSupplierRecords(service: any, filters: Record<string, u
 
 export async function ensureSuppliers(container: MedusaContainer) {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
+  await reconcileStaleImportJobs(service)
   for (const [code, definition] of Object.entries(suppliers)) {
     const existing = await service.listSuppliers({ code }, { take: 1 })
     if (!existing.length) {
@@ -169,7 +195,7 @@ export async function queueSupplierSync(
   const supplier = (await ensureSuppliers(container)).find((item: any) => item.code === supplierCode)
   if (!supplier) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Supplier is not configured")
 
-  const active = await service.listImportJobs({ supplier_id: supplier.id }, { take: 10, order: { created_at: "DESC" } })
+  const active = await service.listImportJobs({}, { take: 30, order: { created_at: "DESC" } })
   const existing = active.find((job: any) => job.status === "queued" || job.status === "running" || job.status === "cancelling")
   if (existing) return { ...existing, already_running: true }
 
@@ -215,7 +241,7 @@ export async function runSupplierSync(
     })
     job = await service.retrieveImportJob(queued.id)
   } else {
-    const active = await service.listImportJobs({ supplier_id: supplier.id }, { take: 10, order: { created_at: "DESC" } })
+    const active = await service.listImportJobs({}, { take: 30, order: { created_at: "DESC" } })
     const existing = active.find((item: any) => item.status === "queued" || item.status === "running" || item.status === "cancelling")
     if (existing) return { ...existing, already_running: true }
     job = await service.createImportJobs({
@@ -232,8 +258,44 @@ export async function runSupplierSync(
 
   try {
     const adapter = createSupplierAdapter(supplierCode)
-    const records = kind === "catalog" ? await adapter.fetchProducts() : kind === "price" ? await adapter.fetchPrices() : await adapter.fetchStock()
-    const [decorationRecords, decorationPriceRecords] = kind === "catalog" ? await Promise.all([adapter.fetchDecorations?.() || [], adapter.fetchDecorationPrices?.() || []]) : [[], []]
+    const abortController = new AbortController()
+    const cancellationPoll = setInterval(() => {
+      service.retrieveImportJob(job.id).then((current: any) => {
+        if (current.status === "cancelling") abortController.abort()
+      }).catch(() => undefined)
+    }, 1_000)
+    let lastDownloadUpdate = 0
+    const fetchContext = (label: string) => ({
+      signal: abortController.signal,
+      onDownloadProgress: async (receivedBytes: number, totalBytes?: number) => {
+        if (Date.now() - lastDownloadUpdate < 1_000 && receivedBytes !== totalBytes) return
+        lastDownloadUpdate = Date.now()
+        const detail = totalBytes
+          ? `${Math.round((receivedBytes / totalBytes) * 100)}%`
+          : `${(receivedBytes / 1_000_000).toFixed(1)} MB`
+        await updateImportJobActivity(service, job.id, {
+          current_message: `Downloading ${label} from ${supplier.display_name} (${detail})`,
+          progress_percent: totalBytes ? Math.max(2, Math.min(5, 2 + Math.floor((receivedBytes / totalBytes) * 3))) : 3,
+        })
+        await stopIfImportCancelled(service, job.id)
+      },
+    })
+    let records: unknown[] = []
+    let decorationRecords: unknown[] = []
+    let decorationPriceRecords: unknown[] = []
+    try {
+      records = kind === "catalog"
+        ? await adapter.fetchProducts(fetchContext("products"))
+        : kind === "price"
+          ? await adapter.fetchPrices(fetchContext("prices"))
+          : await adapter.fetchStock(fetchContext("stock"))
+      if (kind === "catalog") {
+        decorationRecords = await (adapter.fetchDecorations?.(fetchContext("print options")) || [])
+        decorationPriceRecords = await (adapter.fetchDecorationPrices?.(fetchContext("print prices")) || [])
+      }
+    } finally {
+      clearInterval(cancellationPoll)
+    }
     const recordType = kind === "catalog" ? "product" : kind
     const now = new Date()
     let created = 0
@@ -396,6 +458,16 @@ export async function runSupplierSync(
     }
     return { ...(await service.retrieveImportJob(job.id)), already_running: false }
   } catch (error) {
+    const current = await service.retrieveImportJob(job.id)
+    if (current.status === "cancelling") {
+      await updateImportJobActivity(service, job.id, {
+        status: "cancelled",
+        phase: "cancelled",
+        current_message: "Stopped by staff",
+        completed_at: new Date(),
+      })
+      return { ...(await service.retrieveImportJob(job.id)), already_running: false }
+    }
     if (error instanceof ImportCancelledError) {
       return { ...(await service.retrieveImportJob(job.id)), already_running: false }
     }
@@ -408,6 +480,14 @@ export async function runSupplierSync(
       error_count: 1,
       error_message: message,
       completed_at: new Date(),
+      log: {
+        failure: {
+          at: new Date().toISOString(),
+          phase: current.phase,
+          type: error instanceof Error ? error.name : "Error",
+          message,
+        },
+      },
     })
     await service.updateSuppliers({ id: supplier.id, last_error: message })
     throw error

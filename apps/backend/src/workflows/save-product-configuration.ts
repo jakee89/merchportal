@@ -52,7 +52,12 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
   if ((input.print_width_mm && input.print_width_mm < 1) || (input.print_height_mm && input.print_height_mm < 1) || (position?.max_width_mm && input.print_width_mm && input.print_width_mm > position.max_width_mm) || (position?.max_height_mm && input.print_height_mm && input.print_height_mm > position.max_height_mm)) {
     throw new MedusaError(MedusaError.Types.INVALID_DATA, "Artwork dimensions exceed the selected print area")
   }
-  const cost = Number((source.cost_by_sku || {})[String(variant.sku || "")])
+  const indexedVariant = ((source.catalog_document as any)?.variants || []).find((item: any) => item.sku === variant.sku)
+  const priceBreaks = Array.isArray(indexedVariant?.price_breaks) ? indexedVariant.price_breaks : []
+  const selectedCost = [...priceBreaks]
+    .filter((item: any) => Number(item.quantity) <= input.quantity)
+    .sort((left: any, right: any) => Number(right.quantity) - Number(left.quantity))[0]?.price_eur
+  const cost = Number(selectedCost ?? (source.cost_by_sku || {})[String(variant.sku || "")])
   const nativePrice = Number(variant.prices?.find((item: any) => item.currency_code === "eur")?.amount)
   const markup = await resolveMarkup(service, memberships[0].organization_id)
   const baseUnitPrice = Number.isFinite(cost) ? sellingPrice(cost, markup) : nativePrice
@@ -61,8 +66,9 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
     colours: input.print_colours,
     width_mm: input.print_width_mm,
     height_mm: input.print_height_mm,
+    color_code: indexedVariant?.color_code,
   })
-  const brandingUnitPrice = sellingPrice(branding.unit, markup)
+  const brandingUnitPrice = sellingPrice(branding.unit + branding.handling, markup)
   const setupPrice = sellingPrice(branding.setup, markup)
   const total = Math.round(((baseUnitPrice + brandingUnitPrice) * input.quantity + setupPrice) * 100) / 100
   const configuration = await service.createProductConfigurations({

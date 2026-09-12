@@ -31,7 +31,7 @@ export async function POST(
   }
   const queued = await queueSupplierSync(req.scope, code, kind, "manual", { dryRun: Boolean(req.body.dry_run) })
   if (queued.already_running) {
-    res.status(202).json({ message: `${kind} update is already queued or running`, job: queued })
+    res.status(202).json({ message: "Another supplier update is already queued or running", job: queued })
     return
   }
   try {

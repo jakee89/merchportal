@@ -341,11 +341,11 @@ const MerchPortalPage = () => {
               </div>
               <div className="flex flex-wrap gap-2">
                 {(["catalog", "price", "stock"] as const).map((kind) => (
-                  <Button key={kind} size="small" variant={supplier.due[kind] ? "primary" : "secondary"} disabled={!supplier.configured || jobs.some((job) => job.supplier_code === supplier.code && (job.status === "running" || job.status === "queued" || job.status === "cancelling"))} isLoading={busy === `${supplier.code}-${kind}`} onClick={() => supplierAction(supplier.code, kind)}>
+                  <Button key={kind} size="small" variant={supplier.due[kind] ? "primary" : "secondary"} disabled={!supplier.configured || activeJobs.length > 0} isLoading={busy === `${supplier.code}-${kind}`} onClick={() => supplierAction(supplier.code, kind)}>
                     Update {kind}
                   </Button>
                 ))}
-                <Button size="small" variant="secondary" disabled={!supplier.configured || jobs.some((job) => job.supplier_code === supplier.code && (job.status === "running" || job.status === "queued" || job.status === "cancelling"))} isLoading={busy === `${supplier.code}-catalog-preview`} onClick={() => supplierAction(supplier.code, "catalog", true)}>
+                <Button size="small" variant="secondary" disabled={!supplier.configured || activeJobs.length > 0} isLoading={busy === `${supplier.code}-catalog-preview`} onClick={() => supplierAction(supplier.code, "catalog", true)}>
                   Preview catalog changes
                 </Button>
               </div>

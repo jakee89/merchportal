@@ -1,6 +1,19 @@
 import { deduplicateSupplierRecords } from "../sync"
 
 describe("supplier sync record deduplication", () => {
+  it("keeps every Stricker OptionalReference when the feed uses PascalCase fields", () => {
+    const records = deduplicateSupplierRecords(
+      [
+        { ProductReference: "99822", OptionalReference: "99822-103" },
+        { ProductReference: "99822", OptionalReference: "99822-105" },
+      ],
+      "stricker",
+      "product",
+    )
+
+    expect(records).toHaveLength(2)
+  })
+
   it("keeps distinct Stricker decorations for the same product", () => {
     const records = deduplicateSupplierRecords(
       [

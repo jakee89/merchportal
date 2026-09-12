@@ -54,6 +54,10 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
           progress_percent: 60 + Math.floor((published / Math.max(1, total)) * 30),
           current_message: total ? `Publishing parent products (${published.toLocaleString()} of ${total.toLocaleString()})` : "All parent products are already published",
         })
+      }, async (message) => {
+        await updateImportJobActivity(service, job.id, {
+          current_message: `Skipped one invalid supplier product: ${message}`,
+        })
       })
     }
     const catalog = input.dry_run
@@ -80,6 +84,8 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
       current_message: input.dry_run ? "Preview completed — catalog was not published" : "Update completed",
       progress_percent: 100,
       completed_at: new Date(),
+      error_count: publication?.errors.length || 0,
+      error_message: publication?.errors.length ? `${publication.errors.length} supplier products could not be published. Open the activity log for details.` : null,
       log: {
         message: "Supplier update completed",
         dry_run: Boolean(input.dry_run),
@@ -107,6 +113,14 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
       completed_at: new Date(),
       error_count: 1,
       error_message: message,
+      log: {
+        failure: {
+          at: new Date().toISOString(),
+          phase: "publishing",
+          type: error instanceof Error ? error.name : "Error",
+          message,
+        },
+      },
     })
     throw error
   }

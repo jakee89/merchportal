@@ -42,6 +42,11 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         color,
         stock_quantity: variant.inventory_quantity,
         price_eur: Number.isFinite(cost) ? sellingPrice(cost, markup) : nativePrice,
+        price_breaks: Array.isArray(indexedVariant?.price_breaks)
+          ? indexedVariant.price_breaks.map((price: any) => ({ quantity: price.quantity, price_eur: sellingPrice(Number(price.price_eur), markup) }))
+          : [],
+        future_stock: Array.isArray(indexedVariant?.future_stock) ? indexedVariant.future_stock : [],
+        color_code: indexedVariant?.color_code,
       }
     })
   const decorationOptions = Array.isArray(source.decoration_options)
@@ -67,6 +72,12 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
             }))
           : [],
         setup_price_eur: method.setup_price_eur === undefined ? undefined : sellingPrice(Number(method.setup_price_eur) || 0, markup),
+        handling_price_breaks: Array.isArray(method.handling_price_breaks)
+          ? method.handling_price_breaks.map((price: any) => ({
+              quantity: price.quantity,
+              unit_price_eur: sellingPrice(Number(price.unit_price_eur) || 0, markup),
+            }))
+          : [],
       }))
     : []
   res.json({

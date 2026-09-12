@@ -17,6 +17,9 @@ type Product = {
     color: string
     stock_quantity?: number
     price_eur: number
+    price_breaks?: Array<{ quantity: number; price_eur: number }>
+    future_stock?: Array<{ date: string; quantity: number }>
+    color_code?: string
   }>
   decoration_options: Array<{
     id: string
@@ -27,6 +30,7 @@ type Product = {
       max_width_mm?: number
       max_height_mm?: number
       max_colours?: number
+      image_url?: string
     }>
     price_breaks: Array<{
       quantity: number
@@ -43,6 +47,10 @@ type Product = {
       }>
     }>
     setup_price_eur?: number
+    handling_price_breaks?: Array<{
+      quantity: number
+      unit_price_eur: number
+    }>
     pricing_type?: string
     next_colour_cost_indicator?: boolean
   }>

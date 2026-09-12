@@ -10,6 +10,7 @@ type Position = {
   max_width_mm?: number
   max_height_mm?: number
   max_colours?: number
+  image_url?: string
 }
 type Method = {
   id: string
@@ -22,6 +23,7 @@ type Method = {
     price_breaks: PriceBreak[]
   }>
   setup_price_eur?: number
+  handling_price_breaks?: PriceBreak[]
   pricing_type?: string
   next_colour_cost_indicator?: boolean
 }
@@ -36,6 +38,9 @@ type Variant = {
   color: string
   stock_quantity?: number
   price_eur: number
+  price_breaks?: Array<{ quantity: number; price_eur: number }>
+  future_stock?: Array<{ date: string; quantity: number }>
+  color_code?: string
 }
 
 export default function Configurator({ productId, variants, methods }: { productId: string; variants: Variant[]; methods: Method[] }) {
@@ -63,11 +68,17 @@ export default function Configurator({ productId, variants, methods }: { product
     const selected = options.sort((left, right) => right.quantity - left.quantity)[0] || breaks[0]
     if (!selected) return
     const byColour = pricingType.includes("colour") || pricingType.includes("color")
-    const unitPrice = byColour ? (method?.next_colour_cost_indicator && selected.next_colour_price_eur !== undefined ? selected.unit_price_eur + selected.next_colour_price_eur * (printColours - 1) : selected.unit_price_eur * printColours) : selected.unit_price_eur
-    return { ...selected, unit_price_eur: unitPrice }
-  }, [method, needsArea, printColours, printHeight, printWidth, pricingType, quantity])
+    const whiteCodes = new Set(["AS", "WW", "WD", "WH", "NB", "NW", "RH"])
+    const pricedColours = method?.id.toUpperCase() === "ST" && variant?.color_code && !whiteCodes.has(variant.color_code.toUpperCase()) ? printColours + 1 : printColours
+    const printPrice = byColour ? (method?.next_colour_cost_indicator && selected.next_colour_price_eur !== undefined ? selected.unit_price_eur + selected.next_colour_price_eur * (pricedColours - 1) : selected.unit_price_eur * pricedColours) : selected.unit_price_eur
+    const handlingBreaks = method?.handling_price_breaks || []
+    const handling = handlingBreaks.filter((item) => item.quantity <= quantity).sort((left, right) => right.quantity - left.quantity)[0]?.unit_price_eur || handlingBreaks[0]?.unit_price_eur || 0
+    return { ...selected, unit_price_eur: printPrice + handling }
+  }, [method, needsArea, printColours, printHeight, printWidth, pricingType, quantity, variant?.color_code])
   const brandingPending = Boolean(method) && !branding
-  const total = ((variant?.price_eur || 0) + (branding?.unit_price_eur || 0)) * quantity + (method?.setup_price_eur || 0) * (pricingType.includes("colour") || pricingType.includes("color") ? printColours : 1)
+  const productBreaks = variant?.price_breaks || []
+  const productUnitPrice = productBreaks.filter((item) => item.quantity <= quantity).sort((left, right) => right.quantity - left.quantity)[0]?.price_eur || productBreaks[0]?.price_eur || variant?.price_eur || 0
+  const total = (productUnitPrice + (branding?.unit_price_eur || 0)) * quantity + (method?.setup_price_eur || 0) * (pricingType.includes("colour") || pricingType.includes("color") ? printColours : 1)
 
   const fileContent = (file: File) =>
     new Promise<string>((resolve, reject) => {
@@ -168,6 +179,7 @@ export default function Configurator({ productId, variants, methods }: { product
         )}
         {position && (
           <>
+            {position.image_url && <img src={position.image_url} alt={`${position.name} print area`} style={{ maxWidth: "240px", borderRadius: "12px" }} />}
             <p className={styles.helper}>
               {position.max_width_mm && position.max_height_mm ? `Maximum artwork: ${position.max_width_mm} × ${position.max_height_mm} mm. ` : ""}
               {position.max_colours ? `Up to ${position.max_colours} colours.` : ""}
@@ -202,8 +214,14 @@ export default function Configurator({ productId, variants, methods }: { product
         <h2>Live estimate</h2>
         <div>
           <span>Product unit price</span>
-          <strong>EUR {(variant?.price_eur || 0).toFixed(2)}</strong>
+          <strong>EUR {productUnitPrice.toFixed(2)}</strong>
         </div>
+        {variant?.stock_quantity !== undefined && (
+          <div>
+            <span>Available now</span>
+            <strong>{variant.stock_quantity.toLocaleString()}</strong>
+          </div>
+        )}
         {method && (
           <div>
             <span>Branding</span>
@@ -221,6 +239,7 @@ export default function Configurator({ productId, variants, methods }: { product
           <strong>EUR {total.toFixed(2)}</strong>
         </div>
         {brandingPending && <p className={styles.helper}>The product total is live. Branding is excluded until its supplier price is available and will be confirmed before ordering.</p>}
+        {variant?.future_stock?.length ? <p className={styles.helper}>Next supplier arrival: {variant.future_stock[0].quantity.toLocaleString()} expected {new Date(variant.future_stock[0].date).toLocaleDateString()}.</p> : null}
         <button className={styles.primary} type="button" disabled={busy || !variant} onClick={save}>
           {busy ? "Saving…" : "Save configuration"}
         </button>

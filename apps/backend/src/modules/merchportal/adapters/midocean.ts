@@ -1,24 +1,24 @@
-import { asRecords, ConnectionResult, SupplierAdapter } from "./types"
+import { asRecords, ConnectionResult, responseJson, SupplierAdapter, SupplierFetchContext } from "./types"
 
 const BASE_URL = "https://api.midocean.com"
 
 export class MidoceanAdapter implements SupplierAdapter {
   constructor(private readonly apiKey: string) {}
 
-  private async request(path: string): Promise<unknown[]> {
-    return asRecords(await this.requestPayload(path))
+  private async request(path: string, context?: SupplierFetchContext): Promise<unknown[]> {
+    return asRecords(await this.requestPayload(path, context))
   }
 
-  private async requestPayload(path: string): Promise<any> {
+  private async requestPayload(path: string, context?: SupplierFetchContext): Promise<any> {
     const response = await fetch(new URL(path, BASE_URL), {
       headers: {
         Accept: "text/json",
         "x-Gateway-APIKey": this.apiKey,
       },
-      signal: AbortSignal.timeout(120_000),
+      signal: context?.signal ? AbortSignal.any([context.signal, AbortSignal.timeout(300_000)]) : AbortSignal.timeout(300_000),
     })
     if (!response.ok) throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, `midocean request failed (${response.status})`)
-    return response.json()
+    return responseJson(response, context)
   }
 
   async testConnection(): Promise<ConnectionResult> {
@@ -33,20 +33,20 @@ export class MidoceanAdapter implements SupplierAdapter {
     }
   }
 
-  fetchProducts() {
-    return this.request("/gateway/products/2.0?language=en")
+  fetchProducts(context?: SupplierFetchContext) {
+    return this.request("/gateway/products/2.0?language=en", context)
   }
 
-  fetchPrices() {
-    return this.request("/gateway/pricelist/2.0/")
+  fetchPrices(context?: SupplierFetchContext) {
+    return this.request("/gateway/pricelist/2.0", context)
   }
 
-  fetchStock() {
-    return this.request("/gateway/stock/2.0")
+  fetchStock(context?: SupplierFetchContext) {
+    return this.request("/gateway/stock/2.0", context)
   }
 
-  async fetchDecorations() {
-    const payload = await this.requestPayload("/gateway/printdata/1.0")
+  async fetchDecorations(context?: SupplierFetchContext) {
+    const payload = await this.requestPayload("/gateway/printdata/1.0", context)
     const descriptions = Array.isArray(payload?.printing_technique_descriptions) ? payload.printing_technique_descriptions : []
     const names = new Map<string, string>(descriptions.map((item: any) => [String(item.id), item.name?.find?.((name: any) => name.en)?.en || item.name?.[0]?.en || String(item.id)]))
     return asRecords(payload).map((product: any) => ({
@@ -65,8 +65,8 @@ export class MidoceanAdapter implements SupplierAdapter {
     }))
   }
 
-  fetchDecorationPrices() {
-    return this.request("/gateway/printpricelist/2.0")
+  fetchDecorationPrices(context?: SupplierFetchContext) {
+    return this.request("/gateway/printpricelist/2.0", context)
   }
 }
 import { MedusaError } from "@medusajs/framework/utils"
