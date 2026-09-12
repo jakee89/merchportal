@@ -45,9 +45,27 @@ const resetSupplierCatalogStep = createStep(
       service.listSuppliers({}),
     ])
     const productIds = [...new Set(sources.map((source) => source.product_id).filter(Boolean))]
+    const supplierSkus = [...new Set([
+      ...rawRecords.map((record) => record.sku).filter(Boolean),
+      ...sources.flatMap((source) => Object.keys(source.cost_by_sku || {})),
+    ])]
 
     for (const batch of batches(productIds, 100)) {
       await productService.deleteProducts(batch)
+    }
+
+    const targetedInventoryIds: string[] = []
+    for (const skuBatch of batches(supplierSkus, 500)) {
+      const { data } = await query.graph({
+        entity: "inventory_item",
+        fields: ["id"],
+        filters: { sku: skuBatch },
+        pagination: { take: 5000 },
+      })
+      targetedInventoryIds.push(...data.map((item: any) => item.id))
+    }
+    for (const batch of batches([...new Set(targetedInventoryIds)])) {
+      await inventoryService.deleteInventoryItems(batch)
     }
 
     const { data: inventoryItems } = await query.graph({
@@ -84,7 +102,7 @@ const resetSupplierCatalogStep = createStep(
       deleted_products: productIds.length,
       deleted_supplier_records: rawRecords.length,
       deleted_configurations: configurations.length,
-      deleted_inventory_items: orphanInventoryIds.length,
+      deleted_inventory_items: targetedInventoryIds.length + orphanInventoryIds.length,
     })
   }
 )

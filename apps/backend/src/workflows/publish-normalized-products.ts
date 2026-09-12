@@ -309,6 +309,7 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
 export async function publishNormalizedProductBatch(container: any, pending: NormalizedProduct[]) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const service = container.resolve(MERCHPORTAL_MODULE) as any
+  const inventoryService = container.resolve(Modules.INVENTORY) as any
   const markup = await resolveMarkup(service)
   if (!pending.length) return { created: 0, products: [] }
   const [{ data: salesChannels }, { data: profiles }, { data: locations }] = await Promise.all([
@@ -353,6 +354,19 @@ export async function publishNormalizedProductBatch(container: any, pending: Nor
   })
   const existingKeys = new Set(existingProducts.map((product: any) => product.external_id))
   const productsToCreate = pending.filter((product) => !existingKeys.has(product.source_key))
+  const incomingSkus = [...new Set(productsToCreate.flatMap((product) => product.variants.map((variant) => variant.sku)))]
+  for (const skuBatch of batches(incomingSkus, 500)) {
+    const { data: existingInventory } = await query.graph({
+      entity: "inventory_item",
+      fields: ["id", "variants.id"],
+      filters: { sku: skuBatch },
+      pagination: { take: 5000 },
+    })
+    const staleInventoryIds = existingInventory
+      .filter((item: any) => !item.variants?.length)
+      .map((item: any) => item.id)
+    if (staleInventoryIds.length) await inventoryService.deleteInventoryItems(staleInventoryIds)
+  }
   let createdProducts: any[] = []
   if (productsToCreate.length) {
     const created = await createProductsWorkflow(container).run({

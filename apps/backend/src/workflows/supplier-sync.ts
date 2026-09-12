@@ -112,13 +112,14 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
       })
     }
     const message = errorMessage(error)
+    const failedJob = await service.retrieveImportJob(job.id)
     await updateImportJobActivity(service, job.id, {
       status: "failed",
       phase: "failed",
       current_message: message,
       progress_percent: 100,
       completed_at: new Date(),
-      error_count: 1,
+      error_count: Math.max(1, Number(failedJob.error_count) || 0),
       error_message: message,
       log: {
         failure: {

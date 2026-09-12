@@ -200,12 +200,12 @@ const MerchPortalPage = () => {
     setBusy("reset-catalog")
     try {
       const result = await api<{
-        reset: { deleted_products: number; deleted_supplier_records: number }
+        reset: { deleted_products: number; deleted_supplier_records: number; deleted_inventory_items: number }
       }>("/admin/merchportal/catalog/reset", {
         method: "POST",
         body: JSON.stringify({ confirmation }),
       })
-      toast.success(`Catalog reset: ${result.reset.deleted_products} products removed`)
+      toast.success(`Catalog reset: ${result.reset.deleted_products} products and ${result.reset.deleted_inventory_items} inventory items removed`)
       await refresh()
     } catch (error) {
       toast.error((error as Error).message)
