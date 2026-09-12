@@ -194,6 +194,26 @@ const MerchPortalPage = () => {
     }
   }
 
+  const resetCatalog = async () => {
+    const confirmation = window.prompt("Type RESET to permanently delete all imported supplier products and start again.")
+    if (confirmation !== "RESET") return
+    setBusy("reset-catalog")
+    try {
+      const result = await api<{
+        reset: { deleted_products: number; deleted_supplier_records: number }
+      }>("/admin/merchportal/catalog/reset", {
+        method: "POST",
+        body: JSON.stringify({ confirmation }),
+      })
+      toast.success(`Catalog reset: ${result.reset.deleted_products} products removed`)
+      await refresh()
+    } catch (error) {
+      toast.error((error as Error).message)
+    } finally {
+      setBusy("")
+    }
+  }
+
   const createCompany = async () => {
     if (!companyName.trim()) return
     setBusy("company")
@@ -387,6 +407,15 @@ const MerchPortalPage = () => {
       <Container>
         <Heading level="h2">Catalog publishing</Heading>
         <Text className="text-ui-fg-subtle">Every supplier catalog update now normalizes and publishes all products automatically. Supplier categories are kept as the active categories. AI and manual category mapping will be added later as a separate tool.</Text>
+        <div className="mt-4 flex items-center justify-between gap-4 rounded border border-ui-border-error p-3">
+          <div>
+            <Text weight="plus">Start catalog from scratch</Text>
+            <Text size="small" className="text-ui-fg-subtle">Deletes imported products and supplier records only. Users, companies, pricing rules and shop settings are preserved.</Text>
+          </div>
+          <Button variant="danger" disabled={activeJobs.length > 0} isLoading={busy === "reset-catalog"} onClick={resetCatalog}>
+            Reset supplier catalog
+          </Button>
+        </div>
       </Container>
 
       <Container>
