@@ -29,7 +29,6 @@ module.exports = defineConfig({
   },
   admin: {
     disable: process.env.DISABLE_MEDUSA_ADMIN === "true",
-    backendUrl: process.env.MEDUSA_BACKEND_URL,
   },
   modules: [
     {
@@ -62,7 +61,7 @@ module.exports = defineConfig({
       options: {
         providers: [
           {
-            resolve: "@medusajs/auth-emailpass",
+            resolve: "@medusajs/medusa/auth-emailpass",
             id: "emailpass",
           },
         ],
