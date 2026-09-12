@@ -42,9 +42,15 @@ type Job = {
   skipped_count: number
   error_count: number
   created_at: string
+  started_at?: string
+  updated_at?: string
   completed_at?: string
+  cancel_requested_at?: string
   error_message?: string
-  log?: { dry_run?: boolean }
+  log?: {
+    dry_run?: boolean
+    events?: { at: string; phase: string; message: string }[]
+  }
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -69,8 +75,10 @@ function date(value?: string) {
 }
 
 function duration(job?: Job) {
-  if (!job?.completed_at) return "In progress"
-  const milliseconds = new Date(job.completed_at).getTime() - new Date(job.created_at).getTime()
+  if (!job) return ""
+  const start = new Date(job.started_at || job.created_at).getTime()
+  const end = new Date(job.completed_at || Date.now()).getTime()
+  const milliseconds = end - start
   if (milliseconds < 60_000) return "Under a minute"
   return `${Math.round(milliseconds / 60_000)} min`
 }
@@ -104,7 +112,7 @@ const MerchPortalPage = () => {
   }, [refresh])
 
   useEffect(() => {
-    if (!jobs.some((job) => job.status === "running" || job.status === "queued")) return
+    if (!jobs.some((job) => job.status === "running" || job.status === "queued" || job.status === "cancelling")) return
     const timer = window.setInterval(() => refresh().catch(() => undefined), 2500)
     return () => window.clearInterval(timer)
   }, [jobs, refresh])
@@ -173,6 +181,19 @@ const MerchPortalPage = () => {
     }
   }
 
+  const cancelJob = async (job: Job) => {
+    setBusy(`cancel-${job.id}`)
+    try {
+      await api(`/admin/merchportal/import-jobs/${job.id}/cancel`, { method: "POST" })
+      toast.success("Stop requested. The current database batch will finish safely.")
+      await refresh()
+    } catch (error) {
+      toast.error((error as Error).message)
+    } finally {
+      setBusy("")
+    }
+  }
+
   const createCompany = async () => {
     if (!companyName.trim()) return
     setBusy("company")
@@ -219,7 +240,7 @@ const MerchPortalPage = () => {
     }
   }
 
-  const activeJobs = jobs.filter((job) => job.status === "running" || job.status === "queued")
+  const activeJobs = jobs.filter((job) => job.status === "running" || job.status === "queued" || job.status === "cancelling")
   const failedJobs = jobs.filter((job) => job.status === "failed" || job.error_count > 0)
   const latestCompleted = jobs.find((job) => job.status === "completed" && !job.log?.dry_run)
 
@@ -253,7 +274,7 @@ const MerchPortalPage = () => {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <div className="rounded border p-3">
             <Text size="small" className="text-ui-fg-subtle">Active updates</Text>
-            <Text weight="plus">{activeJobs.length ? `${activeJobs.length} running` : "None"}</Text>
+            <Text weight="plus">{activeJobs.length ? `${activeJobs.length} active` : "None"}</Text>
             {activeJobs.slice(0, 2).map((job) => <Text key={job.id} size="xsmall">{job.supplier_name} · {job.kind} · {job.progress_percent}%</Text>)}
           </div>
           <div className="rounded border p-3">
@@ -276,7 +297,7 @@ const MerchPortalPage = () => {
           {suppliers.map((supplier) => (
             <div key={supplier.code} className="rounded border p-4">
               {(() => {
-                const active = jobs.find((job) => job.supplier_code === supplier.code && (job.status === "running" || job.status === "queued"))
+                const active = jobs.find((job) => job.supplier_code === supplier.code && (job.status === "running" || job.status === "queued" || job.status === "cancelling"))
                 return active ? (
                   <div className="mb-4 rounded bg-ui-bg-subtle p-3">
                     <div className="mb-2 flex justify-between gap-3">
@@ -296,7 +317,14 @@ const MerchPortalPage = () => {
                     <Text size="xsmall" className="mt-2 text-ui-fg-subtle">
                       Phase: {active.phase || "starting"}
                       {active.total_records ? ` · ${active.processed.toLocaleString()} of ${active.total_records.toLocaleString()} records` : ""}
+                      {` · ${duration(active)}`}
                     </Text>
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <Text size="xsmall" className="text-ui-fg-subtle">Last update: {date(active.updated_at)}</Text>
+                      <Button size="small" variant="secondary" isLoading={busy === `cancel-${active.id}`} disabled={active.status === "cancelling"} onClick={() => cancelJob(active)}>
+                        {active.status === "cancelling" ? "Stopping…" : "Stop update"}
+                      </Button>
+                    </div>
                   </div>
                 ) : null
               })()}
@@ -313,11 +341,11 @@ const MerchPortalPage = () => {
               </div>
               <div className="flex flex-wrap gap-2">
                 {(["catalog", "price", "stock"] as const).map((kind) => (
-                  <Button key={kind} size="small" variant={supplier.due[kind] ? "primary" : "secondary"} disabled={!supplier.configured || jobs.some((job) => job.supplier_code === supplier.code && (job.status === "running" || job.status === "queued"))} isLoading={busy === `${supplier.code}-${kind}`} onClick={() => supplierAction(supplier.code, kind)}>
+                  <Button key={kind} size="small" variant={supplier.due[kind] ? "primary" : "secondary"} disabled={!supplier.configured || jobs.some((job) => job.supplier_code === supplier.code && (job.status === "running" || job.status === "queued" || job.status === "cancelling"))} isLoading={busy === `${supplier.code}-${kind}`} onClick={() => supplierAction(supplier.code, kind)}>
                     Update {kind}
                   </Button>
                 ))}
-                <Button size="small" variant="secondary" disabled={!supplier.configured || jobs.some((job) => job.supplier_code === supplier.code && (job.status === "running" || job.status === "queued"))} isLoading={busy === `${supplier.code}-catalog-preview`} onClick={() => supplierAction(supplier.code, "catalog", true)}>
+                <Button size="small" variant="secondary" disabled={!supplier.configured || jobs.some((job) => job.supplier_code === supplier.code && (job.status === "running" || job.status === "queued" || job.status === "cancelling"))} isLoading={busy === `${supplier.code}-catalog-preview`} onClick={() => supplierAction(supplier.code, "catalog", true)}>
                   Preview catalog changes
                 </Button>
               </div>
@@ -425,7 +453,7 @@ const MerchPortalPage = () => {
                   {job.processed || 0} processed · {job.created_count || 0} new · {job.updated_count || 0} changed · {job.skipped_count || 0} unchanged · {job.error_count || 0} errors
                 </Text>
               </div>
-              {(job.status === "running" || job.status === "queued") && (
+              {(job.status === "running" || job.status === "queued" || job.status === "cancelling") && (
                 <div className="mt-2 h-2 overflow-hidden rounded-full bg-ui-bg-disabled">
                   <div
                     className="h-full rounded-full bg-ui-tag-blue-icon transition-all"
@@ -437,11 +465,22 @@ const MerchPortalPage = () => {
               )}
               {job.error_message && (
                 <div className="mt-2 rounded bg-ui-bg-component p-2">
-                  <Text size="small" className="text-ui-fg-error">
-                    Error: {job.error_message}
-                  </Text>
+                  <Text size="small" className="text-ui-fg-error">Error details</Text>
+                  <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-ui-fg-error">{job.error_message}</pre>
                 </div>
               )}
+              {job.log?.events?.length ? (
+                <details className="mt-2 rounded bg-ui-bg-component p-2">
+                  <summary className="cursor-pointer text-sm font-medium">Activity log ({job.log.events.length})</summary>
+                  <div className="mt-2 flex flex-col gap-y-1">
+                    {[...job.log.events].reverse().map((event, index) => (
+                      <Text key={`${event.at}-${index}`} size="xsmall">
+                        {date(event.at)} · {event.phase} · {event.message}
+                      </Text>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
             </div>
           ))}
         </div>

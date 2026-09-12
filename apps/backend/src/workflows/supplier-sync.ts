@@ -1,5 +1,5 @@
 import { createStep, createWorkflow, StepResponse, WorkflowResponse } from "@medusajs/framework/workflows-sdk"
-import { runSupplierSync } from "../modules/merchportal/sync"
+import { ImportCancelledError, runSupplierSync, stopIfImportCancelled, updateImportJobActivity } from "../modules/merchportal/sync"
 import type { SyncKind } from "../modules/merchportal/adapters"
 import { autoPublishSupplierCatalog, refreshPublishedSupplierProducts } from "./publish-normalized-products"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
@@ -29,7 +29,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
     dryRun: input.dry_run,
     jobId: input.job_id,
   })
-  if (job.already_running) {
+  if (job.already_running || job.status === "cancelled") {
     return new StepResponse({
       job,
       catalog: { updated_products: 0, updated_prices: 0, updated_stock: 0 },
@@ -39,16 +39,15 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
   try {
     let publication: Awaited<ReturnType<typeof autoPublishSupplierCatalog>> | undefined
     if (input.kind === "catalog" && !input.dry_run) {
-      await service.updateImportJobs({
-        id: job.id,
+      await updateImportJobActivity(service, job.id, {
         phase: "publishing",
         current_message: "Publishing products to the Malta catalog",
         progress_percent: 60,
         processed: 0,
       })
       publication = await autoPublishSupplierCatalog(container, input.supplier_code, async (published, total) => {
-        await service.updateImportJobs({
-          id: job.id,
+        await stopIfImportCancelled(service, job.id)
+        await updateImportJobActivity(service, job.id, {
           phase: "publishing",
           total_records: total,
           processed: published,
@@ -60,23 +59,22 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
     const catalog = input.dry_run
       ? { updated_products: 0, updated_prices: 0, updated_stock: 0 }
       : await (async () => {
-        await service.updateImportJobs({
-          id: job.id,
+        await stopIfImportCancelled(service, job.id)
+        await updateImportJobActivity(service, job.id, {
           phase: "refreshing",
           current_message: "Refreshing client prices, stock and search filters",
           progress_percent: 92,
         })
         return refreshPublishedSupplierProducts(container, input.supplier_code, publication?.normalized, async (percent, message) => {
-          await service.updateImportJobs({
-            id: job.id,
+          await stopIfImportCancelled(service, job.id)
+          await updateImportJobActivity(service, job.id, {
             phase: "refreshing",
             current_message: message,
             progress_percent: percent,
           })
         })
       })()
-    await service.updateImportJobs({
-      id: job.id,
+    await updateImportJobActivity(service, job.id, {
       status: "completed",
       phase: "completed",
       current_message: input.dry_run ? "Preview completed — catalog was not published" : "Update completed",
@@ -94,9 +92,14 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
       catalog,
     })
   } catch (error) {
+    if (error instanceof ImportCancelledError) {
+      return new StepResponse({
+        job: await service.retrieveImportJob(job.id),
+        catalog: { updated_products: 0, updated_prices: 0, updated_stock: 0 },
+      })
+    }
     const message = errorMessage(error)
-    await service.updateImportJobs({
-      id: job.id,
+    await updateImportJobActivity(service, job.id, {
       status: "failed",
       phase: "failed",
       current_message: message,

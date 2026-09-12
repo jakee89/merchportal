@@ -19,6 +19,51 @@ type SupplierCode = keyof typeof suppliers
 type RecordObject = Record<string, unknown>
 type RawRecordType = "product" | "price" | "stock" | "decoration" | "decoration_price"
 
+export class ImportCancelledError extends Error {
+  constructor() {
+    super("Import stopped by staff")
+    this.name = "ImportCancelledError"
+  }
+}
+
+export async function updateImportJobActivity(service: any, id: string, data: Record<string, unknown>) {
+  const job = await service.retrieveImportJob(id)
+  const log = job.log && typeof job.log === "object" ? job.log : {}
+  const events = Array.isArray(log.events) ? log.events.slice(-39) : []
+  const message = typeof data.current_message === "string" ? data.current_message : undefined
+  const phase = typeof data.phase === "string" ? data.phase : job.phase
+  const last = events[events.length - 1] as { phase?: string; message?: string } | undefined
+  if (message && (last?.phase !== phase || last?.message !== message)) {
+    events.push({ at: new Date().toISOString(), phase, message })
+  }
+  const updateLog = data.log && typeof data.log === "object" ? data.log : {}
+  return service.updateImportJobs({ id, ...data, log: { ...log, ...updateLog, events } })
+}
+
+export async function stopIfImportCancelled(service: any, id: string) {
+  const job = await service.retrieveImportJob(id)
+  if (job.status !== "cancelling") return false
+  await updateImportJobActivity(service, id, {
+    status: "cancelled",
+    phase: "cancelled",
+    current_message: "Stopped by staff",
+    completed_at: new Date(),
+  })
+  throw new ImportCancelledError()
+}
+
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === "object") {
+    const message = (error as { message?: unknown }).message
+    if (typeof message === "string" && message.length) return message
+    try {
+      return JSON.stringify(error).slice(0, 2_000)
+    } catch {}
+  }
+  return "Supplier sync failed"
+}
+
 function objectValue(record: RecordObject, keys: string[]) {
   for (const key of keys) {
     const value = record[key]
@@ -125,7 +170,7 @@ export async function queueSupplierSync(
   if (!supplier) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Supplier is not configured")
 
   const active = await service.listImportJobs({ supplier_id: supplier.id }, { take: 10, order: { created_at: "DESC" } })
-  const existing = active.find((job: any) => job.status === "queued" || job.status === "running")
+  const existing = active.find((job: any) => job.status === "queued" || job.status === "running" || job.status === "cancelling")
   if (existing) return { ...existing, already_running: true }
 
   const job = await service.createImportJobs({
@@ -136,7 +181,10 @@ export async function queueSupplierSync(
     phase: "queued",
     current_message: `Queued ${kind} update for ${supplier.display_name}`,
     progress_percent: 0,
-    log: { dry_run: Boolean(options.dryRun) },
+    log: {
+      dry_run: Boolean(options.dryRun),
+      events: [{ at: new Date().toISOString(), phase: "queued", message: `Queued ${kind} update for ${supplier.display_name}` }],
+    },
   })
   return { ...job, already_running: false }
 }
@@ -158,8 +206,7 @@ export async function runSupplierSync(
     if (queued.supplier_id !== supplier.id || queued.kind !== kind || queued.status !== "queued") {
       return { ...queued, already_running: true }
     }
-    await service.updateImportJobs({
-      id: queued.id,
+    await updateImportJobActivity(service, queued.id, {
       status: "running",
       phase: "downloading",
       current_message: `Downloading ${kind} data from ${supplier.display_name}`,
@@ -169,7 +216,7 @@ export async function runSupplierSync(
     job = await service.retrieveImportJob(queued.id)
   } else {
     const active = await service.listImportJobs({ supplier_id: supplier.id }, { take: 10, order: { created_at: "DESC" } })
-    const existing = active.find((item: any) => item.status === "queued" || item.status === "running")
+    const existing = active.find((item: any) => item.status === "queued" || item.status === "running" || item.status === "cancelling")
     if (existing) return { ...existing, already_running: true }
     job = await service.createImportJobs({
       supplier_id: supplier.id,
@@ -195,8 +242,7 @@ export async function runSupplierSync(
 
     const totalRecords = records.length + decorationRecords.length + decorationPriceRecords.length
     let processed = 0
-    await service.updateImportJobs({
-      id: job.id,
+    await updateImportJobActivity(service, job.id, {
       phase: "importing",
       current_message: `Importing ${totalRecords.toLocaleString()} supplier records`,
       total_records: totalRecords,
@@ -265,6 +311,7 @@ export async function runSupplierSync(
           progress_percent: Math.min(55, 5 + Math.floor((processed / Math.max(1, totalRecords)) * 50)),
           current_message: `Importing ${type.replace("_", " ")} records (${processed.toLocaleString()} of ${totalRecords.toLocaleString()})`,
         })
+        await stopIfImportCancelled(service, job.id)
       }
       for (let index = 0; index < uniqueItems.length; index += 1) {
         const record = uniqueItems[index]
@@ -318,11 +365,13 @@ export async function runSupplierSync(
       if (creates.length || updates.length) await flush()
     }
     await persistRecords(records, recordType)
+    await stopIfImportCancelled(service, job.id)
     await persistRecords(decorationRecords, "decoration")
+    await stopIfImportCancelled(service, job.id)
     await persistRecords(decorationPriceRecords, "decoration_price")
+    await stopIfImportCancelled(service, job.id)
 
-    await service.updateImportJobs({
-      id: job.id,
+    await updateImportJobActivity(service, job.id, {
       status: "running",
       phase: "normalizing",
       current_message: "Normalizing products, variants, colours and pricing",
@@ -347,9 +396,11 @@ export async function runSupplierSync(
     }
     return { ...(await service.retrieveImportJob(job.id)), already_running: false }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Supplier sync failed"
-    await service.updateImportJobs({
-      id: job.id,
+    if (error instanceof ImportCancelledError) {
+      return { ...(await service.retrieveImportJob(job.id)), already_running: false }
+    }
+    const message = errorMessage(error)
+    await updateImportJobActivity(service, job.id, {
       status: "failed",
       phase: "failed",
       current_message: message,

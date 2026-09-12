@@ -5,7 +5,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
   const jobs = await service.listImportJobs({}, { take: 30, order: { created_at: "DESC" } })
   const operations = jobs
-    .filter((job: any) => job.status === "running" || job.status === "queued")
+    .filter((job: any) => job.status === "running" || job.status === "queued" || job.status === "cancelling")
     .map((job: any) => ({
       kind: job.kind,
       phase: job.phase || "starting",
