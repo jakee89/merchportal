@@ -146,6 +146,7 @@ type Body = {
   branding_method?: string
   print_position?: string
   print_colours?: number
+  print_stitches?: number
   pricing_code?: string
   print_width_mm?: number
   print_height_mm?: number
@@ -156,6 +157,7 @@ type Body = {
     print_position: string
     pricing_code?: string
     print_colours?: number
+    print_stitches?: number
     print_width_mm?: number
     print_height_mm?: number
   }>
@@ -174,6 +176,7 @@ export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaRes
       branding_method: req.body.branding_method,
       print_position: req.body.print_position,
       print_colours: req.body.print_colours,
+      print_stitches: req.body.print_stitches,
       pricing_code: req.body.pricing_code,
       print_width_mm: req.body.print_width_mm,
       print_height_mm: req.body.print_height_mm,

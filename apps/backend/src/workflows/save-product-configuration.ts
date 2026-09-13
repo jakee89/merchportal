@@ -9,6 +9,7 @@ type DecorationInput = {
   branding_method: string
   print_position: string
   print_colours?: number
+  print_stitches?: number
   pricing_code?: string
   print_width_mm?: number
   print_height_mm?: number
@@ -23,6 +24,7 @@ type Input = {
   branding_method?: string
   print_position?: string
   print_colours?: number
+  print_stitches?: number
   pricing_code?: string
   print_width_mm?: number
   print_height_mm?: number
@@ -47,7 +49,7 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
   const requested: DecorationInput[] = input.decorations?.length
     ? input.decorations
     : input.branding_method && input.print_position
-      ? [{ branding_method: input.branding_method, print_position: input.print_position, print_colours: input.print_colours, pricing_code: input.pricing_code, print_width_mm: input.print_width_mm, print_height_mm: input.print_height_mm }]
+      ? [{ branding_method: input.branding_method, print_position: input.print_position, print_colours: input.print_colours, print_stitches: input.print_stitches, pricing_code: input.pricing_code, print_width_mm: input.print_width_mm, print_height_mm: input.print_height_mm }]
       : []
   const indexedVariant = ((source.catalog_document as any)?.variants || []).find((item: any) => item.sku === variant.sku)
   const priceBreaks = Array.isArray(indexedVariant?.price_breaks) ? indexedVariant.price_breaks : []
@@ -73,7 +75,9 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
     if (sizeOptions.length && !selectedSize) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose an available print size")
     if (selectedSize && (selectedSize.width_mm !== line.print_width_mm || selectedSize.height_mm !== line.print_height_mm)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose a print size supplied for this technique")
     if ((line.print_width_mm && line.print_width_mm < 1) || (line.print_height_mm && line.print_height_mm < 1) || (position.max_width_mm && line.print_width_mm && line.print_width_mm > position.max_width_mm) || (position.max_height_mm && line.print_height_mm && line.print_height_mm > position.max_height_mm)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Artwork dimensions exceed the selected print area")
-    const price = decorationPrice(method, input.quantity, { colours: line.print_colours, width_mm: line.print_width_mm, height_mm: line.print_height_mm, color_code: indexedVariant?.color_code, pricing_code: line.pricing_code, handling_price_eur: position.handling_price_eur })
+    const stitchTables = (method.price_tables || []).filter((table) => table.price_by_stitches && table.max_stitches)
+    if (stitchTables.length && (!line.print_stitches || line.print_stitches < 1 || line.print_stitches > Math.max(...stitchTables.map((table) => Number(table.max_stitches))))) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose a supported stitch count")
+    const price = decorationPrice(method, input.quantity, { colours: line.print_colours, stitches: line.print_stitches, width_mm: line.print_width_mm, height_mm: line.print_height_mm, color_code: indexedVariant?.color_code, pricing_code: line.pricing_code, handling_price_eur: position.handling_price_eur })
     if (price.pending) throw new MedusaError(MedusaError.Types.INVALID_DATA, `No supplier printing price is available for ${method.name} at the selected quantity, size and colour count`)
     return { ...line, method_name: method.name, position_name: position.name, unit_price_eur: sellingPrice(price.unit + price.handling, markup), setup_price_eur: sellingPrice(price.setup, markup), price_pending: price.pending }
   })

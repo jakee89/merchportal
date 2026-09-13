@@ -49,6 +49,7 @@ type DecorationPriceTable = {
   option_code?: string
   max_colours?: number
   max_area_cm2?: number
+  max_stitches?: number
   price_by_color: boolean
   price_by_area: boolean
   price_by_stitches: boolean
@@ -180,6 +181,7 @@ function normalizedPriceTables(sources: AnyObject[]): DecorationPriceTable[] {
       option_code: optionCode,
       max_colours: number(key(source, ["max_colors", "max_colours"])),
       max_area_cm2: number(key(source, ["table_max_area_cm2", "max_area_cm2"])),
+      max_stitches: number(key(source, ["max_stitches", "maxstitches"])),
       price_by_color: boolean(key(source, ["price_by_color", "pricebycolor"])),
       price_by_area: boolean(key(source, ["price_by_area", "pricebyarea"])),
       price_by_stitches: boolean(key(source, ["price_by_stitches", "pricebystitches"])),
@@ -192,7 +194,7 @@ function colourMode(name: string, sources: AnyObject[]) {
   const label = name.toLowerCase()
   if (sources.some((source) => boolean(key(source, ["price_by_color", "pricebycolor"])))) return "spot_colour" as const
   if (sources.some((source) => String(key(source, ["table_code_option", "tablecodeoption"]) || "").toUpperCase().endsWith("-F")) || /full colou?r|digital|dtf|sublimation|uv print|doming|inlay/iu.test(label)) return "full_colour" as const
-  if (/laser|engraving|deboss|emboss|etching/iu.test(label)) return "colourless" as const
+  if (/laser|engraving|deboss|emboss|etching|embroider/iu.test(label)) return "colourless" as const
   return "spot_colour" as const
 }
 
@@ -324,12 +326,15 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
           const height = placeholder ? area.height : Math.min(tableArea.height || area.height || 0, area.height || tableArea.height || 0)
           if (!width || !height) return []
           const priceByColour = boolean(key(table, ["price_by_color", "pricebycolor"]))
+          const priceByStitches = boolean(key(table, ["price_by_stitches", "pricebystitches"]))
           return [{
             id: optionCode,
             label: `${(width / 10).toFixed(1)} × ${(height / 10).toFixed(1)} cm`,
             width_mm: width,
             height_mm: height,
-            pricing_code: priceByColour ? directValue(table, ["table_code", "tablecode"]) || optionCode : optionCode,
+            pricing_code: priceByStitches
+              ? methodId
+              : priceByColour ? directValue(table, ["table_code", "tablecode"]) || optionCode : optionCode,
           }]
         }).filter((item, itemIndex, all) => all.findIndex((other) => other.label === item.label && other.pricing_code === item.pricing_code) === itemIndex)
         const hasExplicitOptions = allowedCodes.length > 0
@@ -440,7 +445,7 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
   return [...methods.values()].sort((left, right) => left.name.localeCompare(right.name))
 }
 
-export function decorationPrice(method: DecorationMethod | undefined, quantity: number, options: { colours?: number; width_mm?: number; height_mm?: number; color_code?: string; pricing_code?: string; handling_price_eur?: number } = {}) {
+export function decorationPrice(method: DecorationMethod | undefined, quantity: number, options: { colours?: number; width_mm?: number; height_mm?: number; color_code?: string; pricing_code?: string; handling_price_eur?: number; stitches?: number } = {}) {
   if (!method) return { unit: 0, handling: 0, setup: 0, pending: false }
   const colours = Math.max(1, Math.floor(options.colours || 1))
   const areaCm2 = options.width_mm && options.height_mm ? (options.width_mm * options.height_mm) / 100 : undefined
@@ -456,6 +461,13 @@ export function decorationPrice(method: DecorationMethod | undefined, quantity: 
     }
     if (tables.some((table) => table.price_by_color)) {
       tables = tables.filter((table) => table.price_by_color && table.max_colours === colours)
+    }
+    if (tables.some((table) => table.price_by_stitches)) {
+      const stitches = Math.floor(options.stitches || 0)
+      if (stitches < 1) return { unit: 0, handling: 0, setup: 0, pending: true }
+      tables = tables
+        .filter((table) => table.price_by_stitches && Boolean(table.max_stitches) && stitches <= Number(table.max_stitches))
+        .sort((left, right) => Number(left.max_stitches) - Number(right.max_stitches))
     }
     const areaTables = tables.filter((table) => table.price_by_area && areaCm2 !== undefined && (!table.max_area_cm2 || areaCm2 <= table.max_area_cm2))
     selectedTable = exactTables.length

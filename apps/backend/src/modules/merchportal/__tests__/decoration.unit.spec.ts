@@ -143,6 +143,34 @@ describe("supplier-neutral decoration normalization", () => {
     })).toEqual({ unit: 1.4, handling: 0, setup: 0, pending: false })
   })
 
+  it("selects the smallest Stricker embroidery table that supports the stitch count", () => {
+    const methods = normalizeDecorationOptions(
+      [{
+        ProdReference: "99164",
+        Component1: "Bag",
+        Location1: "Front",
+        Area1: "100 x 100",
+        TableCodes1: "EMB1",
+        TableCodesOptions1: "EMB1-01-A, EMB1-02-A",
+        CustomizationTypes1: "Embroidery",
+      }],
+      [],
+      [{ CustomizationTables: [
+        { TableCode: "EMB1-01", TableCodeOption: "EMB1-01-A", PriceByStitches: true, MaxStitches: 5000, TableMaxAreaCM: "99.9 x 99.9", MinQt1: 1, Price1: 2 },
+        { TableCode: "EMB1-02", TableCodeOption: "EMB1-02-A", PriceByStitches: true, MaxStitches: 10000, TableMaxAreaCM: "99.9 x 99.9", MinQt1: 1, Price1: 3.5 },
+      ] }],
+    )
+
+    expect(methods[0].colour_mode).toBe("colourless")
+    expect(methods[0].positions[0].size_options).toHaveLength(1)
+    expect(decorationPrice(methods[0], 25, { stitches: 7500, pricing_code: "EMB1" })).toEqual({
+      unit: 3.5,
+      handling: 0,
+      setup: 0,
+      pending: false,
+    })
+  })
+
   it("uses the best eligible quantity price break", () => {
     expect(
       decorationPrice(

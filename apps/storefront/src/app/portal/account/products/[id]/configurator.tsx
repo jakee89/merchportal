@@ -5,7 +5,7 @@ import styles from "../../../../portal-shell.module.css"
 import { savePortalConfiguration, uploadPortalArtwork } from "../actions"
 
 type PriceBreak = { quantity: number; unit_price_eur: number; next_colour_price_eur?: number }
-type PriceTable = { code: string; option_code?: string; max_colours?: number; max_area_cm2?: number; price_by_color: boolean; price_by_area: boolean; price_breaks: PriceBreak[] }
+type PriceTable = { code: string; option_code?: string; max_colours?: number; max_area_cm2?: number; max_stitches?: number; price_by_color: boolean; price_by_area: boolean; price_by_stitches?: boolean; price_breaks: PriceBreak[] }
 type SizeOption = { id: string; label: string; width_mm: number; height_mm: number; pricing_code?: string }
 type Position = {
   id: string
@@ -47,7 +47,7 @@ type Variant = {
   pantone?: string
   dimensions?: string
 }
-type Line = { key: number; positionId: string; methodId: string; sizeId: string; pricingCode: string; colours: number; width: string; height: string }
+type Line = { key: number; positionId: string; methodId: string; sizeId: string; pricingCode: string; colours: number; stitches: number; width: string; height: string }
 type Props = { productId: string; productName: string; productImages: string[]; backend: string; variants: Variant[]; methods: Method[] }
 
 function mediaUrl(backend: string, value?: string) {
@@ -107,16 +107,18 @@ export default function Configurator({ productId, productName, productImages, ba
     return mediaUrl(backend, exact?.url || position?.images?.[0]?.url || position?.image_url)
   }
   const updateLine = (key: number, update: Partial<Line>) => setLines((items) => items.map((item) => item.key === key ? { ...item, ...update } : item))
+  const firstStitchTier = (method?: Method) => Array.from(new Set((method?.price_tables || []).filter((table) => table.price_by_stitches && table.max_stitches).map((table) => Number(table.max_stitches)))).sort((left, right) => left - right)[0] || 0
   const choosePosition = (line: Line, positionId: string) => {
     const method = compatibleMethods(positionId)[0]
     const position = method?.positions.find((item) => item.id === positionId) || positions.find((item) => item.id === positionId)
     const size = position?.size_options?.[0]
-    updateLine(line.key, { positionId, methodId: method?.id || "", sizeId: size?.id || "", pricingCode: size?.pricing_code || method?.id || "", colours: 1, width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
+    updateLine(line.key, { positionId, methodId: method?.id || "", sizeId: size?.id || "", pricingCode: size?.pricing_code || method?.id || "", colours: 1, stitches: firstStitchTier(method), width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
   }
   const chooseMethod = (line: Line, methodId: string) => {
     const position = methods.find((item) => item.id === methodId)?.positions.find((item) => item.id === line.positionId)
     const size = position?.size_options?.[0]
-    updateLine(line.key, { methodId, sizeId: size?.id || "", pricingCode: size?.pricing_code || methodId, colours: 1, width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
+    const method = methods.find((item) => item.id === methodId)
+    updateLine(line.key, { methodId, sizeId: size?.id || "", pricingCode: size?.pricing_code || methodId, colours: 1, stitches: firstStitchTier(method), width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
   }
   const chooseSize = (line: Line, size: SizeOption) => updateLine(line.key, { sizeId: size.id, pricingCode: size.pricing_code || size.id, width: String(size.width_mm), height: String(size.height_mm) })
 
@@ -131,6 +133,7 @@ export default function Configurator({ productId, productName, productImages, ba
       let tables = exactTables
       if (!tables.length) tables = method.price_tables.filter((table) => table.code.startsWith(`${line.pricingCode}-`))
       if (tables.some((table) => table.price_by_color)) tables = tables.filter((table) => table.price_by_color && table.max_colours === line.colours)
+      if (tables.some((table) => table.price_by_stitches)) tables = tables.filter((table) => table.price_by_stitches && Boolean(table.max_stitches) && line.stitches > 0 && line.stitches <= Number(table.max_stitches)).sort((left, right) => Number(left.max_stitches) - Number(right.max_stitches))
       const areaTables = tables.filter((table) => table.price_by_area && area !== undefined && (!table.max_area_cm2 || area <= table.max_area_cm2))
       selectedTable = exactTables.length ? tables[0] : (areaTables.length ? areaTables.sort((left, right) => (left.max_area_cm2 || Infinity) - (right.max_area_cm2 || Infinity)) : tables.filter((table) => !table.price_by_area))[0]
       if (!selectedTable) return { unit: 0, setup: 0, pending: true }
@@ -173,7 +176,7 @@ export default function Configurator({ productId, productName, productImages, ba
         const result = await uploadPortalArtwork({ filename: artwork.name, mime_type: artwork.type, content: await fileContent(artwork) })
         uploaded = result.file
       }
-      const result = await savePortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations: lines.map((line) => ({ branding_method: line.methodId, print_position: line.positionId, pricing_code: line.pricingCode, print_colours: line.colours, print_width_mm: line.width ? Number(line.width) : undefined, print_height_mm: line.height ? Number(line.height) : undefined })), artwork_file_id: uploaded?.id, artwork_filename: uploaded?.filename })
+      const result = await savePortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations: lines.map((line) => ({ branding_method: line.methodId, print_position: line.positionId, pricing_code: line.pricingCode, print_colours: line.colours, print_stitches: line.stitches || undefined, print_width_mm: line.width ? Number(line.width) : undefined, print_height_mm: line.height ? Number(line.height) : undefined })), artwork_file_id: uploaded?.id, artwork_filename: uploaded?.filename })
       setMessage(result.configuration.branding_price_pending ? "Configuration saved. One or more printing prices will be confirmed in the final quote." : `Configuration saved. Estimated total €${result.configuration.estimated_total.toFixed(2)}.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save configuration")
@@ -200,6 +203,7 @@ export default function Configurator({ productId, productName, productImages, ba
         {methods.length ? <>{pricedLines.map(({ line, method, position, price }, index) => {
           const compatible = compatibleMethods(line.positionId)
           const sizes = position?.size_options || []
+          const stitchTiers = Array.from(new Set((method?.price_tables || []).filter((table) => table.price_by_stitches && table.max_stitches).map((table) => Number(table.max_stitches)))).sort((left, right) => left - right)
           return <div className={styles.printLine} key={line.key}>
             <div className={styles.printLineHeading}><strong>Print position {index + 1}</strong><button type="button" onClick={() => setLines((items) => items.filter((item) => item.key !== line.key))}>Remove</button></div>
             <div className={styles.positionCards}>{positions.map((item) => { const alreadyUsed = lines.some((other) => other.key !== line.key && other.positionId === item.id); return <button type="button" key={item.id} disabled={alreadyUsed} className={item.id === line.positionId ? styles.activePositionCard : ""} onClick={() => choosePosition(line, item.id)}><SafeImage src={positionImage(item)} alt={`${item.name} print area`} /><strong>{item.name}</strong>{item.max_width_mm && item.max_height_mm && <span>W {item.max_width_mm} × H {item.max_height_mm} mm</span>}{alreadyUsed && <span>Already selected</span>}</button> })}</div>
@@ -208,9 +212,10 @@ export default function Configurator({ productId, productName, productImages, ba
             {sizes.length > 0 && <div className={styles.sizeOptions}><span>Print size (W × H)</span><div>{sizes.map((size) => <button type="button" key={size.id} className={size.id === line.sizeId ? styles.activeSizeOption : ""} onClick={() => chooseSize(line, size)}>{size.label}</button>)}</div></div>}
             {position && !sizes.length && <p className={styles.helper}>{position.max_width_mm && position.max_height_mm ? `Maximum area ${position.max_width_mm} × ${position.max_height_mm} mm. ` : ""}{position.max_colours ? `Maximum ${position.max_colours} colours.` : ""}</p>}
             {method && colourMode(method) === "Spot colours" && <label>Number of print colours<select value={line.colours} onChange={(event) => updateLine(line.key, { colours: Number(event.target.value) })}>{Array.from({ length: position?.max_colours || 1 }, (_, colourIndex) => colourIndex + 1).map((count) => <option value={count} key={count}>{count}</option>)}</select></label>}
+            {stitchTiers.length > 0 && <label>Stitch count<select value={line.stitches} onChange={(event) => updateLine(line.key, { stitches: Number(event.target.value) })}>{stitchTiers.map((count) => <option value={count} key={count}>Up to {count.toLocaleString()} stitches</option>)}</select></label>}
             {method && <p className={styles.linePrice}>{price.pending ? "Printing price to be confirmed" : `€${price.unit.toFixed(2)} each${price.setup ? ` + €${price.setup.toFixed(2)} setup` : ""}`}</p>}
           </div>
-        })}{lines.length < positions.length && <button className={styles.addPrint} type="button" onClick={() => setLines((items) => [...items, { key: Date.now(), positionId: "", methodId: "", sizeId: "", pricingCode: "", colours: 1, width: "", height: "" }])}>+ Add print position</button>}</> : <p className={styles.notice}>No customisation information is available for this product.</p>}
+        })}{lines.length < positions.length && <button className={styles.addPrint} type="button" onClick={() => setLines((items) => [...items, { key: Date.now(), positionId: "", methodId: "", sizeId: "", pricingCode: "", colours: 1, stitches: 0, width: "", height: "" }])}>+ Add print position</button>}</> : <p className={styles.notice}>No customisation information is available for this product.</p>}
         <label>Artwork (optional)<input type="file" accept=".pdf,.png,.jpg,.jpeg,.svg,application/pdf,image/png,image/jpeg,image/svg+xml" onChange={(event) => setArtwork(event.target.files?.[0])} /></label><p className={styles.helper}>PDF, SVG, PNG or JPG · maximum 10 MB.</p>
       </div>
       <aside className={styles.priceSummary}><h2>Estimate</h2><div><span>Plain product</span><strong>{productUnitPrice === undefined ? "On request" : `€${productUnitPrice.toFixed(2)} × ${quantity}`}</strong></div>{pricedLines.map(({ line, method, price }, index) => <div key={line.key}><span>{method?.name || `Print ${index + 1}`}</span><strong>{price.pending ? "To confirm" : `€${price.unit.toFixed(2)} × ${quantity}`}</strong></div>)}{setup > 0 && <div><span>Setup charges</span><strong>€{setup.toFixed(2)}</strong></div>}<div className={styles.estimateTotal}><span>Estimated total</span><strong>{total === undefined ? "On request" : `€${total.toFixed(2)}`}</strong></div>{total !== undefined && <p className={styles.helper}>€{(total / quantity).toFixed(2)} per unit equivalent · excl. VAT</p>}<button className={styles.primary} type="button" disabled={busy || !variant} onClick={save}>{busy ? "Saving…" : "Save configuration"}</button>{message && <p className={styles.configMessage} aria-live="polite">{message}</p>}</aside>
