@@ -27,6 +27,20 @@ describe("supplier sync record deduplication", () => {
     expect(records).toHaveLength(2)
   })
 
+  it("does not collapse documented Stricker CustomizationOptions rows", () => {
+    const records = deduplicateSupplierRecords(
+      [
+        { ProdReference: "99164", Component: "Ball pen", Location: "Barrel", TableCode: "PDP1-01", TableCodeOption: "PDP1-01-01" },
+        { ProdReference: "99164", Component: "Ball pen", Location: "Barrel 2", TableCode: "PDP1-01", TableCodeOption: "PDP1-01-01" },
+        { ProdReference: "99164", Component: "Ball pen", Location: "Barrel", TableCode: "PDP1-01", TableCodeOption: "PDP1-01-02" },
+      ],
+      "stricker",
+      "decoration",
+    )
+
+    expect(records).toHaveLength(3)
+  })
+
   it("keeps the most recent copy of a duplicate Stricker decoration", () => {
     const records = deduplicateSupplierRecords(
       [

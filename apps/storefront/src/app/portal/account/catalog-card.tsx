@@ -22,9 +22,10 @@ export type CatalogProduct = {
 
 function mediaUrl(backend: string, value?: string) {
   if (!value) return
+  if (value.startsWith("/media/")) return `/portal${value}`
   try {
     const parsed = new URL(value)
-    if (parsed.pathname.startsWith("/media/")) return `${backend.replace(/\/$/, "")}${parsed.pathname}`
+    if (parsed.pathname.startsWith("/media/")) return `/portal${parsed.pathname}`
   } catch {}
   return /^https?:\/\//i.test(value) ? value : `${backend.replace(/\/$/, "")}${value}`
 }

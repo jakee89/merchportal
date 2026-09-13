@@ -499,7 +499,7 @@ export async function autoPublishSupplierCatalog(container: any, supplierCode: "
         }
       }
     }
-    await onProgress?.(Math.min(index + 5, pending.length), pending.length)
+    await onProgress?.(Math.min(index + group.length, pending.length), pending.length)
   }
   return {
     created,

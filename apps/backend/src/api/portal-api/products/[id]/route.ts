@@ -58,6 +58,12 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const decorationOptions = Array.isArray(source.decoration_options)
     ? source.decoration_options.map((method: any) => ({
         ...method,
+        positions: Array.isArray(method.positions)
+          ? method.positions.map((position: any) => ({
+              ...position,
+              handling_price_eur: position.handling_price_eur === undefined ? undefined : sellingPrice(Number(position.handling_price_eur) || 0, markup),
+            }))
+          : [],
         price_breaks: Array.isArray(method.price_breaks)
           ? method.price_breaks.map((price: any) => ({
               quantity: price.quantity,
@@ -82,6 +88,18 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           ? method.handling_price_breaks.map((price: any) => ({
               quantity: price.quantity,
               unit_price_eur: sellingPrice(Number(price.unit_price_eur) || 0, markup),
+            }))
+          : [],
+        price_tables: Array.isArray(method.price_tables)
+          ? method.price_tables.map((table: any) => ({
+              ...table,
+              price_breaks: Array.isArray(table.price_breaks)
+                ? table.price_breaks.map((price: any) => ({
+                    quantity: price.quantity,
+                    unit_price_eur: sellingPrice(Number(price.unit_price_eur) || 0, markup),
+                    next_colour_price_eur: price.next_colour_price_eur === undefined ? undefined : sellingPrice(Number(price.next_colour_price_eur) || 0, markup),
+                  }))
+                : [],
             }))
           : [],
       }))
@@ -128,6 +146,7 @@ type Body = {
   branding_method?: string
   print_position?: string
   print_colours?: number
+  pricing_code?: string
   print_width_mm?: number
   print_height_mm?: number
   artwork_file_id?: string
@@ -135,6 +154,7 @@ type Body = {
   decorations?: Array<{
     branding_method: string
     print_position: string
+    pricing_code?: string
     print_colours?: number
     print_width_mm?: number
     print_height_mm?: number
@@ -154,6 +174,7 @@ export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaRes
       branding_method: req.body.branding_method,
       print_position: req.body.print_position,
       print_colours: req.body.print_colours,
+      pricing_code: req.body.pricing_code,
       print_width_mm: req.body.print_width_mm,
       print_height_mm: req.body.print_height_mm,
       artwork_file_id: req.body.artwork_file_id,

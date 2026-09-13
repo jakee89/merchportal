@@ -17,6 +17,12 @@ describe("supplier catalog normalization", () => {
     expect(catalogSummary("A long description with enough content to be shortened for the product card.", "Short summary")).toBe("Short summary")
   })
 
+  it("uses Stricker ProdReference for decoration joins", () => {
+    expect(
+      supplierMasterReference("stricker", { ProdReference: "99164" }, "unrelated"),
+    ).toBe("99164")
+  })
+
   it("keeps midocean quantity prices and future stock arrivals", () => {
     expect(productPriceBreaks([{ payload: { price: "4,22", scale: [{ minimum_quantity: "250", price: "4,07" }] } }])).toEqual([
       { quantity: 1, price_eur: 4.22 },

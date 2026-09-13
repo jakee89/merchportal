@@ -18,6 +18,7 @@ const suppliers = {
 type SupplierCode = keyof typeof suppliers
 type RecordObject = Record<string, unknown>
 type RawRecordType = "product" | "price" | "stock" | "decoration" | "decoration_price"
+const NORMALIZER_VERSION = "2026-09-12.3"
 
 export class ImportCancelledError extends Error {
   constructor() {
@@ -108,10 +109,12 @@ function recordIdentity(
 ) {
   const value = (record && typeof record === "object" ? record : {}) as RecordObject
   const sku = objectValue(value, ["sku", "SKU", "Sku", "optionalReference", "reference"])
-  const masterId = objectValue(value, ["master_id", "master_code", "ProductReference", "Reference"])
+  const masterId = objectValue(value, ["master_id", "master_code", "ProductReference", "ProdReference", "Reference"])
   const serviceCode = objectValue(value, ["service_code", "serviceCode", "technique_id", "techniqueId", "TableFullCode", "TableCode"])
-  const positionCode = objectValue(value, ["position_id", "positionId", "location_id", "locationId", "location_code", "locationCode"])
-  const decorationId = [masterId, serviceCode, positionCode].filter(Boolean).join(":")
+  const positionCode = objectValue(value, ["position_id", "positionId", "location_id", "locationId", "location_code", "locationCode"]) ||
+    [objectValue(value, ["Component"]), objectValue(value, ["Location"])].filter(Boolean).join("|")
+  const tableOption = objectValue(value, ["TableCodeOption", "table_code_option"])
+  const decorationId = [masterId, serviceCode, positionCode, tableOption].filter(Boolean).join(":")
   const externalId = type === "decoration" || type === "decoration_price"
     ? decorationId || objectValue(value, ["variant_id", "id", "ID"])
     : masterId ?? objectValue(value, ["variant_id", "id", "ID", "TableFullCode", "TableCode", "service_code"])
@@ -317,6 +320,12 @@ export async function runSupplierSync(
       const existingRecords = await listAllRawSupplierRecords(service, { supplier_id: supplier.id, record_type: type })
       const existingById = new Map<string, any>(existingRecords.map((item: any) => [item.external_id, item]))
       const uniqueItems = deduplicateSupplierRecords(items, supplierCode, type)
+      const incomingIds = new Set(uniqueItems.map((record, index) => recordIdentity(
+        record,
+        index,
+        supplierCode === "stricker" && type === "product",
+        type,
+      ).externalId))
       skipped += items.length - uniqueItems.length
       let creates: any[] = []
       let updates: any[] = []
@@ -385,7 +394,7 @@ export async function runSupplierSync(
           supplierCode === "stricker" && type === "product",
           type,
         )
-        const checksum = createHash("sha256").update(JSON.stringify(record)).digest("hex")
+        const checksum = createHash("sha256").update(`${NORMALIZER_VERSION}:${JSON.stringify(record)}`).digest("hex")
         const existing = existingById.get(externalId)
 
         if (!existing) {
@@ -427,6 +436,12 @@ export async function runSupplierSync(
       }
       processed += items.length - uniqueItems.length
       if (creates.length || updates.length) await flush()
+      const staleIds = uniqueItems.length
+        ? existingRecords.filter((item: any) => !incomingIds.has(item.external_id)).map((item: any) => item.id)
+        : []
+      for (let index = 0; index < staleIds.length; index += 500) {
+        await service.deleteRawSupplierRecords(staleIds.slice(index, index + 500))
+      }
     }
     await persistRecords(records, recordType)
     await stopIfImportCancelled(service, job.id)

@@ -64,16 +64,20 @@ function value(object: ObjectValue, keys: string[]) {
   }
 }
 
-function numberValue(object: unknown, keys: string[]): number | undefined {
+function numberValue(object: unknown, keys: string[], integer = false): number | undefined {
   if (!object || typeof object !== "object") return
   for (const [key, child] of Object.entries(object as ObjectValue)) {
     if (keys.some((candidate) => normalizedFieldName(candidate) === normalizedFieldName(key))) {
-      const parsed = Number(typeof child === "string" ? child.replace(",", ".") : child)
+      const text = typeof child === "string" ? child.trim() : child
+      const normalized = integer && typeof text === "string" && /^\d{1,3}(?:\.\d{3})+$/u.test(text)
+        ? text.replace(/\./gu, "")
+        : typeof text === "string" ? text.replace(",", ".") : text
+      const parsed = Number(normalized)
       if (Number.isFinite(parsed)) return parsed
     }
   }
   for (const child of Object.values(object as ObjectValue)) {
-    const found = numberValue(child, keys)
+    const found = numberValue(child, keys, integer)
     if (found !== undefined) return found
   }
 }
@@ -144,7 +148,7 @@ function opaqueSourceKey(supplierId: string, externalId: string) {
 }
 
 export function supplierMasterReference(supplierCode: string | undefined, payload: ObjectValue, fallback: string) {
-  const explicit = value(payload, ["product_reference", "productReference", "master_id", "master_code", "parent_reference", "main_reference"])
+  const explicit = value(payload, ["product_reference", "productReference", "ProdReference", "master_id", "master_code", "parent_reference", "main_reference"])
   const reference = explicit || value(payload, ["reference", "Reference", "sku", "optionalReference"]) || fallback
   if (supplierCode === "stricker") {
     return reference.replace(/^(\d{4,})-\d{3,}$/u, "$1")
@@ -167,18 +171,17 @@ function recordKeys(item: any, supplierCode?: string) {
 }
 
 function proxyImages(urls: string[]) {
-  const backend = (process.env.MEDUSA_BACKEND_URL || "").replace(/\/$/u, "")
-  if (!backend) return []
   return urls.flatMap((url) => {
     const token = supplierImageToken(url)
-    return token ? [`${backend}/media/${token}`] : []
+    return token ? [`/media/${token}`] : []
   })
 }
 
 function supplierAssetUrl(value: string, supplierCode?: string) {
-  if (/^https:\/\//iu.test(value)) return value
+  const first = value.split(",")[0].trim()
+  if (/^https:\/\//iu.test(first)) return first
   if (supplierCode !== "stricker") return value
-  const clean = value.replace(/^\/+/, "")
+  const clean = first.replace(/^\/+/, "")
   if (clean.startsWith("public/")) return `https://cdn.hideacontent.com/${clean}`
   return `https://cdn.hideacontent.com/public/printings/printinglines/500x500/${clean}`
 }
@@ -217,7 +220,7 @@ export function productPriceBreaks(items: any[]) {
       const price = Number(typeof rawPrice === "string" ? rawPrice.replace(",", ".") : rawPrice)
       if (match && Number.isFinite(price) && price >= 0) breaks.set(Number(match[1]), price)
     }
-    const quantity = numberValue(item, ["minimum_quantity", "min_quantity", "from_quantity", "quantity", "qty"])
+    const quantity = numberValue(item, ["minimum_quantity", "min_quantity", "from_quantity", "quantity", "qty"], true)
     const price = numberValue(item, ["price", "your_price", "yourprice", "unit_price", "net_price", "price_1"])
     if (quantity !== undefined && price !== undefined && quantity > 0 && price >= 0) breaks.set(Math.floor(quantity), price)
     Object.values(item).forEach(visit)
@@ -239,7 +242,7 @@ export function futureStock(items: any[]) {
     const payload = (item.payload || item) as ObjectValue
     for (const prefix of ["first", "next", "second"]) {
       const date = value(payload, [`${prefix}_arrival_date`, `${prefix}ArrivalDate`])
-      const quantity = numberValue(payload, [`${prefix}_arrival_qty`, `${prefix}_arrival_quantity`, `${prefix}ArrivalQty`])
+      const quantity = numberValue(payload, [`${prefix}_arrival_qty`, `${prefix}_arrival_quantity`, `${prefix}ArrivalQty`], true)
       if (date && quantity !== undefined && quantity > 0) arrivals.push({ date, quantity: Math.floor(quantity) })
     }
   }
@@ -335,7 +338,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
           url: proxyImages([supplierAssetUrl(image.url, supplier?.code)])[0],
         })).filter((image) => image.url),
       })),
-    }))
+    })).filter((method) => method.positions.length && (method.price_breaks.length || method.price_ranges?.length || method.price_tables?.length))
     const rows = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue))
     const seen = new Set<string>()
     const seenSkus = new Set<string>()
@@ -352,7 +355,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         const priceMatches = matchingRecords(priceIndex, group.supplier_id, sku, group.master_id)
         const stockMatches = matchingRecords(stockIndex, group.supplier_id, sku, group.master_id)
         const priceBreaks = productPriceBreaks(priceMatches.length ? priceMatches : [row])
-        const stocksFound = stockMatches.map((item) => numberValue(item.payload, ["qty", "stock", "quantity", "available", "free_stock"])).filter((item): item is number => item !== undefined)
+        const stocksFound = stockMatches.map((item) => numberValue(item.payload, ["qty", "stock", "quantity", "available", "free_stock"], true)).filter((item): item is number => item !== undefined)
         let variantImages = imageUrls(row, supplier?.code)
         if (!variantImages.length && supplier?.code === "stricker") {
           const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "ColorCode", "Color1", "color"])

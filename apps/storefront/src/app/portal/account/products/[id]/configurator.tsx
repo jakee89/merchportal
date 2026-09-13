@@ -5,6 +5,7 @@ import styles from "../../../../portal-shell.module.css"
 import { savePortalConfiguration, uploadPortalArtwork } from "../actions"
 
 type PriceBreak = { quantity: number; unit_price_eur: number; next_colour_price_eur?: number }
+type PriceTable = { code: string; option_code?: string; max_colours?: number; max_area_cm2?: number; price_by_color: boolean; price_by_area: boolean; price_breaks: PriceBreak[] }
 type SizeOption = { id: string; label: string; width_mm: number; height_mm: number; pricing_code?: string }
 type Position = {
   id: string
@@ -12,6 +13,7 @@ type Position = {
   max_width_mm?: number
   max_height_mm?: number
   max_colours?: number
+  handling_price_eur?: number
   image_url?: string
   images?: Array<{ variant_color?: string; url: string }>
   size_options?: SizeOption[]
@@ -26,6 +28,8 @@ type Method = {
   handling_price_breaks?: PriceBreak[]
   pricing_type?: string
   next_colour_cost_indicator?: boolean
+  colour_mode?: "full_colour" | "spot_colour" | "colourless"
+  price_tables?: PriceTable[]
 }
 type Variant = {
   id: string
@@ -43,14 +47,15 @@ type Variant = {
   pantone?: string
   dimensions?: string
 }
-type Line = { key: number; positionId: string; methodId: string; sizeId: string; colours: number; width: string; height: string }
+type Line = { key: number; positionId: string; methodId: string; sizeId: string; pricingCode: string; colours: number; width: string; height: string }
 type Props = { productId: string; productName: string; productImages: string[]; backend: string; variants: Variant[]; methods: Method[] }
 
 function mediaUrl(backend: string, value?: string) {
   if (!value) return
+  if (value.startsWith("/media/")) return `/portal${value}`
   try {
     const parsed = new URL(value)
-    if (parsed.pathname.startsWith("/media/")) return `${backend.replace(/\/$/, "")}${parsed.pathname}`
+    if (parsed.pathname.startsWith("/media/")) return `/portal${parsed.pathname}`
   } catch {}
   return /^https?:\/\//i.test(value) ? value : `${backend.replace(/\/$/, "")}${value}`
 }
@@ -63,6 +68,9 @@ function SafeImage({ src, alt, className }: { src?: string; alt: string; classNa
 }
 
 function colourMode(method?: Method) {
+  if (method?.colour_mode === "full_colour") return "Full colour (CMYK)"
+  if (method?.colour_mode === "colourless") return "Colourless"
+  if (method?.colour_mode === "spot_colour") return "Spot colours"
   const value = `${method?.name || ""} ${method?.pricing_type || ""}`.toLowerCase()
   if (/laser|engraving|emboss|deboss/.test(value)) return "Colourless"
   if (/digital|sublimation|dtf|uv|full.?colou?r|process/.test(value)) return "Full colour (CMYK)"
@@ -103,29 +111,41 @@ export default function Configurator({ productId, productName, productImages, ba
     const method = compatibleMethods(positionId)[0]
     const position = method?.positions.find((item) => item.id === positionId) || positions.find((item) => item.id === positionId)
     const size = position?.size_options?.[0]
-    updateLine(line.key, { positionId, methodId: method?.id || "", sizeId: size?.id || "", colours: 1, width: size?.width_mm ? String(size.width_mm) : "", height: size?.height_mm ? String(size.height_mm) : "" })
+    updateLine(line.key, { positionId, methodId: method?.id || "", sizeId: size?.id || "", pricingCode: size?.pricing_code || method?.id || "", colours: 1, width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
   }
   const chooseMethod = (line: Line, methodId: string) => {
     const position = methods.find((item) => item.id === methodId)?.positions.find((item) => item.id === line.positionId)
     const size = position?.size_options?.[0]
-    updateLine(line.key, { methodId, sizeId: size?.id || "", colours: 1, width: size?.width_mm ? String(size.width_mm) : "", height: size?.height_mm ? String(size.height_mm) : "" })
+    updateLine(line.key, { methodId, sizeId: size?.id || "", pricingCode: size?.pricing_code || methodId, colours: 1, width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
   }
-  const chooseSize = (line: Line, size: SizeOption) => updateLine(line.key, { sizeId: size.id, width: String(size.width_mm), height: String(size.height_mm) })
+  const chooseSize = (line: Line, size: SizeOption) => updateLine(line.key, { sizeId: size.id, pricingCode: size.pricing_code || size.id, width: String(size.width_mm), height: String(size.height_mm) })
 
   const linePrice = (line: Line) => {
     const method = methods.find((item) => item.id === line.methodId)
     if (!method) return { unit: 0, setup: 0, pending: false }
-    const pricingType = method.pricing_type?.toLowerCase() || ""
+    let pricingType = method.pricing_type?.toLowerCase() || ""
     const area = Number(line.width) && Number(line.height) ? Number(line.width) * Number(line.height) / 100 : undefined
+    let selectedTable: PriceTable | undefined
+    if (method.price_tables?.length) {
+      const exactTables = method.price_tables.filter((table) => table.option_code === line.pricingCode || table.code === line.pricingCode)
+      let tables = exactTables
+      if (!tables.length) tables = method.price_tables.filter((table) => table.code.startsWith(`${line.pricingCode}-`))
+      if (tables.some((table) => table.price_by_color)) tables = tables.filter((table) => table.price_by_color && table.max_colours === line.colours)
+      const areaTables = tables.filter((table) => table.price_by_area && area !== undefined && (!table.max_area_cm2 || area <= table.max_area_cm2))
+      selectedTable = exactTables.length ? tables[0] : (areaTables.length ? areaTables.sort((left, right) => (left.max_area_cm2 || Infinity) - (right.max_area_cm2 || Infinity)) : tables.filter((table) => !table.price_by_area))[0]
+      if (!selectedTable) return { unit: 0, setup: 0, pending: true }
+      pricingType = selectedTable.price_by_color ? "numberofcolours" : selectedTable.price_by_area ? "arearange" : ""
+    }
     const range = method.price_ranges?.filter((item) => area !== undefined && area >= (item.area_from_cm2 || 0) && area <= (item.area_to_cm2 || Infinity)).sort((a, b) => (b.area_from_cm2 || 0) - (a.area_from_cm2 || 0))[0]
     if (pricingType.includes("area") && area === undefined) return { unit: 0, setup: method.setup_price_eur || 0, pending: true }
-    const breaks = range?.price_breaks?.length ? range.price_breaks : method.price_breaks
-    const selected = [...breaks].filter((item) => item.quantity <= quantity).sort((a, b) => b.quantity - a.quantity)[0] || breaks[0]
+    const breaks = selectedTable?.price_breaks?.length ? selectedTable.price_breaks : range?.price_breaks?.length ? range.price_breaks : method.price_breaks
+    const selected = [...breaks].filter((item) => item.quantity <= quantity).sort((a, b) => b.quantity - a.quantity)[0]
     if (!selected) return { unit: 0, setup: method.setup_price_eur || 0, pending: true }
     const byColour = pricingType.includes("colour") || pricingType.includes("color")
-    const unit = byColour ? method.next_colour_cost_indicator && selected.next_colour_price_eur !== undefined ? selected.unit_price_eur + selected.next_colour_price_eur * (line.colours - 1) : selected.unit_price_eur * line.colours : selected.unit_price_eur
+    let unit = selectedTable?.price_by_color ? selected.unit_price_eur : byColour ? method.next_colour_cost_indicator && selected.next_colour_price_eur !== undefined ? selected.unit_price_eur + selected.next_colour_price_eur * (line.colours - 1) : selected.unit_price_eur * line.colours : selected.unit_price_eur
+    if (pricingType === "area" && area !== undefined) unit *= area
     const handling = [...(method.handling_price_breaks || [])].filter((item) => item.quantity <= quantity).sort((a, b) => b.quantity - a.quantity)[0]?.unit_price_eur || 0
-    return { unit: unit + handling, setup: (method.setup_price_eur || 0) * (byColour ? line.colours : 1), pending: false }
+    return { unit: unit + (selectedPosition(line)?.handling_price_eur ?? handling), setup: (method.setup_price_eur || 0) * (byColour && !selectedTable?.price_by_color ? line.colours : 1), pending: false }
   }
   const pricedLines = lines.map((line) => {
     const method = methods.find((item) => item.id === line.methodId)
@@ -153,7 +173,7 @@ export default function Configurator({ productId, productName, productImages, ba
         const result = await uploadPortalArtwork({ filename: artwork.name, mime_type: artwork.type, content: await fileContent(artwork) })
         uploaded = result.file
       }
-      const result = await savePortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations: lines.map((line) => ({ branding_method: line.methodId, print_position: line.positionId, print_colours: line.colours, print_width_mm: line.width ? Number(line.width) : undefined, print_height_mm: line.height ? Number(line.height) : undefined })), artwork_file_id: uploaded?.id, artwork_filename: uploaded?.filename })
+      const result = await savePortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations: lines.map((line) => ({ branding_method: line.methodId, print_position: line.positionId, pricing_code: line.pricingCode, print_colours: line.colours, print_width_mm: line.width ? Number(line.width) : undefined, print_height_mm: line.height ? Number(line.height) : undefined })), artwork_file_id: uploaded?.id, artwork_filename: uploaded?.filename })
       setMessage(result.configuration.branding_price_pending ? "Configuration saved. One or more printing prices will be confirmed in the final quote." : `Configuration saved. Estimated total €${result.configuration.estimated_total.toFixed(2)}.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save configuration")
@@ -169,8 +189,7 @@ export default function Configurator({ productId, productName, productImages, ba
         {gallery.length > 1 && <div className={styles.thumbnails}>{gallery.map((image, index) => <button className={image === activeImage ? styles.activeThumbnail : ""} type="button" key={`${image}-${index}`} onClick={() => setActiveImage(image)}><SafeImage src={mediaUrl(backend, image)} alt={`${productName} view ${index + 1}`} /></button>)}</div>}
       </div>
       <div className={styles.productBuyPanel}>
-        <h2>Choose colour and option</h2><p className={styles.selectedColour}>{variant?.color || "Standard"}</p>
-        <div className={styles.detailSwatches}>{variants.map((item) => <button key={item.id} type="button" className={item.id === variant?.id ? styles.activeDetailSwatch : ""} onClick={() => setVariantId(item.id)}><span>{item.color}</span>{item.size && item.size !== "Standard" && <small>{item.size}</small>}</button>)}</div>
+        <h2>Choose colour and option</h2><label>Colour and option<select value={variant?.id || ""} onChange={(event) => setVariantId(event.target.value)}>{variants.map((item) => <option key={item.id} value={item.id}>{item.color}{item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}{item.sku ? ` · ${item.sku}` : ""}</option>)}</select></label>
         <dl className={styles.variantFacts}><div><dt>SKU</dt><dd>{variant?.sku || "—"}</dd></div>{variant?.ean && <div><dt>EAN</dt><dd>{variant.ean}</dd></div>}{variant?.pantone && <div><dt>Pantone</dt><dd>{variant.pantone}</dd></div>}{variant?.dimensions && <div><dt>Dimensions</dt><dd>{variant.dimensions}</dd></div>}</dl>
         <h3>Plain product price <small>excl. VAT</small></h3>{productBreaks.some((item) => item.price_eur > 0) ? <table className={styles.priceTable}><thead><tr><th>Quantity</th><th>Unit price</th></tr></thead><tbody>{productBreaks.filter((item) => item.price_eur > 0).map((item) => <tr key={item.quantity}><td>{item.quantity}+</td><td>€{item.price_eur.toFixed(2)}</td></tr>)}</tbody></table> : <p>Price on request</p>}
         <div className={styles.stockPanel}><strong>{variant?.stock_quantity === undefined ? "Availability on request" : `${variant.stock_quantity.toLocaleString()} available now`}</strong>{variant?.future_stock?.map((item) => <span key={`${item.date}-${item.quantity}`}>{item.quantity.toLocaleString()} incoming — {new Date(item.date).toLocaleDateString()}</span>)}</div>
@@ -183,15 +202,15 @@ export default function Configurator({ productId, productName, productImages, ba
           const sizes = position?.size_options || []
           return <div className={styles.printLine} key={line.key}>
             <div className={styles.printLineHeading}><strong>Print position {index + 1}</strong><button type="button" onClick={() => setLines((items) => items.filter((item) => item.key !== line.key))}>Remove</button></div>
-            <div className={styles.positionCards}>{positions.map((item) => <button type="button" key={item.id} className={item.id === line.positionId ? styles.activePositionCard : ""} onClick={() => choosePosition(line, item.id)}><SafeImage src={positionImage(item)} alt={`${item.name} print area`} /><strong>{item.name}</strong>{item.max_width_mm && item.max_height_mm && <span>W {item.max_width_mm} × H {item.max_height_mm} mm</span>}</button>)}</div>
+            <div className={styles.positionCards}>{positions.map((item) => { const alreadyUsed = lines.some((other) => other.key !== line.key && other.positionId === item.id); return <button type="button" key={item.id} disabled={alreadyUsed} className={item.id === line.positionId ? styles.activePositionCard : ""} onClick={() => choosePosition(line, item.id)}><SafeImage src={positionImage(item)} alt={`${item.name} print area`} /><strong>{item.name}</strong>{item.max_width_mm && item.max_height_mm && <span>W {item.max_width_mm} × H {item.max_height_mm} mm</span>}{alreadyUsed && <span>Already selected</span>}</button> })}</div>
             {line.positionId && <label>Technique<select value={line.methodId} onChange={(event) => chooseMethod(line, event.target.value)}>{compatible.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>}
             {method && <label>Colour mode<input value={colourMode(method)} readOnly /></label>}
             {sizes.length > 0 && <div className={styles.sizeOptions}><span>Print size (W × H)</span><div>{sizes.map((size) => <button type="button" key={size.id} className={size.id === line.sizeId ? styles.activeSizeOption : ""} onClick={() => chooseSize(line, size)}>{size.label}</button>)}</div></div>}
             {position && !sizes.length && <p className={styles.helper}>{position.max_width_mm && position.max_height_mm ? `Maximum area ${position.max_width_mm} × ${position.max_height_mm} mm. ` : ""}{position.max_colours ? `Maximum ${position.max_colours} colours.` : ""}</p>}
-            {method && colourMode(method) === "Spot colours" && <label>Print colours<input type="number" min="1" max={position?.max_colours || 10} value={line.colours} onChange={(event) => updateLine(line.key, { colours: Math.max(1, Math.min(position?.max_colours || 10, Number(event.target.value) || 1)) })} /></label>}
+            {method && colourMode(method) === "Spot colours" && <label>Number of print colours<select value={line.colours} onChange={(event) => updateLine(line.key, { colours: Number(event.target.value) })}>{Array.from({ length: position?.max_colours || 1 }, (_, colourIndex) => colourIndex + 1).map((count) => <option value={count} key={count}>{count}</option>)}</select></label>}
             {method && <p className={styles.linePrice}>{price.pending ? "Printing price to be confirmed" : `€${price.unit.toFixed(2)} each${price.setup ? ` + €${price.setup.toFixed(2)} setup` : ""}`}</p>}
           </div>
-        })}<button className={styles.addPrint} type="button" onClick={() => setLines((items) => [...items, { key: Date.now(), positionId: "", methodId: "", sizeId: "", colours: 1, width: "", height: "" }])}>+ Add print position</button></> : <p className={styles.notice}>No customisation information is available for this product.</p>}
+        })}{lines.length < positions.length && <button className={styles.addPrint} type="button" onClick={() => setLines((items) => [...items, { key: Date.now(), positionId: "", methodId: "", sizeId: "", pricingCode: "", colours: 1, width: "", height: "" }])}>+ Add print position</button>}</> : <p className={styles.notice}>No customisation information is available for this product.</p>}
         <label>Artwork (optional)<input type="file" accept=".pdf,.png,.jpg,.jpeg,.svg,application/pdf,image/png,image/jpeg,image/svg+xml" onChange={(event) => setArtwork(event.target.files?.[0])} /></label><p className={styles.helper}>PDF, SVG, PNG or JPG · maximum 10 MB.</p>
       </div>
       <aside className={styles.priceSummary}><h2>Estimate</h2><div><span>Plain product</span><strong>{productUnitPrice === undefined ? "On request" : `€${productUnitPrice.toFixed(2)} × ${quantity}`}</strong></div>{pricedLines.map(({ line, method, price }, index) => <div key={line.key}><span>{method?.name || `Print ${index + 1}`}</span><strong>{price.pending ? "To confirm" : `€${price.unit.toFixed(2)} × ${quantity}`}</strong></div>)}{setup > 0 && <div><span>Setup charges</span><strong>€{setup.toFixed(2)}</strong></div>}<div className={styles.estimateTotal}><span>Estimated total</span><strong>{total === undefined ? "On request" : `€${total.toFixed(2)}`}</strong></div>{total !== undefined && <p className={styles.helper}>€{(total / quantity).toFixed(2)} per unit equivalent · excl. VAT</p>}<button className={styles.primary} type="button" disabled={busy || !variant} onClick={save}>{busy ? "Saving…" : "Save configuration"}</button>{message && <p className={styles.configMessage} aria-live="polite">{message}</p>}</aside>

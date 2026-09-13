@@ -9,6 +9,7 @@ type DecorationInput = {
   branding_method: string
   print_position: string
   print_colours?: number
+  pricing_code?: string
   print_width_mm?: number
   print_height_mm?: number
 }
@@ -22,6 +23,7 @@ type Input = {
   branding_method?: string
   print_position?: string
   print_colours?: number
+  pricing_code?: string
   print_width_mm?: number
   print_height_mm?: number
   decorations?: DecorationInput[]
@@ -45,7 +47,7 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
   const requested: DecorationInput[] = input.decorations?.length
     ? input.decorations
     : input.branding_method && input.print_position
-      ? [{ branding_method: input.branding_method, print_position: input.print_position, print_colours: input.print_colours, print_width_mm: input.print_width_mm, print_height_mm: input.print_height_mm }]
+      ? [{ branding_method: input.branding_method, print_position: input.print_position, print_colours: input.print_colours, pricing_code: input.pricing_code, print_width_mm: input.print_width_mm, print_height_mm: input.print_height_mm }]
       : []
   const indexedVariant = ((source.catalog_document as any)?.variants || []).find((item: any) => item.sku === variant.sku)
   const priceBreaks = Array.isArray(indexedVariant?.price_breaks) ? indexedVariant.price_breaks : []
@@ -56,14 +58,23 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
   const baseUnitPrice = Number.isFinite(cost) ? sellingPrice(cost, markup) : nativePrice
   if (!Number.isFinite(baseUnitPrice)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Price is unavailable for this option")
 
+  const usedPositions = new Set<string>()
   const decorationLines = requested.map((line) => {
     const method = methods.find((item) => item.id === line.branding_method)
     if (!method) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose an available branding method")
     const position = method.positions.find((item) => item.id === line.print_position)
     if (!position) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose an available print position")
+    if (usedPositions.has(position.id)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Each print position can only be selected once")
+    usedPositions.add(position.id)
+    if (method.colour_mode !== "spot_colour" && (line.print_colours || 1) !== 1) throw new MedusaError(MedusaError.Types.INVALID_DATA, "This printing technique does not allow a colour-count selection")
     if (line.print_colours && (line.print_colours < 1 || (position.max_colours && line.print_colours > position.max_colours))) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose a valid number of print colours")
+    const sizeOptions = position.size_options || []
+    const selectedSize = sizeOptions.find((item) => item.pricing_code === line.pricing_code || item.id === line.pricing_code)
+    if (sizeOptions.length && !selectedSize) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose an available print size")
+    if (selectedSize && (selectedSize.width_mm !== line.print_width_mm || selectedSize.height_mm !== line.print_height_mm)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose a print size supplied for this technique")
     if ((line.print_width_mm && line.print_width_mm < 1) || (line.print_height_mm && line.print_height_mm < 1) || (position.max_width_mm && line.print_width_mm && line.print_width_mm > position.max_width_mm) || (position.max_height_mm && line.print_height_mm && line.print_height_mm > position.max_height_mm)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Artwork dimensions exceed the selected print area")
-    const price = decorationPrice(method, input.quantity, { colours: line.print_colours, width_mm: line.print_width_mm, height_mm: line.print_height_mm, color_code: indexedVariant?.color_code })
+    const price = decorationPrice(method, input.quantity, { colours: line.print_colours, width_mm: line.print_width_mm, height_mm: line.print_height_mm, color_code: indexedVariant?.color_code, pricing_code: line.pricing_code, handling_price_eur: position.handling_price_eur })
+    if (price.pending) throw new MedusaError(MedusaError.Types.INVALID_DATA, `No supplier printing price is available for ${method.name} at the selected quantity, size and colour count`)
     return { ...line, method_name: method.name, position_name: position.name, unit_price_eur: sellingPrice(price.unit + price.handling, markup), setup_price_eur: sellingPrice(price.setup, markup), price_pending: price.pending }
   })
   const brandingUnitPrice = decorationLines.reduce((sum, line) => sum + line.unit_price_eur, 0)

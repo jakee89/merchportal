@@ -8,6 +8,7 @@ export type DecorationPosition = {
   max_width_mm?: number
   max_height_mm?: number
   max_colours?: number
+  handling_price_eur?: number
   image_url?: string
   images?: Array<{ variant_color?: string; url: string }>
   size_options?: Array<{
@@ -33,12 +34,25 @@ export type DecorationMethod = {
   handling_price_breaks?: DecorationPriceBreak[]
   pricing_type?: string
   next_colour_cost_indicator?: boolean
+  colour_mode?: "full_colour" | "spot_colour" | "colourless"
+  price_tables?: DecorationPriceTable[]
 }
 
 type DecorationPriceBreak = {
   quantity: number
   unit_price_eur: number
   next_colour_price_eur?: number
+}
+
+type DecorationPriceTable = {
+  code: string
+  option_code?: string
+  max_colours?: number
+  max_area_cm2?: number
+  price_by_color: boolean
+  price_by_area: boolean
+  price_by_stitches: boolean
+  price_breaks: DecorationPriceBreak[]
 }
 
 type PricingIndex = {
@@ -53,12 +67,23 @@ function number(value: unknown) {
   return Number.isFinite(parsed) ? parsed : undefined
 }
 
+function quantityNumber(value: unknown) {
+  const normalized = typeof value === "string" && /^\d{1,3}(?:\.\d{3})+$/u.test(value.trim())
+    ? value.replace(/\./gu, "")
+    : value
+  return number(normalized)
+}
+
 function key(object: AnyObject, names: string[]) {
   const entries = new Map(Object.entries(object).map(([name, value]) => [normalizedFieldName(name), value]))
   for (const name of names) {
     const value = entries.get(normalizedFieldName(name))
     if (value !== undefined) return value
   }
+}
+
+function boolean(value: unknown) {
+  return value === true || /^(true|yes|1|x)$/iu.test(String(value || "").trim())
 }
 
 function printingArea(value: unknown) {
@@ -120,8 +145,16 @@ function slug(value: string) {
 
 function priceBreaks(candidate: AnyObject) {
   const breaks: DecorationPriceBreak[] = []
+  const entries = new Map(Object.entries(candidate).map(([name, value]) => [normalizedFieldName(name), value]))
+  for (let index = 1; index <= 15; index += 1) {
+    const quantity = quantityNumber(entries.get(`minqt${index}`))
+    const price = number(entries.get(`price${index}`))
+    if (quantity !== undefined && price !== undefined && quantity > 0 && price >= 0) {
+      breaks.push({ quantity: Math.floor(quantity), unit_price_eur: price })
+    }
+  }
   for (const item of objects(candidate)) {
-    const quantity = number(key(item, ["quantity", "minimum_quantity", "min_quantity", "from_quantity", "qty"]))
+    const quantity = quantityNumber(key(item, ["quantity", "minimum_quantity", "min_quantity", "from_quantity", "qty"]))
     const price = number(key(item, ["printing_price", "print_price", "unit_price", "price_eur", "price"]))
     if (quantity !== undefined && price !== undefined && quantity > 0 && price >= 0) {
       const nextColour = number(key(item, ["next_price", "next_colour_price"]))
@@ -135,6 +168,34 @@ function priceBreaks(candidate: AnyObject) {
   return breaks.filter((item, index, all) => all.findIndex((other) => other.quantity === item.quantity) === index).sort((left, right) => left.quantity - right.quantity)
 }
 
+function normalizedPriceTables(sources: AnyObject[]): DecorationPriceTable[] {
+  return sources.flatMap((source) => {
+    const code = directValue(source, ["table_code", "tablecode"])
+    const optionCode = directValue(source, ["table_code_option", "tablecodeoption"])
+    if (!code && !optionCode) return []
+    const breaks = priceBreaks(source)
+    if (!breaks.length) return []
+    return [{
+      code: code || optionCode || "",
+      option_code: optionCode,
+      max_colours: number(key(source, ["max_colors", "max_colours"])),
+      max_area_cm2: number(key(source, ["table_max_area_cm2", "max_area_cm2"])),
+      price_by_color: boolean(key(source, ["price_by_color", "pricebycolor"])),
+      price_by_area: boolean(key(source, ["price_by_area", "pricebyarea"])),
+      price_by_stitches: boolean(key(source, ["price_by_stitches", "pricebystitches"])),
+      price_breaks: breaks,
+    }]
+  }).filter((table, index, all) => all.findIndex((other) => other.code === table.code && other.option_code === table.option_code) === index)
+}
+
+function colourMode(name: string, sources: AnyObject[]) {
+  const label = name.toLowerCase()
+  if (sources.some((source) => boolean(key(source, ["price_by_color", "pricebycolor"])))) return "spot_colour" as const
+  if (sources.some((source) => String(key(source, ["table_code_option", "tablecodeoption"]) || "").toUpperCase().endsWith("-F")) || /full colou?r|digital|dtf|sublimation|uv print|doming|inlay/iu.test(label)) return "full_colour" as const
+  if (/laser|engraving|deboss|emboss|etching/iu.test(label)) return "colourless" as const
+  return "spot_colour" as const
+}
+
 function priceRanges(candidate: AnyObject) {
   return objects(candidate)
     .filter((item) => Array.isArray(key(item, ["scales"])))
@@ -146,7 +207,7 @@ function priceRanges(candidate: AnyObject) {
     .filter((item) => item.price_breaks.length)
 }
 
-export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods: string[] = [], pricingPayloads: unknown[] = []) {
+export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods: string[] = [], pricingPayloads: unknown[] = []) {
   const methods = new Map<string, DecorationMethod>()
   const cacheKey = pricingPayloads.find((payload) => payload && typeof payload === "object") as object | undefined
   let pricingIndex = cacheKey ? pricingCache.get(cacheKey) : undefined
@@ -190,21 +251,30 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
       existingPosition.max_width_mm = Math.max(existingPosition.max_width_mm || 0, position.max_width_mm || 0) || undefined
       existingPosition.max_height_mm = Math.max(existingPosition.max_height_mm || 0, position.max_height_mm || 0) || undefined
       existingPosition.max_colours = Math.max(existingPosition.max_colours || 0, position.max_colours || 0) || undefined
+      existingPosition.handling_price_eur = Math.max(existingPosition.handling_price_eur || 0, position.handling_price_eur || 0) || undefined
       existingPosition.image_url ||= position.image_url
       existingPosition.images = [...(existingPosition.images || []), ...(position.images || [])].filter((item, index, all) => all.findIndex((other) => other.url === item.url && other.variant_color === item.variant_color) === index)
       existingPosition.size_options = [...(existingPosition.size_options || []), ...(position.size_options || [])].filter((item, index, all) => all.findIndex((other) => other.id === item.id) === index)
     }
     const matchedPrices = matchingPrices(id)
     const priceSources = matchedPrices.length ? matchedPrices : [candidate]
+    const tables = normalizedPriceTables(priceSources)
+    if (tables.length) current.price_tables = tables
     const prices = priceSources.flatMap(priceBreaks)
     if (prices.length) {
       current.price_breaks = prices.filter((item, index, all) => all.findIndex((other) => other.quantity === item.quantity) === index).sort((left, right) => left.quantity - right.quantity)
     }
     const ranges = priceSources.flatMap(priceRanges)
     if (ranges.length) current.price_ranges = ranges
-    const setup = number(priceSources.map((source) => key(source, ["setup", "setup_price", "setup_cost", "handling_cost", "handlingcost"])).find((value) => number(value) !== undefined))
+    const setup = number(priceSources.map((source) => key(source, ["setup", "setup_price", "setup_cost"])).find((value) => number(value) !== undefined))
     if (setup !== undefined) current.setup_price_eur = setup
-    current.pricing_type = current.pricing_type || priceSources.map((source) => fieldValue(source, ["pricing_type", "price_by_color", "pricebycolor"])).find(Boolean)
+    current.pricing_type = current.pricing_type || priceSources.map((source) => fieldValue(source, ["pricing_type"])).find(Boolean)
+    if (!current.pricing_type) {
+      if (priceSources.some((source) => boolean(key(source, ["price_by_color", "pricebycolor"])))) current.pricing_type = "NumberOfColours"
+      else if (priceSources.some((source) => boolean(key(source, ["price_by_area", "pricebyarea"])))) current.pricing_type = "AreaRange"
+      else if (priceSources.some((source) => boolean(key(source, ["price_by_stitches", "pricebystitches"])))) current.pricing_type = "Stitches"
+    }
+    current.colour_mode = colourMode(current.name, priceSources)
     const nextColourIndicator = priceSources.map((source) => fieldValue(source, ["next_colour_cost_indicator"])).find(Boolean)
     if (nextColourIndicator) {
       current.next_colour_cost_indicator = /^(x|true|yes|1)$/i.test(nextColourIndicator)
@@ -213,13 +283,81 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
     if (manipulationCode) {
       const manipulation = pricingIndex.byId.get(manipulationCode.toLowerCase())?.[0] || pricingCandidates.find((source) => directValue(source, ["id", "code", "manipulation_id"])?.toLowerCase() === manipulationCode.toLowerCase())
       const handlingBreaks = manipulation ? priceBreaks(manipulation) : []
+      if (manipulation && !handlingBreaks.length) {
+        const fixedPrice = number(key(manipulation, ["price", "unit_price"]))
+        if (fixedPrice !== undefined) handlingBreaks.push({ quantity: 1, unit_price_eur: fixedPrice })
+      }
       if (handlingBreaks.length) current.handling_price_breaks = handlingBreaks
     }
     methods.set(id, current)
   }
 
   const handled = new WeakSet<object>()
+  for (const payload of payloads) {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue
+    const product = payload as AnyObject
+    for (let index = 1; index <= 64; index += 1) {
+      const component = directValue(product, [`component${index}`])
+      const location = directValue(product, [`location${index}`])
+      if (!component || !location) continue
+      const positionName = directValue(product, [`composed_location${index}`]) || `${component} - ${location}`
+      const positionId = slug(`${component}-${location}`)
+      const area = printingArea(key(product, [`area${index}`]))
+      const image = directValue(product, [`area${index}image`, `location${index}image`])
+      const variantColor = directValue(product, ["color_desc_1", "color_description", "color_code"])
+      const methodNames = String(key(product, [`customization_types${index}`]) || "").split(",").map((item) => item.trim()).filter(Boolean)
+      const methodIds = String(key(product, [`table_codes${index}`]) || "").split(",").map((item) => item.trim()).filter(Boolean)
+      const optionCodes = String(key(product, [`table_codes_options${index}`]) || "").split(",").map((item) => item.trim()).filter(Boolean)
+      const maxColours = String(key(product, [`max_colors${index}`]) || "1").split(",").map((item) => number(item.trim()) || 1)
+      const handlingCosts = String(key(product, [`handling_costs${index}`]) || "0").split(",").map((item) => number(item.trim()) || 0)
+      for (let methodIndex = 0; methodIndex < methodNames.length; methodIndex += 1) {
+        const methodName = methodNames[methodIndex]
+        const methodId = methodIds[methodIndex] || slug(methodName)
+        const prefix = methodId.slice(0, 4)
+        const allowedCodes = optionCodes.filter((code) => code.startsWith(prefix))
+        const sizeOptions = allowedCodes.flatMap((optionCode) => {
+          const table = pricingCandidates.find((source) => directValue(source, ["table_code_option", "tablecodeoption"]) === optionCode)
+          if (!table) return []
+          const tableArea = centimetreArea(key(table, ["table_max_area_cm", "tablemaxareacm"]))
+          const placeholder = (tableArea.width || 0) >= 990 && (tableArea.height || 0) >= 990
+          const width = placeholder ? area.width : Math.min(tableArea.width || area.width || 0, area.width || tableArea.width || 0)
+          const height = placeholder ? area.height : Math.min(tableArea.height || area.height || 0, area.height || tableArea.height || 0)
+          if (!width || !height) return []
+          const priceByColour = boolean(key(table, ["price_by_color", "pricebycolor"]))
+          return [{
+            id: optionCode,
+            label: `${(width / 10).toFixed(1)} × ${(height / 10).toFixed(1)} cm`,
+            width_mm: width,
+            height_mm: height,
+            pricing_code: priceByColour ? directValue(table, ["table_code", "tablecode"]) || optionCode : optionCode,
+          }]
+        }).filter((item, itemIndex, all) => all.findIndex((other) => other.label === item.label && other.pricing_code === item.pricing_code) === itemIndex)
+        const hasExplicitOptions = allowedCodes.length > 0
+        if (hasExplicitOptions && !sizeOptions.length) continue
+        const effectiveSizes = sizeOptions.length ? sizeOptions : area.width && area.height ? [{
+          id: methodId,
+          label: `${(area.width / 10).toFixed(1)} × ${(area.height / 10).toFixed(1)} cm`,
+          width_mm: area.width,
+          height_mm: area.height,
+          pricing_code: methodId,
+        }] : []
+        add(methodName, methodId, {
+          id: positionId,
+          name: positionName,
+          max_width_mm: area.width,
+          max_height_mm: area.height,
+          max_colours: maxColours[methodIndex] || maxColours[0] || 1,
+          handling_price_eur: handlingCosts[methodIndex] || handlingCosts[0] || undefined,
+          image_url: image,
+          images: image ? [{ variant_color: variantColor, url: image }] : undefined,
+          size_options: effectiveSizes,
+        }, product)
+      }
+      handled.add(product)
+    }
+  }
   for (const candidate of payloads.flatMap((payload) => objects(payload))) {
+    if (handled.has(candidate)) continue
     const component = fieldValue(candidate, ["component", "product_component"])
     const location = fieldValue(candidate, ["location", "customization_location"])
     const tableCode = fieldValue(candidate, ["table_code", "tablecode"])
@@ -227,7 +365,7 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
     if (component && location && tableCode && strickerMethodName) {
       const locationArea = printingArea(key(candidate, ["location_max_printing_area_mm"]))
       const tableArea = centimetreArea(key(candidate, ["table_max_area_cm"]))
-      const placeholder = (tableArea.width || 0) >= 9900 && (tableArea.height || 0) >= 9900
+      const placeholder = (tableArea.width || 0) >= 990 && (tableArea.height || 0) >= 990
       const width = placeholder ? locationArea.width : Math.min(tableArea.width || locationArea.width || 0, locationArea.width || tableArea.width || 0)
       const height = placeholder ? locationArea.height : Math.min(tableArea.height || locationArea.height || 0, locationArea.height || tableArea.height || 0)
       const positionName = fieldValue(candidate, ["composed_location"]) || `${component} - ${location}`
@@ -250,11 +388,9 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
           pricing_code: fieldValue(candidate, ["table_code_option"]) || tableCode,
         }] : undefined,
       }, candidate)
-      handled.add(candidate)
       continue
     }
-    if (handled.has(candidate)) continue
-    const positionName = fieldValue(candidate, ["product_component_locations", "product_composed_locations", "product_component_default_location", "print_position_type", "print_position_description", "position_name", "position_description", "position", "location_name", "location_description", "location", "customization_area", "area"])
+    const positionName = fieldValue(candidate, ["product_component_locations", "product_composed_locations", "product_component_default_location", "print_position_description", "position_name", "position_description", "position_id", "position", "location_name", "location_description", "location", "print_position_type", "customization_area", "area"])
     const techniques = key(candidate, ["customization_types", "customization_table_options", "printing_techniques", "customization_techniques"])
     const area = printingArea(key(candidate, ["location_max_printing_area_mm", "product_component_default_location_area_mm", "max_printing_area_mm"]))
     const supplierPositionImages = positionImages(candidate)
@@ -301,24 +437,36 @@ export function normalizeDecorationOptions(payloads: unknown[], fallbackMethods:
     }
   }
 
-  for (const methodName of fallbackMethods) {
-    const id = slug(methodName)
-    if (!methods.has(id))
-      methods.set(id, {
-        id,
-        name: methodName,
-        positions: [{ id: "standard", name: "Standard position" }],
-        price_breaks: [],
-      })
-  }
   return [...methods.values()].sort((left, right) => left.name.localeCompare(right.name))
 }
 
-export function decorationPrice(method: DecorationMethod | undefined, quantity: number, options: { colours?: number; width_mm?: number; height_mm?: number; color_code?: string } = {}) {
+export function decorationPrice(method: DecorationMethod | undefined, quantity: number, options: { colours?: number; width_mm?: number; height_mm?: number; color_code?: string; pricing_code?: string; handling_price_eur?: number } = {}) {
   if (!method) return { unit: 0, handling: 0, setup: 0, pending: false }
-  const pricingType = method.pricing_type?.toLowerCase() || ""
-  const needsArea = pricingType.includes("area")
+  const colours = Math.max(1, Math.floor(options.colours || 1))
   const areaCm2 = options.width_mm && options.height_mm ? (options.width_mm * options.height_mm) / 100 : undefined
+  let selectedTable: DecorationPriceTable | undefined
+  if (method.price_tables?.length) {
+    const exactTables = method.price_tables.filter((table) => {
+      if (!options.pricing_code) return true
+      return table.option_code === options.pricing_code || table.code === options.pricing_code
+    })
+    let tables = exactTables
+    if (!tables.length && options.pricing_code) {
+      tables = method.price_tables.filter((table) => table.code.startsWith(`${options.pricing_code}-`))
+    }
+    if (tables.some((table) => table.price_by_color)) {
+      tables = tables.filter((table) => table.price_by_color && table.max_colours === colours)
+    }
+    const areaTables = tables.filter((table) => table.price_by_area && areaCm2 !== undefined && (!table.max_area_cm2 || areaCm2 <= table.max_area_cm2))
+    selectedTable = exactTables.length
+      ? tables[0]
+      : (areaTables.length ? areaTables.sort((left, right) => (left.max_area_cm2 || Number.MAX_SAFE_INTEGER) - (right.max_area_cm2 || Number.MAX_SAFE_INTEGER)) : tables.filter((table) => !table.price_by_area))[0]
+    if (!selectedTable) return { unit: 0, handling: 0, setup: 0, pending: true }
+  }
+  const pricingType = selectedTable
+    ? selectedTable.price_by_color ? "numberofcolours" : selectedTable.price_by_area ? "arearange" : ""
+    : method.pricing_type?.toLowerCase() || ""
+  const needsArea = pricingType.includes("area")
   const range = method.price_ranges
     ?.filter((item) => {
       if (areaCm2 === undefined) return false
@@ -327,20 +475,23 @@ export function decorationPrice(method: DecorationMethod | undefined, quantity: 
       return areaCm2 >= from && areaCm2 <= to
     })
     .sort((left, right) => (right.area_from_cm2 || 0) - (left.area_from_cm2 || 0))[0]
-  const breaks = range?.price_breaks?.length ? range.price_breaks : method.price_breaks
+  const breaks = selectedTable?.price_breaks?.length ? selectedTable.price_breaks : range?.price_breaks?.length ? range.price_breaks : method.price_breaks
   if (!breaks.length || (needsArea && areaCm2 === undefined)) return { unit: 0, handling: 0, setup: method?.setup_price_eur || 0, pending: true }
-  const selected = [...breaks].filter((item) => item.quantity <= quantity).sort((left, right) => right.quantity - left.quantity)[0] || breaks[0]
-  const colours = Math.max(1, Math.floor(options.colours || 1))
+  const selected = [...breaks].filter((item) => item.quantity <= quantity).sort((left, right) => right.quantity - left.quantity)[0]
+  if (!selected) return { unit: 0, handling: 0, setup: method?.setup_price_eur || 0, pending: true }
   const byColour = pricingType.includes("colour") || pricingType.includes("color")
   const whiteTextileCodes = new Set(["AS", "WW", "WD", "WH", "NB", "NW", "RH"])
   const pricedColours = method.id.toUpperCase() === "ST" && options.color_code && !whiteTextileCodes.has(options.color_code.toUpperCase()) ? colours + 1 : colours
-  const unit = byColour ? (method.next_colour_cost_indicator && selected.next_colour_price_eur !== undefined ? selected.unit_price_eur + selected.next_colour_price_eur * (pricedColours - 1) : selected.unit_price_eur * pricedColours) : selected.unit_price_eur
+  let unit = selectedTable?.price_by_color
+    ? selected.unit_price_eur
+    : byColour ? (method.next_colour_cost_indicator && selected.next_colour_price_eur !== undefined ? selected.unit_price_eur + selected.next_colour_price_eur * (pricedColours - 1) : selected.unit_price_eur * pricedColours) : selected.unit_price_eur
+  if (pricingType === "area" && areaCm2 !== undefined) unit *= areaCm2
   const handlingBreaks = method.handling_price_breaks || []
-  const handling = [...handlingBreaks].filter((item) => item.quantity <= quantity).sort((left, right) => right.quantity - left.quantity)[0]?.unit_price_eur || handlingBreaks[0]?.unit_price_eur || 0
+  const handling = options.handling_price_eur ?? [...handlingBreaks].filter((item) => item.quantity <= quantity).sort((left, right) => right.quantity - left.quantity)[0]?.unit_price_eur ?? 0
   return {
     unit,
     handling,
-    setup: (method.setup_price_eur || 0) * (byColour ? colours : 1),
+    setup: (method.setup_price_eur || 0) * (byColour && !selectedTable?.price_by_color ? colours : 1),
     pending: false,
   }
 }

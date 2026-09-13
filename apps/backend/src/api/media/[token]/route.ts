@@ -5,12 +5,20 @@ import { supplierImageUrl } from "../../../modules/merchportal/media"
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const url = supplierImageUrl(req.params.token)
   if (!url) return res.status(404).json({ message: "Image not found" })
-  const upstream = await fetch(url, { signal: AbortSignal.timeout(20_000) })
-  const contentType = upstream.headers.get("content-type") || ""
-  if (!upstream.ok || !contentType.startsWith("image/") || !upstream.body) {
+  try {
+    const upstream = await fetch(url, {
+      headers: { Accept: "image/avif,image/webp,image/png,image/jpeg,image/*" },
+      signal: AbortSignal.timeout(20_000),
+    })
+    const contentType = upstream.headers.get("content-type") || ""
+    if (!upstream.ok || !contentType.startsWith("image/") || !upstream.body) {
+      return res.status(404).json({ message: "Image not found" })
+    }
+    res.setHeader("Content-Type", contentType)
+    res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
+    res.setHeader("X-Content-Type-Options", "nosniff")
+    Readable.fromWeb(upstream.body as any).pipe(res)
+  } catch {
     return res.status(404).json({ message: "Image not found" })
   }
-  res.setHeader("Content-Type", contentType)
-  res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
-  Readable.fromWeb(upstream.body as any).pipe(res)
 }

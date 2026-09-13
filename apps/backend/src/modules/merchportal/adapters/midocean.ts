@@ -1,4 +1,5 @@
 import { asRecords, ConnectionResult, responseJson, SupplierAdapter, SupplierFetchContext } from "./types"
+import { MedusaError } from "@medusajs/framework/utils"
 
 const BASE_URL = "https://api.midocean.com"
 
@@ -69,4 +70,3 @@ export class MidoceanAdapter implements SupplierAdapter {
     return this.request("/gateway/printpricelist/2.0", context)
   }
 }
-import { MedusaError } from "@medusajs/framework/utils"

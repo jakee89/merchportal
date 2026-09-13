@@ -9,6 +9,7 @@ services:
       backend:
         condition: service_started
     environment:
+      MEDUSA_BACKEND_URL: http://backend:9000
       NEXT_PUBLIC_MEDUSA_BACKEND_URL: ${BACKEND_URL:-http://192.168.1.214:9100}
       NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY: ${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY:-pk_setup_required}
       MEDUSA_PUBLISHABLE_KEY: ${NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY:-pk_setup_required}

@@ -7,7 +7,7 @@ describe("supplier-neutral decoration normalization", () => {
         printing_positions: [
           {
             position_id: "FRONT",
-            print_position_type: "Front",
+            print_position_type: "Rectangle",
             max_print_size_width: 80,
             max_print_size_height: 50,
             images: [{ variant_color: "Red", print_position_image_with_area: "https://images.cdn.midocean.com/front-red.png" }],
@@ -22,7 +22,7 @@ describe("supplier-neutral decoration normalization", () => {
         name: "Screen print",
         positions: [
           expect.objectContaining({
-            name: "Front",
+            name: "FRONT",
             max_width_mm: 80,
             max_colours: 4,
             images: [{ variant_color: "Red", url: "https://images.cdn.midocean.com/front-red.png" }],
@@ -96,6 +96,53 @@ describe("supplier-neutral decoration normalization", () => {
     }))
   })
 
+  it("parses indexed Stricker options and selects the exact colour price table", () => {
+    const methods = normalizeDecorationOptions(
+      [{
+        ProdReference: "99164",
+        Component1: "Ball pen",
+        Location1: "Barrel",
+        ComposedLocation1: "Ball pen - Barrel",
+        Area1: "60 x 20",
+        Area1Image: "99164_1_1_1.png",
+        TableCodes1: "PDP1",
+        TableCodesOptions1: "PDP1-01-01, PDP1-01-02",
+        MaxColors1: "2",
+        CustomizationTypes1: "Pad Printing",
+      }],
+      [],
+      [{
+        CustomizationTables: [
+          { CustomizationTypeName: "Pad Printing", TableCode: "PDP1-01", TableCodeOption: "PDP1-01-01", PriceByColor: true, MaxColors: 1, TableMaxAreaCM: "6 x 2", TableMaxAreaCM2: "12", MinQt1: 1, Price1: 1.2, MinQt2: 100, Price2: 0.8 },
+          { CustomizationTypeName: "Pad Printing", TableCode: "PDP1-01", TableCodeOption: "PDP1-01-02", PriceByColor: true, MaxColors: 2, TableMaxAreaCM: "6 x 2", TableMaxAreaCM2: "12", MinQt1: 1, Price1: 2, MinQt2: 100, Price2: 1.4 },
+        ],
+      }],
+    )
+
+    expect(methods).toHaveLength(1)
+    expect(methods[0]).toEqual(expect.objectContaining({
+      id: "PDP1",
+      name: "Pad Printing",
+      colour_mode: "spot_colour",
+      positions: [expect.objectContaining({
+        id: "ball-pen-barrel",
+        name: "Ball pen - Barrel",
+        image_url: "99164_1_1_1.png",
+        max_colours: 2,
+        size_options: [expect.objectContaining({
+          label: "6.0 × 2.0 cm",
+          pricing_code: "PDP1-01",
+        })],
+      })],
+    }))
+    expect(decorationPrice(methods[0], 100, {
+      colours: 2,
+      width_mm: 60,
+      height_mm: 20,
+      pricing_code: "PDP1-01",
+    })).toEqual({ unit: 1.4, handling: 0, setup: 0, pending: false })
+  })
+
   it("uses the best eligible quantity price break", () => {
     expect(
       decorationPrice(
@@ -112,6 +159,19 @@ describe("supplier-neutral decoration normalization", () => {
         150,
       ),
     ).toEqual({ unit: 1.25, handling: 0, setup: 20, pending: false })
+  })
+
+  it("does not invent a position or price from a loose print-method label", () => {
+    expect(normalizeDecorationOptions([], ["Pad printing"], [])).toEqual([])
+  })
+
+  it("parses midocean thousands-formatted quantity breaks", () => {
+    const methods = normalizeDecorationOptions(
+      [{ printing_positions: [{ position_id: "FRONT", printing_techniques: [{ id: "P3", name: "Pad printing", max_colours: "1" }] }] }],
+      [],
+      [{ print_techniques: [{ id: "P3", pricing_type: "NumberOfColours", var_costs: [{ scales: [{ minimum_quantity: "1.000", price: "0,25" }] }] }] }],
+    )
+    expect(methods[0].price_breaks).toEqual([{ quantity: 1000, unit_price_eur: 0.25 }])
   })
 
   it("joins supplier print-price scales to a technique", () => {
