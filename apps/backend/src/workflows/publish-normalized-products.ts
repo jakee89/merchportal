@@ -457,8 +457,8 @@ export async function publishNormalizedProductBatch(container: any, pending: Nor
   }
 }
 
-export async function autoPublishSupplierCatalog(container: any, supplierCode: "stricker" | "midocean", onProgress?: (published: number, total: number) => Promise<void>, onIssue?: (message: string) => Promise<void>) {
-  const normalized = await normalizeSupplierCatalog(container, { supplier_code: supplierCode, take: Number.MAX_SAFE_INTEGER })
+export async function autoPublishSupplierCatalog(container: any, supplierCode: "stricker" | "midocean", onProgress?: (published: number, total: number) => Promise<void>, onIssue?: (message: string) => Promise<void>, onPreparing?: (completed: number, total: number) => Promise<void>) {
+  const normalized = await normalizeSupplierCatalog(container, { supplier_code: supplierCode, take: Number.MAX_SAFE_INTEGER, onProgress: onPreparing })
   const pending = normalized.filter((product) => !product.published && product.variants.length)
   let created = 0
   let consecutiveErrors = 0

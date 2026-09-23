@@ -269,7 +269,7 @@ async function listAllPublishedSources(service: any, filters: Record<string, unk
   }
 }
 
-export async function normalizeSupplierCatalog(container: MedusaContainer, options: { source_keys?: string[]; supplier_code?: string; take?: number; skip?: number } = {}): Promise<NormalizedProduct[]> {
+export async function normalizeSupplierCatalog(container: MedusaContainer, options: { source_keys?: string[]; supplier_code?: string; take?: number; skip?: number; onProgress?: (completed: number, total: number) => Promise<void> } = {}): Promise<NormalizedProduct[]> {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const suppliers = await service.listSuppliers(options.supplier_code ? { code: options.supplier_code } : {})
   const supplierById = new Map<string, any>(suppliers.map((supplier: any) => [supplier.id, supplier]))
@@ -318,7 +318,9 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
   const selectedSourceKeySet = new Set(sourceKeys)
   const existingSources = await listAllPublishedSources(service, { supplier_id: supplierIds })
   const published = new Set(existingSources.map((source: any) => source.source_key).filter((key: string) => selectedSourceKeySet.has(key)))
-  return selectedGroups.map((group) => {
+  const normalized: NormalizedProduct[] = []
+  await options.onProgress?.(0, selectedGroups.length)
+  for (const [index, group] of selectedGroups.entries()) {
     const record = group.records[0]
     const payload = (record.payload || {}) as ObjectValue
     const supplier = supplierById.get(group.supplier_id)
@@ -389,7 +391,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const sourceKey = opaqueSourceKey(group.supplier_id, group.master_id)
     const productImages = [...proxyImages(imageUrls(group.records.map((item) => item.payload), supplier?.code)), ...variants.flatMap((variant) => variant.images)].filter((url, index, all) => all.indexOf(url) === index)
     const description = value(payload, ["long_description", "longDescription", "seo_description", "seodescription", "description", "Description"])
-    return {
+    normalized.push({
       source_key: sourceKey,
       supplier_code: supplier?.code || "unknown",
       supplier_name: supplier?.display_name || "Unknown supplier",
@@ -418,8 +420,13 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
       images: productImages,
       variants,
       published: published.has(sourceKey),
+    })
+    if ((index + 1) % 20 === 0 || index + 1 === selectedGroups.length) {
+      await options.onProgress?.(index + 1, selectedGroups.length)
+      await new Promise<void>((resolve) => setImmediate(resolve))
     }
-  })
+  }
+  return normalized
 }
 
 export function normalizedProductHandle(product: NormalizedProduct) {

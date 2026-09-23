@@ -1,6 +1,26 @@
-import { catalogSummary, futureStock, productPriceBreaks, supplierMasterReference } from "../normalization"
+import { catalogSummary, futureStock, normalizeSupplierCatalog, productPriceBreaks, supplierMasterReference } from "../normalization"
 
 describe("supplier catalog normalization", () => {
+  it("reports preparation progress so long imports can be monitored and stopped", async () => {
+    const service = {
+      listSuppliers: jest.fn().mockResolvedValue([{ id: "supplier-1", code: "stricker", display_name: "Stricker" }]),
+      listRawSupplierRecords: jest.fn().mockImplementation(async (filters) => filters.record_type === "product" ? [{
+        supplier_id: "supplier-1",
+        external_id: "99164-103",
+        payload: { ProdReference: "99164", Reference: "99164-103", Name: "Test pen", ColorDesc1: "Blue" },
+      }] : []),
+      listPublishedProductSources: jest.fn().mockResolvedValue([]),
+    }
+    const onProgress = jest.fn().mockResolvedValue(undefined)
+    const products = await normalizeSupplierCatalog({ resolve: () => service } as any, {
+      supplier_code: "stricker",
+      take: Number.MAX_SAFE_INTEGER,
+      onProgress,
+    })
+    expect(products).toHaveLength(1)
+    expect(onProgress.mock.calls).toEqual([[0, 1], [1, 1]])
+  })
+
   it("groups Stricker optional references under their parent product", () => {
     expect(
       supplierMasterReference("stricker", { Reference: "99822-105" }, "99822-105"),

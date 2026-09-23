@@ -41,8 +41,8 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
     const livePublicationErrors: string[] = []
     if (input.kind === "catalog" && !input.dry_run) {
       await updateImportJobActivity(service, job.id, {
-        phase: "publishing",
-        current_message: "Publishing products to the Malta catalog",
+        phase: "normalizing",
+        current_message: "Preparing products for the Malta catalog",
         progress_percent: 60,
         processed: 0,
       })
@@ -52,7 +52,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
           phase: "publishing",
           total_records: total,
           processed: published,
-          progress_percent: 60 + Math.floor((published / Math.max(1, total)) * 30),
+          progress_percent: 68 + Math.floor((published / Math.max(1, total)) * 22),
           current_message: total ? `Publishing parent products (${published.toLocaleString()} of ${total.toLocaleString()})` : "All parent products are already published",
         })
       }, async (message) => {
@@ -64,6 +64,15 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
             log: { publication_errors: livePublicationErrors },
           })
         }
+      }, async (completed, total) => {
+        await stopIfImportCancelled(service, job.id)
+        await updateImportJobActivity(service, job.id, {
+          phase: "normalizing",
+          total_records: total,
+          processed: completed,
+          progress_percent: 60 + Math.floor((completed / Math.max(1, total)) * 8),
+          current_message: `Preparing parent products (${completed.toLocaleString()} of ${total.toLocaleString()})`,
+        })
       })
     }
     const catalog = input.dry_run

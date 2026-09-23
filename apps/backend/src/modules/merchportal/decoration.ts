@@ -59,6 +59,9 @@ type DecorationPriceTable = {
 type PricingIndex = {
   candidates: AnyObject[]
   byId: Map<string, AnyObject[]>
+  byOption: Map<string, AnyObject>
+  matches: Map<string, AnyObject[]>
+  prepared: Map<string, { tables: DecorationPriceTable[]; prices: DecorationPriceBreak[]; ranges: ReturnType<typeof priceRanges>[] }>
 }
 
 const pricingCache = new WeakMap<object, PricingIndex>()
@@ -216,7 +219,10 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
   if (!pricingIndex) {
     const candidates = pricingPayloads.flatMap((payload) => objects(payload))
     const byId = new Map<string, AnyObject[]>()
+    const byOption = new Map<string, AnyObject>()
     for (const candidate of candidates) {
+      const optionCode = directValue(candidate, ["table_code_option", "tablecodeoption"])
+      if (optionCode && !byOption.has(optionCode)) byOption.set(optionCode, candidate)
       const id = directValue(candidate, ["id", "technique_id", "service_code", "servicecode", "table_code", "tablecode", "table_full_code", "tablefullcode"])
       if (!id) continue
       const key = id.toLowerCase()
@@ -224,21 +230,29 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
       if (bucket) bucket.push(candidate)
       else byId.set(key, [candidate])
     }
-    pricingIndex = { candidates, byId }
+    pricingIndex = { candidates, byId, byOption, matches: new Map(), prepared: new Map() }
     if (cacheKey) pricingCache.set(cacheKey, pricingIndex)
   }
   const pricingCandidates = pricingIndex.candidates
   const matchingPrices = (methodId: string) => {
     const right = methodId.toLowerCase()
+    const cached = pricingIndex.matches.get(right)
+    if (cached) return cached
     const exact = pricingIndex.byId.get(right)
-    if (exact?.length) return exact
-    return pricingCandidates.filter((candidate) => {
+    if (exact?.length) {
+      pricingIndex.matches.set(right, exact)
+      return exact
+    }
+    const matches = pricingCandidates.filter((candidate) => {
       const candidateId = directValue(candidate, ["id", "technique_id", "service_code", "servicecode", "table_code", "tablecode", "table_full_code", "tablefullcode"])
       if (!candidateId) return false
       const left = candidateId.toLowerCase()
       return left.startsWith(right) || right.startsWith(left)
     })
+    pricingIndex.matches.set(right, matches)
+    return matches
   }
+  const manipulationCode = payloads.map((payload) => fieldValue(payload, ["print_manipulation", "printmanipulation", "handling_cost_code", "handlingcostcode"])).find(Boolean)
   const add = (methodName: string, methodId: string, position: DecorationPosition, candidate: AnyObject) => {
     const id = methodId || slug(methodName)
     const current = methods.get(id) || {
@@ -260,13 +274,21 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
     }
     const matchedPrices = matchingPrices(id)
     const priceSources = matchedPrices.length ? matchedPrices : [candidate]
-    const tables = normalizedPriceTables(priceSources)
+    let prepared = matchedPrices.length ? pricingIndex.prepared.get(id) : undefined
+    if (!prepared) {
+      prepared = {
+        tables: normalizedPriceTables(priceSources),
+        prices: priceSources.flatMap(priceBreaks),
+        ranges: priceSources.map(priceRanges),
+      }
+      if (matchedPrices.length) pricingIndex.prepared.set(id, prepared)
+    }
+    const { tables, prices } = prepared
     if (tables.length) current.price_tables = tables
-    const prices = priceSources.flatMap(priceBreaks)
     if (prices.length) {
       current.price_breaks = prices.filter((item, index, all) => all.findIndex((other) => other.quantity === item.quantity) === index).sort((left, right) => left.quantity - right.quantity)
     }
-    const ranges = priceSources.flatMap(priceRanges)
+    const ranges = prepared.ranges.flat()
     if (ranges.length) current.price_ranges = ranges
     const setup = number(priceSources.map((source) => key(source, ["setup", "setup_price", "setup_cost"])).find((value) => number(value) !== undefined))
     if (setup !== undefined) current.setup_price_eur = setup
@@ -281,7 +303,6 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
     if (nextColourIndicator) {
       current.next_colour_cost_indicator = /^(x|true|yes|1)$/i.test(nextColourIndicator)
     }
-    const manipulationCode = payloads.map((payload) => fieldValue(payload, ["print_manipulation", "printmanipulation", "handling_cost_code", "handlingcostcode"])).find(Boolean)
     if (manipulationCode) {
       const manipulation = pricingIndex.byId.get(manipulationCode.toLowerCase())?.[0] || pricingCandidates.find((source) => directValue(source, ["id", "code", "manipulation_id"])?.toLowerCase() === manipulationCode.toLowerCase())
       const handlingBreaks = manipulation ? priceBreaks(manipulation) : []
@@ -318,7 +339,7 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
         const prefix = methodId.slice(0, 4)
         const allowedCodes = optionCodes.filter((code) => code.startsWith(prefix))
         const sizeOptions = allowedCodes.flatMap((optionCode) => {
-          const table = pricingCandidates.find((source) => directValue(source, ["table_code_option", "tablecodeoption"]) === optionCode)
+          const table = pricingIndex.byOption.get(optionCode)
           if (!table) return []
           const tableArea = centimetreArea(key(table, ["table_max_area_cm", "tablemaxareacm"]))
           const placeholder = (tableArea.width || 0) >= 990 && (tableArea.height || 0) >= 990
