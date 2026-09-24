@@ -148,6 +148,10 @@ function recordIdentity(
   }
 }
 
+function preferSkuIdentity(supplierCode: SupplierCode, type: RawRecordType) {
+  return type === "price" || type === "stock" || (supplierCode === "stricker" && type === "product") || (supplierCode === "midocean" && type === "decoration")
+}
+
 export function deduplicateSupplierRecords(
   records: unknown[],
   supplierCode: SupplierCode,
@@ -159,7 +163,7 @@ export function deduplicateSupplierRecords(
     const { externalId } = recordIdentity(
       record,
       index,
-      type === "price" || type === "stock" || (supplierCode === "stricker" && type === "product") || (supplierCode === "midocean" && type === "decoration"),
+      preferSkuIdentity(supplierCode, type),
       type,
     )
     recordsById.set(externalId, record)
@@ -347,7 +351,7 @@ export async function runSupplierSync(
       const incomingIds = new Set(uniqueItems.map((record, index) => recordIdentity(
         record,
         index,
-        supplierCode === "stricker" && type === "product",
+        preferSkuIdentity(supplierCode, type),
         type,
       ).externalId))
       skipped += items.length - uniqueItems.length
@@ -415,7 +419,7 @@ export async function runSupplierSync(
         const { externalId, sku } = recordIdentity(
           record,
           index,
-          type === "price" || type === "stock" || (supplierCode === "stricker" && type === "product") || (supplierCode === "midocean" && type === "decoration"),
+          preferSkuIdentity(supplierCode, type),
           type,
         )
         const checksum = createHash("sha256").update(`${NORMALIZER_VERSION}:${JSON.stringify(record)}`).digest("hex")

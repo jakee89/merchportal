@@ -46,7 +46,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         pantone: indexedVariant?.pantone,
         dimensions: indexedVariant?.dimensions,
         images: Array.isArray(indexedVariant?.images) ? indexedVariant.images : [],
-        stock_quantity: variant.inventory_quantity,
+        stock_quantity: Number.isFinite(indexedVariant?.stock_quantity) ? indexedVariant.stock_quantity : variant.inventory_quantity,
         price_eur: Number.isFinite(cost) ? sellingPrice(cost, markup) : nativePrice,
         price_breaks: Array.isArray(indexedVariant?.price_breaks)
           ? indexedVariant.price_breaks.map((price: any) => ({ quantity: price.quantity, price_eur: sellingPrice(Number(price.price_eur), markup) }))

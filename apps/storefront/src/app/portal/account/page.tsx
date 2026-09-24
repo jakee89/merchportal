@@ -6,6 +6,7 @@ import { retrieveCustomer } from "@lib/data/customer"
 import styles from "../../portal-shell.module.css"
 import CatalogCard, { type CatalogProduct } from "./catalog-card"
 import CatalogFilters from "./catalog-filters"
+import QuoteCartLink from "./quote-cart-link"
 
 type PortalMe = { membership: { role: string } | null; organization: { name: string; primary_color: string } | null }
 type Facet = { value: string; count: number }
@@ -46,7 +47,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   const optionSelectionKey = ["color", "min_price", "max_price", "in_stock"].flatMap((key) => selected[key]).join("|")
   const backend = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
   return <div className={styles.page} style={{ "--client-color": me.organization.primary_color } as React.CSSProperties}>
-    <header className={styles.topbar}><Link href="/portal" className={styles.brand}><span className={styles.mark}>M</span>{me.organization.name}</Link><span>{customer.first_name || customer.email} · {me.membership?.role.replace("client_", "")} · <Link href="/portal/account/quotes">Quote cart</Link></span></header>
+    <header className={styles.topbar}><Link href="/portal" className={styles.brand}><span className={styles.mark}>M</span>{me.organization.name}</Link><span className={styles.headerActions}>{customer.first_name || customer.email} · {me.membership?.role.replace("client_", "")} · <QuoteCartLink /></span></header>
     <main className={styles.catalogMain}>
       <header className={styles.catalogIntro}><span className={styles.eyebrow}>Private client catalogue</span><h1>Promotional products</h1><p>Explore products, live availability and custom branding options.</p></header>
       <form className={styles.catalogToolbar} method="get">

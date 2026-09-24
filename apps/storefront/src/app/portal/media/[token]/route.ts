@@ -10,17 +10,18 @@ export async function GET(
       cache: "force-cache",
     })
     const contentType = upstream.headers.get("content-type") || ""
-    if (!upstream.ok || !upstream.body || !contentType.startsWith("image/")) {
-      return Response.json({ message: "Image not found" }, { status: 404 })
+    if (!upstream.ok || !upstream.body || !(contentType.startsWith("image/") || contentType.startsWith("application/pdf"))) {
+      return Response.json({ message: "Media not found" }, { status: 404 })
     }
     return new Response(upstream.body, {
       headers: {
         "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
         "Content-Type": contentType,
         "X-Content-Type-Options": "nosniff",
+        ...(contentType.startsWith("application/pdf") ? { "Content-Disposition": "inline; filename=\"supplier-document.pdf\"" } : {}),
       },
     })
   } catch {
-    return Response.json({ message: "Image not found" }, { status: 404 })
+    return Response.json({ message: "Media not found" }, { status: 404 })
   }
 }

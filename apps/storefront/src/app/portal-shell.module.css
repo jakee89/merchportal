@@ -522,10 +522,8 @@
   display: grid;
   gap: 0;
   padding: 18px;
-  position: sticky;
-  top: 88px;
-  max-height: calc(100vh - 105px);
-  overflow-y: auto;
+  position: static;
+  overflow: visible;
 }
 .filterHeading,
 .resultsHeading {
@@ -609,7 +607,7 @@
 .catalogGrid {
   display: grid;
   gap: 18px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 .catalogCard {
   background: #fff;
@@ -632,7 +630,7 @@
 }
 .catalogCard .productImage,
 .catalogCard .productVisual {
-  height: 230px;
+  height: 190px;
 }
 .cardBody {
   display: flex;
@@ -1065,12 +1063,21 @@
 .specifications dd { font-weight: 650; }
 .printCarouselWrap { align-items: center; display: flex; gap: 10px; max-width: 100%; min-width: 0; overflow: hidden; }
 .headerActions { display: flex; gap: 10px; }
+.cartHeaderLink { align-items: center; color: var(--client-color, #086bea); display: inline-flex; font-weight: 700; gap: 7px; white-space: nowrap; }
+.cartBadge { align-items: center; background: var(--client-color, #086bea); border-radius: 999px; color: #fff; display: inline-flex; font-size: 11px; height: 22px; justify-content: center; min-width: 22px; padding: 0 5px; }
 .quoteLayout { display: grid; gap: 20px; grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); margin-top: 25px; }
 .quotePanel { align-self: start; background: #fff; border: 1px solid #dce6f0; border-radius: 14px; display: grid; gap: 15px; padding: 22px; }
 .quotePanel h2 { font-size: 20px; }
 .quotePanel label { display: grid; font-size: 13px; font-weight: 700; gap: 7px; }
 .quotePanel textarea { border: 1px solid #ccd8e5; border-radius: 8px; min-height: 90px; padding: 10px; }
 .quoteItem { align-items: start; border-top: 1px solid #e9eef4; display: flex; gap: 15px; justify-content: space-between; padding: 15px 0; }
+.quoteProductImage { background: #f4f8fb; border-radius: 10px; display: block; flex: 0 0 86px; overflow: hidden; }
+.quoteProductImage .productImage, .quoteProductImage .productVisual { height: 86px; object-fit: contain; width: 86px; }
+.quoteItemDetails { flex: 1 1 auto; min-width: 0; }
+.quoteDecoration { align-items: center; background: #f6f9fc; border-radius: 8px; display: flex; gap: 9px; margin: 9px 0; padding: 7px; }
+.quoteDecoration .productImage, .quoteDecoration .productVisual { background: #fff; border-radius: 6px; flex: 0 0 48px; height: 48px; object-fit: contain; width: 48px; }
+.quoteDecoration span { min-width: 0; }
+.quoteDecoration strong { font-size: 12px; }
 .quoteItem p { color: #66768a; font-size: 12px; margin: 6px 0; }
 .quoteItem small { color: #6f7d90; display: block; font-size: 11px; margin: 3px 0; }
 .quoteItem > div:last-child { display: grid; flex-shrink: 0; gap: 8px; text-align: right; }

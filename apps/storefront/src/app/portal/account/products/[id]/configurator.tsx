@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import styles from "../../../../portal-shell.module.css"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { previewPortalConfiguration, savePortalConfiguration, uploadPortalArtwork } from "../actions"
 
 type PriceBreak = { quantity: number; unit_price_eur: number; next_colour_price_eur?: number }
@@ -62,11 +63,15 @@ function mediaUrl(backend: string, value?: string) {
   return /^https?:\/\//i.test(value) ? value : `${backend.replace(/\/$/, "")}${value}`
 }
 
-function SafeImage({ src, alt, className }: { src?: string; alt: string; className?: string }) {
+function SafeImage({ src, alt, className, fallbackSrc }: { src?: string; alt: string; className?: string; fallbackSrc?: string }) {
   const [failed, setFailed] = useState(false)
+  const [fallbackFailed, setFallbackFailed] = useState(false)
   useEffect(() => setFailed(false), [src])
-  if (!src || failed) return <span className={styles.imageUnavailable}>Image unavailable</span>
-  return <img className={className} src={src} alt={alt} loading="lazy" onError={() => setFailed(true)} />
+  useEffect(() => setFallbackFailed(false), [fallbackSrc])
+  const usingFallback = !src || failed
+  const displayed = usingFallback ? fallbackSrc : src
+  if (!displayed || fallbackFailed) return <span className={styles.imageUnavailable}>Image unavailable</span>
+  return <img className={className} src={displayed} alt={usingFallback ? `${alt} product photo; print guide unavailable` : alt} loading="lazy" onError={() => usingFallback ? setFallbackFailed(true) : setFailed(true)} />
 }
 
 function colourMode(method?: Method) {
@@ -80,6 +85,7 @@ function colourMode(method?: Method) {
 }
 
 export default function Configurator({ productId, productName, productImages, backend, variants, methods, initialSku }: Props) {
+  const router = useRouter()
   const [variantId, setVariantId] = useState(variants.find((item) => item.sku === initialSku)?.id || variants[0]?.id || "")
   const [quantity, setQuantity] = useState(25)
   const [lines, setLines] = useState<Line[]>([])
@@ -189,6 +195,7 @@ export default function Configurator({ productId, productName, productImages, ba
       }
       const result = await savePortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations, artwork_file_id: uploaded?.id, artwork_filename: uploaded?.filename })
       setMessage(result.configuration.branding_price_pending ? "Added to cart · Quote required for one or more prices." : `Added to cart · Estimated total €${result.configuration.estimated_total?.toFixed(2)}.`)
+      router.refresh()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save configuration")
     } finally {
@@ -205,7 +212,7 @@ export default function Configurator({ productId, productName, productImages, ba
       <div className={styles.productBuyPanel}>
         <h2>Choose colour and option</h2>
         <p className={styles.selectedColour}>{variants.length} options · Selected: <strong>{variant?.color || "—"}</strong>{variant?.size && variant.size !== "Standard" ? ` · ${variant.size}` : ""}</p>
-        <div className={styles.variantChoices} role="group" aria-label="Available colours and variants">{variants.map((item) => <button type="button" key={item.id} className={item.id === variant?.id ? styles.activeVariantChoice : ""} aria-pressed={item.id === variant?.id} title={`${item.color}${item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}`} onClick={() => setVariantId(item.id)}><span className={styles.variantChoiceImage}>{item.color_hex ? <span className={styles.variantColour} style={{ backgroundColor: item.color_hex }} /> : <SafeImage src={mediaUrl(backend, item.images?.[0])} alt="" />}</span><span><strong>{item.color}</strong>{item.size && item.size !== "Standard" && <small>{item.size}</small>}</span></button>)}</div>
+        <div className={styles.variantChoices} role="group" aria-label="Available colours and variants">{variants.map((item) => <button type="button" key={item.id} className={item.id === variant?.id ? styles.activeVariantChoice : ""} aria-pressed={item.id === variant?.id} title={`${item.color}${item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}`} onClick={() => { setVariantId(item.id); window.dispatchEvent(new CustomEvent("merchportal:variant-colour", { detail: item })) }}><span className={styles.variantChoiceImage}>{item.color_hex ? <span className={styles.variantColour} style={{ backgroundColor: item.color_hex }} /> : <SafeImage src={mediaUrl(backend, item.images?.[0])} alt="" />}</span><span><strong>{item.color}</strong>{item.size && item.size !== "Standard" && <small>{item.size}</small>}</span></button>)}</div>
         {variants.length > 12 && <label className={styles.variantSelectFallback}>Find an option<select value={variant?.id || ""} onChange={(event) => setVariantId(event.target.value)}>{variants.map((item) => <option key={item.id} value={item.id}>{item.color}{item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}{item.sku ? ` · ${item.sku}` : ""}</option>)}</select></label>}
         <dl className={styles.variantFacts}><div><dt>SKU</dt><dd>{variant?.sku || "—"}</dd></div>{variant?.ean && <div><dt>EAN</dt><dd>{variant.ean}</dd></div>}{variant?.pantone && <div><dt>Pantone</dt><dd>{variant.pantone}</dd></div>}{variant?.dimensions && <div><dt>Dimensions</dt><dd>{variant.dimensions}</dd></div>}</dl>
         <h3>Plain product price <small>excl. VAT</small></h3>{productBreaks.some((item) => item.price_eur > 0) ? <table className={styles.priceTable}><thead><tr><th>Quantity</th><th>Unit price</th></tr></thead><tbody>{productBreaks.filter((item) => item.price_eur > 0).map((item) => <tr key={item.quantity}><td>{item.quantity}+</td><td>€{item.price_eur.toFixed(2)}</td></tr>)}</tbody></table> : <p>Price on request</p>}
@@ -221,7 +228,10 @@ export default function Configurator({ productId, productName, productImages, ba
           const stitchTiers = Array.from(new Set((method?.price_tables || []).filter((table) => table.price_by_stitches && table.max_stitches).map((table) => Number(table.max_stitches)))).sort((left, right) => left - right)
           return <div className={styles.printLine} key={line.key}>
             <div className={styles.printLineHeading}><strong>Print position {index + 1}</strong><button type="button" onClick={() => setLines((items) => items.filter((item) => item.key !== line.key))}>Remove</button></div>
-            <div className={styles.positionCards}>{positions.filter((item) => item.id === line.positionId || !lines.some((other) => other.key !== line.key && other.positionId === item.id)).map((item) => <button type="button" key={item.id} className={item.id === line.positionId ? styles.activePositionCard : ""} aria-pressed={item.id === line.positionId} onClick={() => choosePosition(line, item.id)}><SafeImage src={positionImage(item)} alt={`${item.name} print area`} /><strong>{item.name}</strong>{item.max_width_mm && item.max_height_mm && <span>W {item.max_width_mm} × H {item.max_height_mm} mm</span>}</button>)}</div>
+            <div className={styles.positionCards}>{positions.filter((item) => item.id === line.positionId || !lines.some((other) => other.key !== line.key && other.positionId === item.id)).map((item) => {
+              const guide = positionImage(item)
+              return <button type="button" key={item.id} className={item.id === line.positionId ? styles.activePositionCard : ""} aria-pressed={item.id === line.positionId} onClick={() => choosePosition(line, item.id)}><SafeImage src={guide || mediaUrl(backend, variant?.images?.[0])} fallbackSrc={mediaUrl(backend, variant?.images?.[0])} alt={guide ? `${item.name} print area` : `${variant?.color || "Product"} photo`} />{!guide && <small>Product photo · print guide unavailable</small>}<strong>{item.name}</strong>{item.max_width_mm && item.max_height_mm && <span>W {item.max_width_mm} × H {item.max_height_mm} mm</span>}</button>
+            })}</div>
             {line.positionId && <label>Technique<select value={choiceForMethod(line.methodId)?.key || ""} onChange={(event) => chooseMethod(line, event.target.value)}>{compatible.map((item) => <option value={item.key} key={item.key}>{item.name}</option>)}</select></label>}
             {method && <label>Colour mode<input value={colourMode(method)} readOnly /></label>}
             {sizes.length > 0 && <div className={styles.sizeOptions}><span>Print size (W × H)</span><div>{sizes.map((size) => <button type="button" key={`${size.methodId}:${size.id}`} className={Number(line.width) === size.width_mm && Number(line.height) === size.height_mm ? styles.activeSizeOption : ""} onClick={() => chooseSize(line, size)}>{size.label}</button>)}</div></div>}

@@ -4,6 +4,10 @@ import { quoteWithItems, submitQuoteCart } from "../../../workflows/quote-cart"
 
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   const { service, membership } = await customerQuoteContext(req)
+  if (req.query.summary === "true") {
+    const carts = await service.listQuoteRequests({ organization_id: membership.organization_id, status: "cart" }, { take: 1 })
+    return res.json({ cart_count: Array.isArray(carts[0]?.item_ids) ? carts[0].item_ids.length : 0 })
+  }
   const quotes = await service.listQuoteRequests({ organization_id: membership.organization_id }, { take: 50, order: { created_at: "DESC" } })
   const cart = quotes.find((quote: any) => quote.status === "cart")
   res.json({ cart: cart ? await quoteWithItems(service, cart) : null, history: await Promise.all(quotes.filter((quote: any) => quote.status !== "cart").map((quote: any) => quoteWithItems(service, quote))) })

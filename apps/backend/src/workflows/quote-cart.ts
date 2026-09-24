@@ -14,16 +14,36 @@ export async function quoteWithItems(service: any, quote: any) {
   const items = itemIds.flatMap((id) => {
     const item = byId.get(id)
     if (!item) return []
-    const document = sourceByProduct.get(item.product_id)?.catalog_document || {}
+    const source = sourceByProduct.get(item.product_id)
+    const document = source?.catalog_document || {}
+    const variant = (document.variants || []).find((candidate: any) => candidate.id === item.variant_id)
+    const colourKeys = [variant?.color, variant?.color_code, variant?.sku?.split("-").at(-1)].filter(Boolean).map((value: string) => value.trim().toLowerCase())
     return [{
       id: item.id,
       product_id: item.product_id,
       product_name: document.name || "Product",
-      image_url: document.images?.[0] || document.image_url,
+      sku: variant?.sku,
+      image_url: variant?.images?.[0] || document.images?.[0] || document.image_url,
       color: item.color,
       quantity: item.quantity,
-      decorations: Array.isArray(item.decoration_lines) ? item.decoration_lines.map((line: any) => ({ method_name: line.method_name, position_name: line.position_name, price_pending: Boolean(line.price_pending) })) : [],
+      decorations: Array.isArray(item.decoration_lines) ? item.decoration_lines.map((line: any) => {
+        const method = (source?.decoration_options || []).find((candidate: any) => candidate.id === line.branding_method)
+        const position = method?.positions?.find((candidate: any) => candidate.id === line.print_position)
+        const guide = position?.images?.find((image: any) => image.variant_color && colourKeys.includes(String(image.variant_color).trim().toLowerCase())) || position?.images?.find((image: any) => !image.variant_color)
+        return {
+          method_name: line.method_name,
+          position_name: line.position_name,
+          position_image_url: guide?.url || (!position?.images?.length ? position?.image_url : undefined),
+          print_colours: line.print_colours,
+          print_width_mm: line.print_width_mm,
+          print_height_mm: line.print_height_mm,
+          unit_price_eur: line.price_pending ? null : line.unit_price_eur,
+          setup_price_eur: line.price_pending ? null : line.setup_price_eur,
+          price_pending: Boolean(line.price_pending),
+        }
+      }) : [],
       artwork_filename: item.artwork_filename,
+      base_unit_price: item.base_unit_price > 0 ? item.base_unit_price : null,
       estimated_total: item.branding_price_pending ? null : item.estimated_total,
       quote_required: Boolean(item.branding_price_pending),
     }]

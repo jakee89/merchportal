@@ -84,6 +84,15 @@ function numberValue(object: unknown, keys: string[], integer = false): number |
   }
 }
 
+function directNumberValue(object: ObjectValue, keys: string[]): number | undefined {
+  const wanted = new Set(keys.map(normalizedFieldName))
+  for (const [key, child] of Object.entries(object)) {
+    if (!wanted.has(normalizedFieldName(key)) || typeof child === "object") continue
+    const parsed = Number(typeof child === "string" ? child.trim().replace(",", ".") : child)
+    if (Number.isFinite(parsed)) return parsed
+  }
+}
+
 function trustedImageHost(hostname: string) {
   const host = hostname.toLowerCase()
   return ["cdn.hideacontent.com", "cdn1.midocean.com", "cdn.aodaci.com", "content.aodaci.com"].includes(host) || host.endsWith(".cdn.midocean.com")
@@ -133,10 +142,16 @@ function variantRows(payload: ObjectValue) {
 function downloadUrls(object: unknown, output = new Map<string, string>()): Array<{ name: string; url: string }> {
   if (Array.isArray(object)) object.forEach((item) => downloadUrls(item, output))
   else if (object && typeof object === "object") {
-    for (const [name, candidate] of Object.entries(object as ObjectValue)) {
+    const entry = object as ObjectValue
+    if (entry.type === "document" && typeof entry.url === "string") {
+      const token = supplierImageToken(entry.url)
+      if (token) output.set(`/portal/media/${token}`, String(entry.name || entry.subtype || "Product document").replace(/[_-]+/g, " "))
+    }
+    for (const [name, candidate] of Object.entries(entry)) {
       const key = normalizedFieldName(name)
       if (typeof candidate === "string" && /^https:\/\//iu.test(candidate) && /(document|download|datasheet|productsheet|specification|template|certificate|instruction|manual|pdf)/iu.test(key)) {
-        output.set(candidate, name.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " "))
+        const token = supplierImageToken(candidate)
+        if (token) output.set(`/portal/media/${token}`, name.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " "))
       }
       downloadUrls(candidate, output)
     }
@@ -243,7 +258,7 @@ export function productPriceBreaks(items: any[]) {
   items.forEach((item) => {
     const payload = item.payload || item
     const hasQuantityTiers = Object.keys(payload).some((key) => /^minqt\d+$/iu.test(normalizedFieldName(key)))
-    const base = numberValue(payload, hasQuantityTiers ? ["your_price", "yourprice"] : ["your_price", "yourprice", "price", "unit_price", "net_price", "price_1"])
+    const base = directNumberValue(payload, hasQuantityTiers ? ["your_price", "yourprice"] : ["your_price", "yourprice", "price", "unit_price", "net_price", "price_1"])
     if (base !== undefined && base > 0 && !breaks.has(1)) breaks.set(1, base)
     visit(payload)
   })
@@ -415,11 +430,13 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const sourceKey = opaqueSourceKey(group.supplier_id, group.master_id)
     const productImages = [...proxyImages(imageUrls(group.records.map((item) => item.payload), supplier?.code)), ...variants.flatMap((variant) => variant.images)].filter((url, index, all) => all.indexOf(url) === index)
     const description = value(payload, ["long_description", "longDescription", "seo_description", "seodescription", "description", "Description"])
+    const suppliedTitle = value(payload, ["product_name", "Name", "name", "seo_name", "seoname", "description", "Description"])
+    const title = suppliedTitle?.replace(/^\d{4,}\s*[.:-]\s*/u, "").trim() || suppliedTitle || "Merchandise product"
     normalized.push({
       source_key: sourceKey,
       supplier_code: supplier?.code || "unknown",
       supplier_name: supplier?.display_name || "Unknown supplier",
-      title: value(payload, ["product_name", "seo_name", "seoname", "name", "Name", "description", "Description"]) || "Merchandise product",
+      title,
       description,
       short_description: catalogSummary(description, value(payload, ["short_description", "shortDescription", "summary"])),
       category: originalCategory,
@@ -440,7 +457,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         specifications,
       },
       category_hierarchy: hierarchy.length ? hierarchy : [originalCategory],
-      downloads: downloadUrls(group.records.map((item) => item.payload)),
+      downloads: downloadUrls([...group.records.map((item) => item.payload), ...decorationPayloads]),
       images: productImages,
       variants,
       published: published.has(sourceKey),

@@ -77,9 +77,10 @@ describe("supplier catalog normalization", () => {
     const service = {
       listSuppliers: jest.fn().mockResolvedValue([{ id: "supplier-1", code: "midocean", display_name: "midocean" }]),
       listRawSupplierRecords: jest.fn().mockImplementation(async (filters) => {
-        if (filters.record_type === "product") return [{ supplier_id: "supplier-1", external_id: "MO2639", payload: { master_code: "MO2639", product_name: "Bag", variants: [{ sku: "MO2639-39", color: "Khaki" }] } }]
+        if (filters.record_type === "product") return [{ supplier_id: "supplier-1", external_id: "MO2639", payload: { master_code: "MO2639", product_name: "Bag", assets: [{ type: "document", subtype: "product_sheet", url: "https://cdn1.midocean.com/mo2639-sheet.pdf" }], variants: [{ sku: "MO2639-39", color: "Khaki" }] } }]
         if (filters.record_type === "price") return [{ supplier_id: "supplier-1", external_id: "MO2639-39", sku: "MO2639-39", payload: { sku: "MO2639-39", price: "3,50", scale: [{ minimum_quantity: 25, price: "3,20" }] } }]
-        if (filters.record_type === "decoration") return [{ supplier_id: "supplier-1", external_id: "MO2639", payload: { product_code: "MO2639", printing_positions: [{ position_id: "FRONT", max_print_size_width: 240, max_print_size_height: 240, images: [{ variant_color: "39", print_position_image_with_area: guide }], printing_techniques: [{ id: "TD1", name: "Digital transfer" }] }] } }]
+        if (filters.record_type === "stock") return [{ supplier_id: "supplier-1", external_id: "MO2639-39", sku: "MO2639-39", payload: { sku: "MO2639-39", quantity: 127 } }]
+        if (filters.record_type === "decoration") return [{ supplier_id: "supplier-1", external_id: "MO2639", payload: { product_code: "MO2639", print_template: "https://cdn1.midocean.com/mo2639-template.pdf", printing_positions: [{ position_id: "FRONT", max_print_size_width: 240, max_print_size_height: 240, images: [{ variant_color: "39", print_position_image_with_area: guide }], printing_techniques: [{ id: "TD1", name: "Digital transfer" }] }] } }]
         if (filters.record_type === "decoration_price") return [{ supplier_id: "supplier-1", payload: { print_techniques: [{ id: "TD1", scales: [{ minimum_quantity: 25, price: 1.2 }] }] } }]
         return []
       }),
@@ -88,13 +89,33 @@ describe("supplier catalog normalization", () => {
     const products = await normalizeSupplierCatalog({ resolve: () => service } as any, { supplier_code: "midocean" })
     expect(products[0].variants[0].color_code).toBe("39")
     expect(products[0].variants[0].price_breaks).toEqual([{ quantity: 1, price_eur: 3.5 }, { quantity: 25, price_eur: 3.2 }])
+    expect(products[0].variants[0].stock_quantity).toBe(127)
     expect(products[0].decoration_options[0].positions[0].images).toEqual([{ variant_color: "39", url: `/media/${supplierImageToken(guide)}` }])
+    expect(products[0].downloads).toEqual([
+      { name: "product sheet", url: `/portal/media/${supplierImageToken("https://cdn1.midocean.com/mo2639-sheet.pdf")}` },
+      { name: "print template", url: `/portal/media/${supplierImageToken("https://cdn1.midocean.com/mo2639-template.pdf")}` },
+    ])
   })
 
   it("accepts Midocean print-feed wrappers", () => {
     const product = { product_code: "MO2639", printing_positions: [] }
     expect(asRecords({ print_data: [product] })).toEqual([product])
+    expect(asRecords({ print_data: { MO2639: product } })).toEqual([product])
     expect(asRecords({ data: { products: [product] } })).toEqual([product])
+  })
+
+  it("uses the Stricker product title rather than its SEO code", async () => {
+    const service = {
+      listSuppliers: jest.fn().mockResolvedValue([{ id: "supplier-1", code: "stricker", display_name: "Stricker" }]),
+      listRawSupplierRecords: jest.fn().mockImplementation(async (filters) => filters.record_type === "product" ? [{ supplier_id: "supplier-1", external_id: "11061", payload: { ProdReference: "11061", Name: "11061. Kitchen knife", SEOName: "11061", Sku: "11061-108", ColorDesc1: "Yellow" } }] : []),
+      listPublishedProductSources: jest.fn().mockResolvedValue([]),
+    }
+    const products = await normalizeSupplierCatalog({ resolve: () => service } as any, { supplier_code: "stricker" })
+    expect(products[0].title).toBe("Kitchen knife")
+  })
+
+  it("does not invent a one-unit Midocean price from a higher quantity tier", () => {
+    expect(productPriceBreaks([{ payload: { sku: "MO2639-39", scale: [{ minimum_quantity: 250, price: "3,20" }] } }])).toEqual([{ quantity: 250, price_eur: 3.2 }])
   })
 
   it("reads Stricker quantity columns", () => {
