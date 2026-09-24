@@ -234,7 +234,7 @@ const MerchPortalPage = () => {
   const testEmail = async () => {
     setBusy("email-test")
     try {
-      const result = await api<{ recipient: string }>("/admin/merchportal/email/test", { method: "POST" })
+      const result = await api<{ recipient: string }>("/admin/merchportal/email/verify", { method: "POST" })
       setEmailSettings((current) => ({ ...current, verified: true }))
       toast.success(`Test email sent to ${result.recipient}`)
     } catch (error) {
