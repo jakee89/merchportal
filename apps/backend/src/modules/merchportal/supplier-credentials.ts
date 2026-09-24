@@ -4,11 +4,11 @@ type SupplierCode = "stricker" | "midocean"
 type SupplierConfiguration = { encrypted_api_key?: string } & Record<string, unknown>
 
 export function encryptSupplierCredential(code: SupplierCode, credential: string) {
-  return encryptStoredSecret(`supplier:${code}`, credential)
+  return encryptStoredSecret(code, credential)
 }
 
 export function decryptSupplierCredential(code: SupplierCode, value: string) {
-  return decryptStoredSecret(`supplier:${code}`, value)
+  return decryptStoredSecret(code, value)
 }
 
 export function supplierCredentialStatus(code: SupplierCode, configuration?: SupplierConfiguration | null) {

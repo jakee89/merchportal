@@ -5,7 +5,8 @@ function encryptionKey() {
   if (!process.env.JWT_SECRET) {
     throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, "JWT_SECRET is required for stored credentials")
   }
-  return createHash("sha256").update(`merchportal:stored-credentials:${process.env.JWT_SECRET}`).digest()
+  // Keep the original derivation so keys saved before Zoho mail support remain readable.
+  return createHash("sha256").update(`merchportal:supplier-credentials:${process.env.JWT_SECRET}`).digest()
 }
 
 export function encryptStoredSecret(purpose: string, secret: string) {
