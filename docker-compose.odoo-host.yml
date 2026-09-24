@@ -1,0 +1,51 @@
+services:
+  storefront:
+    ports: !override
+      - "127.0.0.1:8100:8000"
+    mem_limit: 768m
+
+  backend:
+    ports: !override
+      - "127.0.0.1:9100:9000"
+    environment:
+      S3_ENDPOINT: http://minio:8333
+    mem_limit: 1200m
+
+  worker:
+    environment:
+      S3_ENDPOINT: http://minio:8333
+    mem_limit: 768m
+
+  postgres:
+    mem_limit: 384m
+
+  redis:
+    mem_limit: 128m
+
+  typesense:
+    mem_limit: 384m
+
+  minio:
+    image: chrislusf/seaweedfs:4.47
+    command: ["mini", "-dir=/data", "-admin.port=22646"]
+    environment: !override
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-merchportal}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${MINIO_BUCKET:-merchportal}
+    volumes: !override
+      - seaweed_data:/data
+    ports: !override []
+    healthcheck: !override
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8333/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+    mem_limit: 384m
+
+  minio-init:
+    image: chrislusf/seaweedfs:4.47
+    entrypoint: ["/bin/true"]
+    mem_limit: 64m
+
+volumes:
+  seaweed_data:
