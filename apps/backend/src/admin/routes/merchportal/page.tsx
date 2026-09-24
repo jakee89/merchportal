@@ -13,6 +13,16 @@ type Supplier = {
   last_error?: string
 }
 
+type EmailSettings = {
+  host: string
+  port: number
+  username: string
+  from_email: string
+  notification_email: string
+  password_configured: boolean
+  verified: boolean
+}
+
 type Organization = {
   id: string
   name: string
@@ -95,6 +105,8 @@ const MerchPortalPage = () => {
   const [companyLogo, setCompanyLogo] = useState("")
   const [publishableKey, setPublishableKey] = useState("")
   const [supplierKeys, setSupplierKeys] = useState<Record<string, string>>({})
+  const [emailSettings, setEmailSettings] = useState<EmailSettings>({ host: "smtppro.zoho.eu", port: 587, username: "", from_email: "", notification_email: "", password_configured: false, verified: false })
+  const [emailPassword, setEmailPassword] = useState("")
   const [busy, setBusy] = useState("")
 
   const refresh = useCallback(async () => {
@@ -110,6 +122,7 @@ const MerchPortalPage = () => {
 
   useEffect(() => {
     refresh().catch((error) => toast.error(error.message))
+    api<{ email: EmailSettings }>("/admin/merchportal/email").then((result) => setEmailSettings(result.email)).catch((error) => toast.error(error.message))
   }, [refresh])
 
   useEffect(() => {
@@ -194,6 +207,36 @@ const MerchPortalPage = () => {
       setSupplierKeys((previous) => ({ ...previous, [code]: "" }))
       await refresh()
       toast.success("API key saved. Use Test connection to verify it.")
+    } catch (error) {
+      toast.error((error as Error).message)
+    } finally {
+      setBusy("")
+    }
+  }
+
+  const saveEmail = async () => {
+    setBusy("email-save")
+    try {
+      const result = await api<{ email: EmailSettings }>("/admin/merchportal/email", {
+        method: "POST",
+        body: JSON.stringify({ ...emailSettings, app_password: emailPassword }),
+      })
+      setEmailSettings(result.email)
+      setEmailPassword("")
+      toast.success("Zoho email settings saved. Send a test email to verify them.")
+    } catch (error) {
+      toast.error((error as Error).message)
+    } finally {
+      setBusy("")
+    }
+  }
+
+  const testEmail = async () => {
+    setBusy("email-test")
+    try {
+      const result = await api<{ recipient: string }>("/admin/merchportal/email/test", { method: "POST" })
+      setEmailSettings((current) => ({ ...current, verified: true }))
+      toast.success(`Test email sent to ${result.recipient}`)
     } catch (error) {
       toast.error((error as Error).message)
     } finally {
@@ -299,7 +342,7 @@ const MerchPortalPage = () => {
       {publishableKey && (
         <Container>
           <Heading level="h2">Storefront publishable key</Heading>
-          <Text className="mb-3 text-ui-fg-subtle">Paste this into Portainer as NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY.</Text>
+          <Text className="mb-3 text-ui-fg-subtle">The live storefront already uses this key. Keep it for reference; changing it requires a storefront rebuild.</Text>
           <div className="flex gap-2">
             <Input readOnly value={publishableKey} onFocus={(event) => event.currentTarget.select()} />
             <Button variant="secondary" onClick={copyKey}>
@@ -413,6 +456,37 @@ const MerchPortalPage = () => {
               )}
             </div>
           ))}
+        </div>
+      </Container>
+
+      <Container>
+        <Heading level="h2">Quote emails · Zoho EU</Heading>
+        <Text className="mb-4 text-ui-fg-subtle">Enter your Zoho mailbox and app password here. The password is encrypted on the server and is never shown again. Quote emails start only after a successful test.</Text>
+        <Text size="small" className="mb-3 text-ui-fg-subtle">Status: {emailSettings.verified ? "Verified · quote emails enabled" : emailSettings.password_configured ? "Saved · send a test to enable quote emails" : "Not configured"}</Text>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label className="flex flex-col gap-1 text-sm">SMTP host
+            <Input value={emailSettings.host} onChange={(event) => setEmailSettings((current) => ({ ...current, host: event.target.value }))} placeholder="smtppro.zoho.eu" />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">SMTP port
+            <Input type="number" value={emailSettings.port} onChange={(event) => setEmailSettings((current) => ({ ...current, port: Number(event.target.value) }))} placeholder="587" />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">Zoho login email
+            <Input type="email" value={emailSettings.username} onChange={(event) => setEmailSettings((current) => ({ ...current, username: event.target.value }))} placeholder="info@customislandgifts.mt" />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">Sender email
+            <Input type="email" value={emailSettings.from_email} onChange={(event) => setEmailSettings((current) => ({ ...current, from_email: event.target.value }))} placeholder="info@customislandgifts.mt" />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">Staff notification email
+            <Input type="email" value={emailSettings.notification_email} onChange={(event) => setEmailSettings((current) => ({ ...current, notification_email: event.target.value }))} placeholder="info@customislandgifts.mt" />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">Zoho app password
+            <Input type="password" autoComplete="new-password" value={emailPassword} onChange={(event) => setEmailPassword(event.target.value)} placeholder={emailSettings.password_configured ? "Leave blank to keep current password" : "Enter app password"} />
+          </label>
+        </div>
+        <Text size="small" className="mt-3 text-ui-fg-subtle">Use port 587 (TLS) on this server; port 465 did not respond in the connectivity check. Check the exact host shown in your Zoho account.</Text>
+        <div className="mt-4 flex gap-2">
+          <Button onClick={saveEmail} isLoading={busy === "email-save"}>Save email settings</Button>
+          <Button variant="secondary" onClick={testEmail} disabled={!emailSettings.password_configured} isLoading={busy === "email-test"}>Send test email</Button>
         </div>
       </Container>
 

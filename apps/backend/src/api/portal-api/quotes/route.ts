@@ -1,6 +1,7 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { customerQuoteContext } from "./auth"
 import { quoteWithItems, submitQuoteCart } from "../../../workflows/quote-cart"
+import { notifyStaffOfQuote } from "../../../workflows/quote-notifications"
 
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   const { service, membership } = await customerQuoteContext(req)
@@ -17,5 +18,6 @@ export async function POST(req: AuthenticatedMedusaRequest<{ note?: string }>, r
   const { service, membership } = await customerQuoteContext(req, true)
   const note = String(req.body?.note || "").trim().slice(0, 2000)
   const quote = await submitQuoteCart(service, membership.organization_id, note)
-  res.status(201).json({ quote: await quoteWithItems(service, quote) })
+  const notificationSent = await notifyStaffOfQuote(req.scope, quote)
+  res.status(201).json({ quote: await quoteWithItems(service, quote), notification_sent: notificationSent })
 }

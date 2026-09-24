@@ -9,6 +9,7 @@ import PricingRule from "./models/pricing-rule"
 import PublishedProductSource from "./models/published-product-source"
 import ProductConfiguration from "./models/product-configuration"
 import QuoteRequest from "./models/quote-request"
+import PortalSetting from "./models/portal-setting"
 
 class MerchPortalModuleService extends MedusaService({
   ImportJob,
@@ -21,6 +22,7 @@ class MerchPortalModuleService extends MedusaService({
   PublishedProductSource,
   ProductConfiguration,
   QuoteRequest,
+  PortalSetting,
 }) {}
 
 export default MerchPortalModuleService
