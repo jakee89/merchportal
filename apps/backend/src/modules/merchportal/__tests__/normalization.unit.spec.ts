@@ -1,5 +1,6 @@
 import { catalogSummary, futureStock, normalizeSupplierCatalog, productPriceBreaks, supplierMasterReference } from "../normalization"
 import { supplierImageToken } from "../media"
+import { asRecords } from "../adapters/types"
 
 describe("supplier catalog normalization", () => {
   it("reports preparation progress so long imports can be monitored and stopped", async () => {
@@ -69,6 +70,31 @@ describe("supplier catalog normalization", () => {
     expect(futureStock([{ payload: { qty: 811, first_arrival_date: "2026-09-25", first_arrival_qty: 3000 } }])).toEqual([
       { date: "2026-09-25", quantity: 3000 },
     ])
+  })
+
+  it("joins Midocean print guides and prices by product code and variant SKU", async () => {
+    const guide = "https://images.cdn.midocean.com/mo2639-front-khaki.png"
+    const service = {
+      listSuppliers: jest.fn().mockResolvedValue([{ id: "supplier-1", code: "midocean", display_name: "midocean" }]),
+      listRawSupplierRecords: jest.fn().mockImplementation(async (filters) => {
+        if (filters.record_type === "product") return [{ supplier_id: "supplier-1", external_id: "MO2639", payload: { master_code: "MO2639", product_name: "Bag", variants: [{ sku: "MO2639-39", color: "Khaki" }] } }]
+        if (filters.record_type === "price") return [{ supplier_id: "supplier-1", external_id: "MO2639-39", sku: "MO2639-39", payload: { sku: "MO2639-39", price: "3,50", scale: [{ minimum_quantity: 25, price: "3,20" }] } }]
+        if (filters.record_type === "decoration") return [{ supplier_id: "supplier-1", external_id: "MO2639", payload: { product_code: "MO2639", printing_positions: [{ position_id: "FRONT", max_print_size_width: 240, max_print_size_height: 240, images: [{ variant_color: "39", print_position_image_with_area: guide }], printing_techniques: [{ id: "TD1", name: "Digital transfer" }] }] } }]
+        if (filters.record_type === "decoration_price") return [{ supplier_id: "supplier-1", payload: { print_techniques: [{ id: "TD1", scales: [{ minimum_quantity: 25, price: 1.2 }] }] } }]
+        return []
+      }),
+      listPublishedProductSources: jest.fn().mockResolvedValue([]),
+    }
+    const products = await normalizeSupplierCatalog({ resolve: () => service } as any, { supplier_code: "midocean" })
+    expect(products[0].variants[0].color_code).toBe("39")
+    expect(products[0].variants[0].price_breaks).toEqual([{ quantity: 1, price_eur: 3.5 }, { quantity: 25, price_eur: 3.2 }])
+    expect(products[0].decoration_options[0].positions[0].images).toEqual([{ variant_color: "39", url: `/media/${supplierImageToken(guide)}` }])
+  })
+
+  it("accepts Midocean print-feed wrappers", () => {
+    const product = { product_code: "MO2639", printing_positions: [] }
+    expect(asRecords({ print_data: [product] })).toEqual([product])
+    expect(asRecords({ data: { products: [product] } })).toEqual([product])
   })
 
   it("reads Stricker quantity columns", () => {

@@ -126,8 +126,10 @@ export default function Configurator({ productId, productName, productImages, ba
   }
   const selectedPosition = (line: Line) => methods.find((item) => item.id === line.methodId)?.positions.find((item) => item.id === line.positionId) || positions.find((item) => item.id === line.positionId)
   const positionImage = (position?: Position) => {
-    const exact = position?.images?.find((image) => image.variant_color && [variant?.color, variant?.color_code].filter(Boolean).some((value) => value?.toLowerCase() === image.variant_color?.toLowerCase()))
-    return mediaUrl(backend, exact?.url || position?.images?.[0]?.url || position?.image_url)
+    const colourKeys = [variant?.color, variant?.color_code, variant?.sku?.split("-").at(-1)].filter(Boolean).map((value) => value!.trim().toLowerCase())
+    const exact = position?.images?.find((image) => image.variant_color && colourKeys.includes(image.variant_color.trim().toLowerCase()))
+    const generic = position?.images?.find((image) => !image.variant_color)
+    return mediaUrl(backend, exact?.url || generic?.url || (!position?.images?.length ? position?.image_url : undefined))
   }
   const updateLine = (key: number, update: Partial<Line>) => setLines((items) => items.map((item) => item.key === key ? { ...item, ...update } : item))
   const firstStitchTier = (method?: Method) => Array.from(new Set((method?.price_tables || []).filter((table) => table.price_by_stitches && table.max_stitches).map((table) => Number(table.max_stitches)))).sort((left, right) => left - right)[0] || 0
@@ -151,6 +153,8 @@ export default function Configurator({ productId, productName, productImages, ba
     const method = methods.find((item) => item.id === line.methodId)
     return { line, method, position: selectedPosition(line) }
   })
+  const knownPrintingLines = verified?.decoration_lines.filter((line) => !line.price_pending && line.unit_price_eur !== null) || []
+  const knownPrintingSubtotal = knownPrintingLines.reduce((sum, line) => sum + (line.unit_price_eur || 0) * quantity + (line.setup_price_eur || 0), 0)
   const decorations = lines.map((line) => ({ branding_method: line.methodId, print_position: line.positionId, pricing_code: line.pricingCode, print_colours: line.colours, print_stitches: line.stitches || undefined, print_width_mm: line.width ? Number(line.width) : undefined, print_height_mm: line.height ? Number(line.height) : undefined }))
   const selectionKey = JSON.stringify({ variant_id: variant?.id, quantity, decorations })
   useEffect(() => {
@@ -236,10 +240,15 @@ export default function Configurator({ productId, productName, productImages, ba
           const price = verified?.decoration_lines[index]
           return <div key={line.key}><span>{method?.name || `Print ${index + 1}`}</span><strong>{!price || price.price_pending || price.unit_price_eur === null ? "Quote required" : `€${price.unit_price_eur.toFixed(2)} × ${quantity}${price.setup_price_eur ? ` + €${price.setup_price_eur.toFixed(2)} setup` : ""} = €${(price.unit_price_eur * quantity + (price.setup_price_eur || 0)).toFixed(2)}`}</strong></div>
         })}
+        {verified?.estimated_total === null && knownPrintingLines.length > 0 && <>
+          <div><span>Known printing subtotal</span><strong>€{knownPrintingSubtotal.toFixed(2)}</strong></div>
+          <div><span>Printing per unit incl. setup</span><strong>€{(knownPrintingSubtotal / quantity).toFixed(2)}</strong></div>
+        </>}
         <div className={styles.estimateTotal}><span>Estimated total · excl. VAT</span><strong>{verificationStatus === "checking" ? "Checking…" : verified?.estimated_total === null || !verified ? "Quote required" : `€${verified.estimated_total.toFixed(2)}`}</strong></div>
         {verified?.base_unit_price === null && <p className={styles.helper}>The plain-product price is unavailable for this option. We’ll confirm the full amount in your quote.</p>}
         {verificationError && <p className={styles.helper} role="alert">{verificationError}</p>}
-        {verified?.estimated_total !== null && verified?.estimated_total !== undefined && <p className={styles.helper}>€{(verified.estimated_total / quantity).toFixed(2)} per unit equivalent. Final price confirmed by staff.</p>}
+        {verified?.estimated_total !== null && verified?.estimated_total !== undefined && <div><span>Per unit incl. setup · excl. VAT</span><strong>€{(verified.estimated_total / quantity).toFixed(2)}</strong></div>}
+        <p className={styles.helper}>Final price confirmed by staff.</p>
         <button className={styles.primary} type="button" disabled={busy || !variant || verificationStatus === "error"} onClick={save}>{busy ? "Adding…" : "Add to quote cart"}</button>
         {message && <p className={styles.configMessage} aria-live="polite">{message} <Link href="/portal/account/quotes">Review cart →</Link></p>}
       </aside>

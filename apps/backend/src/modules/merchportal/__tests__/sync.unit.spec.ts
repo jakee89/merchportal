@@ -27,6 +27,23 @@ describe("supplier sync record deduplication", () => {
     expect(records).toHaveLength(2)
   })
 
+  it("keeps Midocean print guides for each colour SKU", () => {
+    const records = deduplicateSupplierRecords([
+      { product_code: "MO2639", sku: "MO2639-03", printing_positions: [{ images: [{ variant_color: "03" }] }] },
+      { product_code: "MO2639", sku: "MO2639-39", printing_positions: [{ images: [{ variant_color: "39" }] }] },
+    ], "midocean", "decoration")
+    expect(records).toHaveLength(2)
+  })
+
+  it("keeps Midocean prices and stock for each colour SKU", () => {
+    const records = [
+      { model: "MO2639", sku: "MO2639-03", price: 1.25 },
+      { model: "MO2639", sku: "MO2639-39", price: 1.35 },
+    ]
+    expect(deduplicateSupplierRecords(records, "midocean", "price")).toHaveLength(2)
+    expect(deduplicateSupplierRecords(records, "midocean", "stock")).toHaveLength(2)
+  })
+
   it("does not collapse documented Stricker CustomizationOptions rows", () => {
     const records = deduplicateSupplierRecords(
       [

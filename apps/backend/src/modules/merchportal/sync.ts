@@ -133,7 +133,7 @@ function recordIdentity(
 ) {
   const value = (record && typeof record === "object" ? record : {}) as RecordObject
   const sku = objectValue(value, ["sku", "SKU", "Sku", "optionalReference", "reference"])
-  const masterId = objectValue(value, ["master_id", "master_code", "ProductReference", "ProdReference", "Reference"])
+  const masterId = objectValue(value, ["master_id", "master_code", "product_code", "model", "ProductReference", "ProdReference", "Reference"])
   const serviceCode = objectValue(value, ["service_code", "serviceCode", "technique_id", "techniqueId", "TableFullCode", "TableCode"])
   const positionCode = objectValue(value, ["position_id", "positionId", "location_id", "locationId", "location_code", "locationCode"]) ||
     [objectValue(value, ["Component"]), objectValue(value, ["Location"])].filter(Boolean).join("|")
@@ -159,7 +159,7 @@ export function deduplicateSupplierRecords(
     const { externalId } = recordIdentity(
       record,
       index,
-      supplierCode === "stricker" && type === "product",
+      type === "price" || type === "stock" || (supplierCode === "stricker" && type === "product") || (supplierCode === "midocean" && type === "decoration"),
       type,
     )
     recordsById.set(externalId, record)
@@ -415,7 +415,7 @@ export async function runSupplierSync(
         const { externalId, sku } = recordIdentity(
           record,
           index,
-          supplierCode === "stricker" && type === "product",
+          type === "price" || type === "stock" || (supplierCode === "stricker" && type === "product") || (supplierCode === "midocean" && type === "decoration"),
           type,
         )
         const checksum = createHash("sha256").update(`${NORMALIZER_VERSION}:${JSON.stringify(record)}`).digest("hex")

@@ -150,7 +150,7 @@ function opaqueSourceKey(supplierId: string, externalId: string) {
 }
 
 export function supplierMasterReference(supplierCode: string | undefined, payload: ObjectValue, fallback: string) {
-  const explicit = value(payload, ["product_reference", "productReference", "ProdReference", "master_id", "master_code", "parent_reference", "main_reference"])
+  const explicit = value(payload, ["product_reference", "productReference", "ProdReference", "master_id", "master_code", "product_code", "model", "parent_reference", "main_reference"])
   const reference = explicit || value(payload, ["reference", "Reference", "sku", "optionalReference"]) || fallback
   if (supplierCode === "stricker") {
     return reference.replace(/^(\d{4,})-\d{3,}$/u, "$1")
@@ -347,7 +347,11 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const attributes = productAttributes(group.records.map((item) => item.payload))
     const specifications = productSpecifications(group.records.map((item) => item.payload))
     const hierarchy = categoryHierarchy(group.records.map((item) => item.payload))
-    const decorationPayloads = (decorationIndex.byMaster.get(`${group.supplier_id}:${group.master_id}`) || []).map((item: any) => item.payload)
+    const groupSkus = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue)).map((row) => value(row, ["sku", "SKU", "optionalReference", "reference", "variant_id"])).filter(Boolean)
+    const decorationPayloads = [...new Map([
+      ...(decorationIndex.byMaster.get(`${group.supplier_id}:${group.master_id}`) || []),
+      ...groupSkus.flatMap((sku) => decorationIndex.bySku.get(`${group.supplier_id}:${sku}`) || []),
+    ].map((item: any) => [item.id || item.external_id, item.payload])).values()]
     const supplierDecorationPrices = decorationPricesBySupplier.get(group.supplier_id) || []
     const decorationOptions = normalizeDecorationOptions([...group.records.map((item) => item.payload), ...decorationPayloads], attributes.print_methods, supplierDecorationPrices).map((method) => ({
       ...method,
@@ -366,7 +370,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const variants = rows
       .map((row, index) => {
         const sku = value(row, ["sku", "SKU", "optionalReference", "reference", "variant_id"]) || `${record.external_id}-${index + 1}`
-        const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "ColorCode", "Color1", "color"])
+        const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "ColorCode", "Color1"]) || (supplier?.code === "midocean" && sku.includes("-") ? sku.split("-").at(-1) : undefined)
         const suppliedHex = value(row, ["ColorHex1", "color_hex", "colour_hex"])
         const colorHex = suppliedHex && /^#?[0-9a-f]{6}$/iu.test(suppliedHex) ? `#${suppliedHex.replace(/^#/u, "")}` : undefined
         const color = value(row, ["ColorDesc1", "ColorDescription", "color_description", "colour_description", "color_name", "colour_name", "color", "colour", "color_group"]) || colorCode || "Standard"

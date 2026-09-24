@@ -51,9 +51,10 @@ export function asRecords(payload: unknown): unknown[] {
   if (!payload || typeof payload !== "object") return []
 
   const object = payload as Record<string, unknown>
-  const recordKeys = new Set(["products", "items", "data", "stock", "price", "prices", "result", "optionalscomplete", "optionalsprice", "stocks", "customizationoptions", "customizationtables"])
+  const recordKeys = new Set(["products", "items", "data", "print_data", "printing_data", "stock", "price", "prices", "result", "optionalscomplete", "optionalsprice", "stocks", "customizationoptions", "customizationtables"])
   for (const [key, value] of Object.entries(object)) {
     if (recordKeys.has(key.toLowerCase()) && Array.isArray(value)) return value
+    if (key.toLowerCase() === "data" && value && typeof value === "object") return asRecords(value)
   }
 
   return [payload]
