@@ -17,7 +17,8 @@ services:
     image: ghcr.io/jakee89/merchportal-backend:${MERCHPORTAL_IMAGE_TAG:-latest}
     environment:
       S3_ENDPOINT: http://minio:8333
-    mem_limit: 768m
+      NODE_OPTIONS: --max-old-space-size=1536
+    mem_limit: 2g
 
   postgres:
     mem_limit: 384m
