@@ -48,7 +48,7 @@ type Variant = {
   dimensions?: string
 }
 type Line = { key: number; positionId: string; methodId: string; sizeId: string; pricingCode: string; colours: number; stitches: number; width: string; height: string }
-type Props = { productId: string; productName: string; productImages: string[]; backend: string; variants: Variant[]; methods: Method[] }
+type Props = { productId: string; productName: string; productImages: string[]; backend: string; variants: Variant[]; methods: Method[]; initialSku?: string }
 
 function mediaUrl(backend: string, value?: string) {
   if (!value) return
@@ -77,8 +77,8 @@ function colourMode(method?: Method) {
   return "Spot colours"
 }
 
-export default function Configurator({ productId, productName, productImages, backend, variants, methods }: Props) {
-  const [variantId, setVariantId] = useState(variants[0]?.id || "")
+export default function Configurator({ productId, productName, productImages, backend, variants, methods, initialSku }: Props) {
+  const [variantId, setVariantId] = useState(variants.find((item) => item.sku === initialSku)?.id || variants[0]?.id || "")
   const [quantity, setQuantity] = useState(25)
   const [lines, setLines] = useState<Line[]>([])
   const [artwork, setArtwork] = useState<File>()
@@ -97,10 +97,32 @@ export default function Configurator({ productId, productName, productImages, ba
     current.size_options = [...(current.size_options || []), ...(candidate.size_options || [])].filter((item, index, list) => list.findIndex((other) => other.id === item.id) === index)
     return all
   }, []), [methods])
+  const methodChoices = useMemo(() => {
+    const grouped = new Map<string, { name: string; methods: Method[] }>()
+    for (const method of methods) {
+      const key = method.name.trim().toLocaleLowerCase()
+      const group = grouped.get(key)
+      if (group) group.methods.push(method)
+      else grouped.set(key, { name: method.name, methods: [method] })
+    }
+    return Array.from(grouped.entries()).map(([key, group]) => ({ key, ...group }))
+  }, [methods])
   const productBreaks = variant?.price_breaks || []
   const productUnitPrice = [...productBreaks].filter((item) => item.quantity <= quantity).sort((a, b) => b.quantity - a.quantity)[0]?.price_eur ?? productBreaks[0]?.price_eur ?? variant?.price_eur
 
   const compatibleMethods = (positionId: string) => methods.filter((method) => method.positions.some((position) => position.id === positionId))
+  const compatibleChoices = (positionId: string) => methodChoices.filter((choice) => choice.methods.some((method) => method.positions.some((position) => position.id === positionId)))
+  const choiceForMethod = (methodId: string) => methodChoices.find((choice) => choice.methods.some((method) => method.id === methodId))
+  const sizeChoices = (line: Line) => {
+    const choice = choiceForMethod(line.methodId)
+    const found = new Set<string>()
+    return (choice?.methods || []).flatMap((method) => (method.positions.find((position) => position.id === line.positionId)?.size_options || []).flatMap((size) => {
+      const key = `${size.label}:${size.pricing_code || size.id}`
+      if (found.has(key)) return []
+      found.add(key)
+      return [{ ...size, methodId: method.id }]
+    }))
+  }
   const selectedPosition = (line: Line) => methods.find((item) => item.id === line.methodId)?.positions.find((item) => item.id === line.positionId) || positions.find((item) => item.id === line.positionId)
   const positionImage = (position?: Position) => {
     const exact = position?.images?.find((image) => image.variant_color && [variant?.color, variant?.color_code].filter(Boolean).some((value) => value?.toLowerCase() === image.variant_color?.toLowerCase()))
@@ -114,13 +136,15 @@ export default function Configurator({ productId, productName, productImages, ba
     const size = position?.size_options?.[0]
     updateLine(line.key, { positionId, methodId: method?.id || "", sizeId: size?.id || "", pricingCode: size?.pricing_code || method?.id || "", colours: 1, stitches: firstStitchTier(method), width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
   }
-  const chooseMethod = (line: Line, methodId: string) => {
-    const position = methods.find((item) => item.id === methodId)?.positions.find((item) => item.id === line.positionId)
+  const chooseMethod = (line: Line, choiceKey: string) => {
+    const method = methodChoices.find((item) => item.key === choiceKey)?.methods.find((item) => item.positions.some((position) => position.id === line.positionId))
+    if (!method) return
+    const methodId = method.id
+    const position = method.positions.find((item) => item.id === line.positionId)
     const size = position?.size_options?.[0]
-    const method = methods.find((item) => item.id === methodId)
     updateLine(line.key, { methodId, sizeId: size?.id || "", pricingCode: size?.pricing_code || methodId, colours: 1, stitches: firstStitchTier(method), width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
   }
-  const chooseSize = (line: Line, size: SizeOption) => updateLine(line.key, { sizeId: size.id, pricingCode: size.pricing_code || size.id, width: String(size.width_mm), height: String(size.height_mm) })
+  const chooseSize = (line: Line, size: SizeOption & { methodId: string }) => updateLine(line.key, { methodId: size.methodId, sizeId: size.id, pricingCode: size.pricing_code || size.id, colours: 1, stitches: firstStitchTier(methods.find((item) => item.id === size.methodId)), width: String(size.width_mm), height: String(size.height_mm) })
 
   const linePrice = (line: Line) => {
     const method = methods.find((item) => item.id === line.methodId)
@@ -192,7 +216,10 @@ export default function Configurator({ productId, productName, productImages, ba
         {gallery.length > 1 && <div className={styles.thumbnails}>{gallery.map((image, index) => <button className={image === activeImage ? styles.activeThumbnail : ""} type="button" key={`${image}-${index}`} onClick={() => setActiveImage(image)}><SafeImage src={mediaUrl(backend, image)} alt={`${productName} view ${index + 1}`} /></button>)}</div>}
       </div>
       <div className={styles.productBuyPanel}>
-        <h2>Choose colour and option</h2><label>Colour and option<select value={variant?.id || ""} onChange={(event) => setVariantId(event.target.value)}>{variants.map((item) => <option key={item.id} value={item.id}>{item.color}{item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}{item.sku ? ` · ${item.sku}` : ""}</option>)}</select></label>
+        <h2>Choose colour and option</h2>
+        <p className={styles.selectedColour}>{variants.length} options · Selected: <strong>{variant?.color || "—"}</strong>{variant?.size && variant.size !== "Standard" ? ` · ${variant.size}` : ""}</p>
+        <div className={styles.variantChoices} role="group" aria-label="Available colours and variants">{variants.map((item) => <button type="button" key={item.id} className={item.id === variant?.id ? styles.activeVariantChoice : ""} aria-pressed={item.id === variant?.id} title={`${item.color}${item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}`} onClick={() => setVariantId(item.id)}><span className={styles.variantChoiceImage}><SafeImage src={mediaUrl(backend, item.images?.[0])} alt="" /></span><span><strong>{item.color}</strong>{item.size && item.size !== "Standard" && <small>{item.size}</small>}</span></button>)}</div>
+        {variants.length > 12 && <label className={styles.variantSelectFallback}>Find an option<select value={variant?.id || ""} onChange={(event) => setVariantId(event.target.value)}>{variants.map((item) => <option key={item.id} value={item.id}>{item.color}{item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}{item.sku ? ` · ${item.sku}` : ""}</option>)}</select></label>}
         <dl className={styles.variantFacts}><div><dt>SKU</dt><dd>{variant?.sku || "—"}</dd></div>{variant?.ean && <div><dt>EAN</dt><dd>{variant.ean}</dd></div>}{variant?.pantone && <div><dt>Pantone</dt><dd>{variant.pantone}</dd></div>}{variant?.dimensions && <div><dt>Dimensions</dt><dd>{variant.dimensions}</dd></div>}</dl>
         <h3>Plain product price <small>excl. VAT</small></h3>{productBreaks.some((item) => item.price_eur > 0) ? <table className={styles.priceTable}><thead><tr><th>Quantity</th><th>Unit price</th></tr></thead><tbody>{productBreaks.filter((item) => item.price_eur > 0).map((item) => <tr key={item.quantity}><td>{item.quantity}+</td><td>€{item.price_eur.toFixed(2)}</td></tr>)}</tbody></table> : <p>Price on request</p>}
         <div className={styles.stockPanel}><strong>{variant?.stock_quantity === undefined ? "Availability on request" : `${variant.stock_quantity.toLocaleString()} available now`}</strong>{variant?.future_stock?.map((item) => <span key={`${item.date}-${item.quantity}`}>{item.quantity.toLocaleString()} incoming — {new Date(item.date).toLocaleDateString()}</span>)}</div>
@@ -201,13 +228,13 @@ export default function Configurator({ productId, productName, productImages, ba
     <section className={styles.configurator}>
       <div className={styles.configForm}><span className={styles.eyebrow}>Configure printing</span><label>Quantity<input type="number" min="1" max="100000" value={quantity} onChange={(event) => setQuantity(Math.max(1, Math.min(100000, Number(event.target.value) || 1)))} /></label>
         {methods.length ? <>{pricedLines.map(({ line, method, position, price }, index) => {
-          const compatible = compatibleMethods(line.positionId)
-          const sizes = position?.size_options || []
+          const compatible = compatibleChoices(line.positionId)
+          const sizes = sizeChoices(line)
           const stitchTiers = Array.from(new Set((method?.price_tables || []).filter((table) => table.price_by_stitches && table.max_stitches).map((table) => Number(table.max_stitches)))).sort((left, right) => left - right)
           return <div className={styles.printLine} key={line.key}>
             <div className={styles.printLineHeading}><strong>Print position {index + 1}</strong><button type="button" onClick={() => setLines((items) => items.filter((item) => item.key !== line.key))}>Remove</button></div>
-            <div className={styles.positionCards}>{positions.map((item) => { const alreadyUsed = lines.some((other) => other.key !== line.key && other.positionId === item.id); return <button type="button" key={item.id} disabled={alreadyUsed} className={item.id === line.positionId ? styles.activePositionCard : ""} onClick={() => choosePosition(line, item.id)}><SafeImage src={positionImage(item)} alt={`${item.name} print area`} /><strong>{item.name}</strong>{item.max_width_mm && item.max_height_mm && <span>W {item.max_width_mm} × H {item.max_height_mm} mm</span>}{alreadyUsed && <span>Already selected</span>}</button> })}</div>
-            {line.positionId && <label>Technique<select value={line.methodId} onChange={(event) => chooseMethod(line, event.target.value)}>{compatible.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>}
+            <div className={styles.positionCards}>{positions.filter((item) => item.id === line.positionId || !lines.some((other) => other.key !== line.key && other.positionId === item.id)).map((item) => <button type="button" key={item.id} className={item.id === line.positionId ? styles.activePositionCard : ""} aria-pressed={item.id === line.positionId} onClick={() => choosePosition(line, item.id)}><SafeImage src={positionImage(item)} alt={`${item.name} print area`} /><strong>{item.name}</strong>{item.max_width_mm && item.max_height_mm && <span>W {item.max_width_mm} × H {item.max_height_mm} mm</span>}</button>)}</div>
+            {line.positionId && <label>Technique<select value={choiceForMethod(line.methodId)?.key || ""} onChange={(event) => chooseMethod(line, event.target.value)}>{compatible.map((item) => <option value={item.key} key={item.key}>{item.name}</option>)}</select></label>}
             {method && <label>Colour mode<input value={colourMode(method)} readOnly /></label>}
             {sizes.length > 0 && <div className={styles.sizeOptions}><span>Print size (W × H)</span><div>{sizes.map((size) => <button type="button" key={size.id} className={size.id === line.sizeId ? styles.activeSizeOption : ""} onClick={() => chooseSize(line, size)}>{size.label}</button>)}</div></div>}
             {position && !sizes.length && <p className={styles.helper}>{position.max_width_mm && position.max_height_mm ? `Maximum area ${position.max_width_mm} × ${position.max_height_mm} mm. ` : ""}{position.max_colours ? `Maximum ${position.max_colours} colours.` : ""}</p>}

@@ -91,8 +91,9 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           price_eur: prices.length ? Math.min(...prices) : undefined,
           max_price_eur: prices.length ? Math.max(...prices) : undefined,
           stock_quantity: document.stock_quantity,
+          color_option_count: new Set(variants.map((variant: any) => variant.color).filter(Boolean)).size,
           color_options: variants.reduce((items: any[], variant: any) => {
-            const color = variant.color_group || variant.color
+            const color = variant.color
             if (!color || items.some((item) => item.name === color)) return items
             items.push({ name: color, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })
             return items

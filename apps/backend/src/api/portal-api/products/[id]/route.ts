@@ -130,7 +130,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
       brand: catalogDocument.brand,
       sustainable: Boolean(catalogDocument.sustainable),
       specifications: catalogDocument.specifications || (source.attributes as any)?.specifications || [],
-      downloads: catalogDocument.downloads || [],
+      downloads: (catalogDocument.downloads || []).filter((item: any) => typeof item.url === "string" && item.url.startsWith("/portal/")),
       images: [...(catalogDocument.images || []), product.thumbnail, ...(product.images || []).map((item: any) => item.url)].filter((item, index, all) => item && all.indexOf(item) === index),
       variants,
       decoration_options: decorationOptions,
