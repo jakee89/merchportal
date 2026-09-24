@@ -1,4 +1,4 @@
-type CatalogCacheEntry = { expires: number; products: any[]; facets: any }
+type CatalogCacheEntry = { expires: number; products: any[] }
 
 export const portalCatalogCache = new Map<string, CatalogCacheEntry>()
 

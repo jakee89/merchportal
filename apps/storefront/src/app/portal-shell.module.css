@@ -524,6 +524,8 @@
   padding: 18px;
   position: sticky;
   top: 88px;
+  max-height: calc(100vh - 105px);
+  overflow-y: auto;
 }
 .filterHeading,
 .resultsHeading {
@@ -547,6 +549,21 @@
   font-weight: 800;
   padding-top: 16px;
 }
+.facetSearch {
+  border: 1px solid #ccd8e5;
+  border-radius: 8px;
+  min-width: 0;
+  padding: 8px;
+  width: 100%;
+}
+.facetOptions {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 2px 5px 2px 1px;
+}
+.filterUpdating { color: #55738f; font-size: 11px; margin-top: 8px; }
 .facetGroup label {
   align-items: center;
   color: #425168;
@@ -1161,7 +1178,7 @@
     padding: 11px 14px;
     width: 100%;
   }
-  .catalogFilters { display: none; margin-top: 8px; position: static; }
+  .catalogFilters { display: none; margin-top: 8px; max-height: none; position: static; }
   .catalogFilters.filtersOpen { display: grid; }
 }
 

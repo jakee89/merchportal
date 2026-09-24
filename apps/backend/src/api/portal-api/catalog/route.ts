@@ -4,6 +4,7 @@ import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
 import { sellingPrice } from "../../../modules/merchportal/catalog-rules"
 import { resolveMarkup } from "../../../workflows/manage-pricing-rules"
 import { portalCatalogCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
+import { catalogFacets, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 
 function queryText(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
@@ -19,14 +20,6 @@ function queryNumber(value: unknown) {
 function queryValues(value: unknown) {
   const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : []
   return values.map((item) => String(item).trim()).filter(Boolean)
-}
-
-function facet(items: any[], values: (product: any) => string[]) {
-  const counts = new Map<string, number>()
-  for (const product of items) {
-    for (const value of new Set(values(product).filter(Boolean))) counts.set(value, (counts.get(value) || 0) + 1)
-  }
-  return [...counts].map(([value, count]) => ({ value, count })).sort((left, right) => left.value.localeCompare(right.value))
 }
 
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
@@ -51,10 +44,8 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   removeExpiredPortalCatalogCacheEntries()
   const cached = portalCatalogCache.get(cacheKey)
   let safeProducts: any[]
-  let facets: any
   if (cached && cached.expires > Date.now()) {
     safeProducts = cached.products
-    facets = cached.facets
   } else {
     const indexedSources = await service.listPublishedProductSources({}, { take: 50000 })
     const indexed = indexedSources.filter((source: any) => source.catalog_document)
@@ -92,12 +83,8 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           max_price_eur: prices.length ? Math.max(...prices) : undefined,
           stock_quantity: document.stock_quantity,
           color_option_count: new Set(variants.map((variant: any) => variant.color).filter(Boolean)).size,
-          color_options: variants.reduce((items: any[], variant: any) => {
-            const color = variant.color
-            if (!color || items.some((item) => item.name === color)) return items
-            items.push({ name: color, color_hex: variant.color_hex, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })
-            return items
-          }, []).slice(0, 12),
+          color_options: variants.filter((variant: any) => variant.color).map((variant: any) => ({ name: variant.color, color_hex: variant.color_hex, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })),
+          filter_variants: variants.map((variant: any) => ({ sku: variant.sku, color: variant.color, color_group: variant.color_group, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })),
         }
       })
     } else {
@@ -117,12 +104,14 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
       const sourceByProduct = new Map<string, any>(sources.map((source: any) => [source.product_id, source]))
       safeProducts = nativeProducts.map((product: any) => {
         const source = sourceByProduct.get(product.id)
+        const document = source?.catalog_document || {}
         const costs = (source?.cost_by_sku || {}) as Record<string, number>
         const variants = (product.variants || []).map((variant: any) => {
           const nativePrice = (variant.prices || []).find((price: any) => price.currency_code === "eur")?.amount
           const fallbackPrice = Number(nativePrice)
           const cost = variant.sku ? Number(costs[variant.sku]) : undefined
           const colors = (variant.options || []).filter((option: any) => option.option?.title === "Color").map((option: any) => option.value)
+          const indexedVariant = (document.variants || []).find((item: any) => item.sku === variant.sku)
           return {
             id: variant.id,
             title: variant.title,
@@ -130,6 +119,10 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
             stock_quantity: variant.inventory_quantity,
             price_eur: Number.isFinite(cost) ? sellingPrice(cost as number, markup) : Number.isFinite(fallbackPrice) ? fallbackPrice : undefined,
             colors,
+            color: indexedVariant?.color || colors[0],
+            color_group: indexedVariant?.color_group,
+            color_hex: indexedVariant?.color_hex,
+            images: indexedVariant?.images || [],
           }
         })
         const prices = variants.map((variant: any) => variant.price_eur).filter(Number.isFinite)
@@ -141,60 +134,53 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           sku: variants[0]?.sku,
           image_url: product.thumbnail || product.images?.[0]?.url || null,
           category: product.categories?.[0]?.name,
-          colors: [...new Set(variants.flatMap((variant: any) => variant.colors))],
+          category_hierarchy: document.category_hierarchy || [product.categories?.[0]?.name].filter(Boolean),
+          colors: [...new Set(variants.map((variant: any) => variant.color_group || variant.color).filter(Boolean))],
+          materials: document.materials || [],
+          brand: document.brand,
+          keywords: document.keywords || [],
+          filter_variants: variants.map((variant: any) => ({ sku: variant.sku, color: variant.color, color_group: variant.color_group, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })),
+          color_option_count: new Set(variants.map((variant: any) => variant.color).filter(Boolean)).size,
+          color_options: variants.filter((variant: any) => variant.color).map((variant: any) => ({ name: variant.color, color_hex: variant.color_hex, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })),
           price_eur: prices.length ? Math.min(...prices) : undefined,
           stock_quantity: stock.length ? stock.reduce((total: number, amount: number) => total + amount, 0) : undefined,
           lead_time: source?.lead_time || undefined,
           sustainable: Boolean(source?.sustainable),
           print_methods: Array.isArray(source?.print_methods) ? source.print_methods : [],
-          variants: variants.map(({ colors, ...variant }: any) => variant),
         }
       })
     }
 
-    facets = {
-      categories: facet(safeProducts, (product) => product.category_hierarchy || [product.category]),
-      colors: facet(safeProducts, (product) => product.colors || []),
-      materials: facet(safeProducts, (product) => product.materials || []),
-      brands: facet(safeProducts, (product) => [product.brand]),
-      lead_times: facet(safeProducts, (product) => [product.lead_time]),
-      print_methods: facet(safeProducts, (product) => product.print_methods || []),
-    }
     portalCatalogCache.set(cacheKey, {
       expires: Date.now() + 60_000,
       products: safeProducts,
-      facets,
     })
   }
-  const search = queryText(req.query.q).toLowerCase()
-  const categories = queryValues(req.query.category)
-  const colors = queryValues(req.query.color)
-  const materials = queryValues(req.query.material)
-  const brands = queryValues(req.query.brand)
-  const leadTimes = queryValues(req.query.lead_time)
-  const printMethods = queryValues(req.query.print_method)
-  const minPrice = queryNumber(req.query.min_price)
-  const maxPrice = queryNumber(req.query.max_price)
-  const inStock = req.query.in_stock === "true"
-  const sustainable = req.query.sustainable === "true"
-  const filtered = safeProducts.filter((product) => {
-    if (search && !`${product.name} ${product.description || ""} ${product.sku || ""} ${(product.keywords || []).join(" ")}`.toLowerCase().includes(search)) return false
-    if (categories.length && !categories.some((category) => (product.category_hierarchy || [product.category]).includes(category))) return false
-    if (colors.length && !colors.some((color) => product.colors.includes(color))) return false
-    if (materials.length && !materials.some((material) => (product.materials || []).includes(material))) return false
-    if (brands.length && !brands.includes(product.brand)) return false
-    if (leadTimes.length && !leadTimes.includes(product.lead_time)) return false
-    if (printMethods.length && !printMethods.some((method) => product.print_methods.includes(method))) return false
-    if (minPrice !== undefined && (product.price_eur === undefined || product.price_eur < minPrice)) return false
-    if (maxPrice !== undefined && (product.price_eur === undefined || product.price_eur > maxPrice)) return false
-    if (inStock && !(product.stock_quantity && product.stock_quantity > 0)) return false
-    if (sustainable && !product.sustainable) return false
-    return true
-  })
+  const filters: CatalogFilters = {
+    search: queryText(req.query.q),
+    categories: queryValues(req.query.category),
+    colors: queryValues(req.query.color),
+    materials: queryValues(req.query.material),
+    brands: queryValues(req.query.brand),
+    leadTimes: queryValues(req.query.lead_time),
+    printMethods: queryValues(req.query.print_method),
+    minPrice: queryNumber(req.query.min_price),
+    maxPrice: queryNumber(req.query.max_price),
+    inStock: req.query.in_stock === "true",
+    sustainable: req.query.sustainable === "true",
+  }
+  const facets = catalogFacets(safeProducts, filters)
+  const filtered = safeProducts.filter((product) => matchesCatalogFilters(product, filters))
   const sort = queryText(req.query.sort)
+  const sortedPrices = sort === "price_asc" || sort === "price_desc"
+    ? new Map(filtered.map((product) => {
+      const prices = matchingCatalogVariants(product, filters).map((variant) => variant.price_eur).filter((price): price is number => typeof price === "number" && Number.isFinite(price))
+      return [product, prices.length ? Math.min(...prices) : undefined] as const
+    }))
+    : undefined
   filtered.sort((left, right) => {
-    if (sort === "price_asc") return (left.price_eur ?? Number.POSITIVE_INFINITY) - (right.price_eur ?? Number.POSITIVE_INFINITY)
-    if (sort === "price_desc") return (right.price_eur ?? Number.NEGATIVE_INFINITY) - (left.price_eur ?? Number.NEGATIVE_INFINITY)
+    if (sort === "price_asc") return (sortedPrices?.get(left) ?? Number.POSITIVE_INFINITY) - (sortedPrices?.get(right) ?? Number.POSITIVE_INFINITY)
+    if (sort === "price_desc") return (sortedPrices?.get(right) ?? Number.NEGATIVE_INFINITY) - (sortedPrices?.get(left) ?? Number.NEGATIVE_INFINITY)
     if (sort === "name_asc") return left.name.localeCompare(right.name)
     if (sort === "name_desc") return right.name.localeCompare(left.name)
     return String(left.name).localeCompare(String(right.name))
@@ -202,7 +188,18 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const pageSize = Math.max(12, Math.min(48, Math.floor(queryNumber(req.query.page_size) || 24)))
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const page = Math.max(1, Math.min(pageCount, Math.floor(queryNumber(req.query.page) || 1)))
-  const products = filtered.slice((page - 1) * pageSize, page * pageSize)
+  const products = filtered.slice((page - 1) * pageSize, page * pageSize).map(({ filter_variants, color_options, ...product }) => {
+    const eligibleSkus = new Set(matchingCatalogVariants({ ...product, filter_variants }, filters).map((variant) => variant.sku))
+    const score = (option: any) => Number(eligibleSkus.has(option.sku)) * 2 + Number(filters.colors.some((color) => colorLabel(option.name).toLowerCase() === colorLabel(color).toLowerCase()))
+    const seenColors = new Set<string>()
+    const options = [...(color_options || [])].sort((left: any, right: any) => score(right) - score(left)).filter((option: any) => {
+      const color = colorLabel(option.name).toLowerCase()
+      if (seenColors.has(color)) return false
+      seenColors.add(color)
+      return true
+    }).slice(0, 12)
+    return { ...product, color_options: options }
+  })
   res.json({
     products,
     facets,
