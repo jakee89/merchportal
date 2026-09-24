@@ -45,7 +45,7 @@ jobs:
           build-args: |
             MEDUSA_BACKEND_URL=${{ vars.MEDUSA_BACKEND_URL || 'https://api.merchportal.customislandgifts.mt' }}
             NEXT_PUBLIC_MEDUSA_BACKEND_URL=${{ vars.NEXT_PUBLIC_MEDUSA_BACKEND_URL || vars.MEDUSA_BACKEND_URL || 'https://api.merchportal.customislandgifts.mt' }}
-            NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || 'pk_4fe44a6abe32e0ac3f2d00fc28b725cb9ce72f5704e1770ede54584467ed22196' }}
+            NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY=${{ vars.NEXT_PUBLIC_MEDUSA_PUBLISHABLE_KEY || 'pk_4fe44a6abe32e0ac3f2d00fc28b725cb9ce72f5704e1770ede54584467ed2196' }}
             NEXT_PUBLIC_DEFAULT_REGION=${{ vars.NEXT_PUBLIC_DEFAULT_REGION || 'mt' }}
             NEXT_PUBLIC_BASE_URL=${{ vars.NEXT_PUBLIC_BASE_URL || 'https://merchportal.customislandgifts.mt' }}
           cache-from: type=gha,scope=${{ matrix.image }}
