@@ -60,9 +60,9 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
   const cost = Number(selectedCost ?? (source.cost_by_sku || {})[String(variant.sku || "")])
   const nativePrice = Number(variant.prices?.find((item: any) => item.currency_code === "eur")?.amount)
   const markup = await resolveMarkup(service, memberships[0].organization_id)
-  const knownBaseUnitPrice = Number.isFinite(cost) ? sellingPrice(cost, markup) : nativePrice
-  const basePricePending = !Number.isFinite(knownBaseUnitPrice) || knownBaseUnitPrice <= 0
-  const baseUnitPrice = basePricePending ? 0 : knownBaseUnitPrice
+  const knownBaseUnitPrice = priceBreaks.length && selectedCost === undefined ? undefined : Number.isFinite(cost) ? sellingPrice(cost, markup) : nativePrice
+  const basePricePending = knownBaseUnitPrice === undefined || !Number.isFinite(knownBaseUnitPrice) || knownBaseUnitPrice <= 0
+  const baseUnitPrice = basePricePending ? 0 : (knownBaseUnitPrice ?? 0)
 
   const usedPositions = new Set<string>()
   const decorationLines = requested.map((line) => {

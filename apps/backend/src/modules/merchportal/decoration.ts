@@ -238,16 +238,9 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
     const right = methodId.toLowerCase()
     const cached = pricingIndex.matches.get(right)
     if (cached) return cached
-    const exact = pricingIndex.byId.get(right)
-    if (exact?.length) {
-      pricingIndex.matches.set(right, exact)
-      return exact
-    }
     const matches = pricingCandidates.filter((candidate) => {
-      const candidateId = directValue(candidate, ["id", "technique_id", "service_code", "servicecode", "table_code", "tablecode", "table_full_code", "tablefullcode"])
-      if (!candidateId) return false
-      const left = candidateId.toLowerCase()
-      return left.startsWith(right) || right.startsWith(left)
+      const candidateIds = [directValue(candidate, ["id", "technique_id", "service_code", "servicecode"]), directValue(candidate, ["table_code", "tablecode"]), directValue(candidate, ["table_code_option", "tablecodeoption"])].filter(Boolean)
+      return candidateIds.some((candidateId) => candidateId!.toLowerCase() === right || candidateId!.toLowerCase().startsWith(`${right}-`))
     })
     pricingIndex.matches.set(right, matches)
     return matches
@@ -315,6 +308,12 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
     methods.set(id, current)
   }
 
+  const authoritativeOptions = new Set(payloads.flatMap((payload) => objects(payload)).flatMap((candidate) => {
+    const component = directValue(candidate, ["component"])
+    const location = directValue(candidate, ["location"])
+    const code = directValue(candidate, ["table_code", "tablecode"])
+    return component && location && code ? [`${slug(`${component}-${location}`)}:${code.split("-")[0].toLowerCase()}`] : []
+  }))
   const handled = new WeakSet<object>()
   for (const payload of payloads) {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue
@@ -336,6 +335,7 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
       for (let methodIndex = 0; methodIndex < methodNames.length; methodIndex += 1) {
         const methodName = methodNames[methodIndex]
         const methodId = methodIds[methodIndex] || slug(methodName)
+        if (authoritativeOptions.has(`${positionId}:${methodId.toLowerCase()}`)) continue
         const prefix = methodId.slice(0, 4)
         const allowedCodes = optionCodes.filter((code) => code.startsWith(prefix))
         const sizeOptions = allowedCodes.flatMap((optionCode) => {
@@ -471,9 +471,8 @@ export function validateDecorationChoice(method: DecorationMethod, position: Dec
   if (!Number.isInteger(colours) || colours < 1 || (position.max_colours && colours > position.max_colours)) return "Choose a valid number of print colours"
   if (method.colour_mode !== "spot_colour" && colours !== 1) return "This printing technique does not allow a colour-count selection"
   const sizes = position.size_options || []
-  const size = sizes.find((item) => item.pricing_code === choice.pricing_code || item.id === choice.pricing_code)
-  if (sizes.length && !size) return "Choose an available print size"
-  if (size && (size.width_mm !== choice.print_width_mm || size.height_mm !== choice.print_height_mm)) return "Choose a print size supplied for this technique"
+  const size = sizes.find((item) => (item.pricing_code === choice.pricing_code || item.id === choice.pricing_code) && item.width_mm === choice.print_width_mm && item.height_mm === choice.print_height_mm)
+  if (sizes.length && !size) return "Choose a print size supplied for this technique"
   if ((choice.print_width_mm && choice.print_width_mm < 1) || (choice.print_height_mm && choice.print_height_mm < 1) || (position.max_width_mm && choice.print_width_mm && choice.print_width_mm > position.max_width_mm) || (position.max_height_mm && choice.print_height_mm && choice.print_height_mm > position.max_height_mm)) return "Artwork dimensions exceed the selected print area"
   const stitchTables = (method.price_tables || []).filter((table) => table.price_by_stitches && table.max_stitches)
   if (stitchTables.length && (!choice.print_stitches || choice.print_stitches < 1 || choice.print_stitches > Math.max(...stitchTables.map((table) => Number(table.max_stitches))))) return "Choose a supported stitch count"

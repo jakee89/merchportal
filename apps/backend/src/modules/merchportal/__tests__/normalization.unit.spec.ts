@@ -77,4 +77,27 @@ describe("supplier catalog normalization", () => {
       { quantity: 100, price_eur: 1.75 },
     ])
   })
+
+  it("applies the Stricker account price factor to actual quantity tiers", () => {
+    expect(productPriceBreaks([{ payload: { Sku: "92396-103", YourPrice: "4,00", MinQt1: 25, Price1: "5,00", MinQt2: 100, Price2: "4,50" } }])).toEqual([
+      { quantity: 1, price_eur: 4 },
+      { quantity: 25, price_eur: 4 },
+      { quantity: 100, price_eur: 3.6 },
+    ])
+    expect(productPriceBreaks([{ payload: { Sku: "92396-103", MinQt1: 50, Price1: "5,00" } }])).toEqual([{ quantity: 50, price_eur: 5 }])
+  })
+
+  it("joins Stricker option prices to the matching SKU before publishing", async () => {
+    const service = {
+      listSuppliers: jest.fn().mockResolvedValue([{ id: "supplier-1", code: "stricker", display_name: "Stricker" }]),
+      listRawSupplierRecords: jest.fn().mockImplementation(async (filters) => {
+        if (filters.record_type === "product") return [{ supplier_id: "supplier-1", external_id: "92396-103", sku: "92396-103", payload: { ProdReference: "92396", Sku: "92396-103", Name: "Backpack", ColorDesc1: "Black" } }]
+        if (filters.record_type === "price") return [{ supplier_id: "supplier-1", external_id: "92396-103", sku: "92396-103", payload: { Sku: "92396-103", YourPrice: "4,00", MinQt1: 25, Price1: "5,00" } }]
+        return []
+      }),
+      listPublishedProductSources: jest.fn().mockResolvedValue([]),
+    }
+    const products = await normalizeSupplierCatalog({ resolve: () => service } as any, { supplier_code: "stricker" })
+    expect(products[0].variants[0].price_breaks).toEqual([{ quantity: 1, price_eur: 4 }, { quantity: 25, price_eur: 4 }])
+  })
 })

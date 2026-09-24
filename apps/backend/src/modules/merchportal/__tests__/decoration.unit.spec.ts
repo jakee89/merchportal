@@ -96,6 +96,25 @@ describe("supplier-neutral decoration normalization", () => {
     }))
   })
 
+  it("uses authoritative Stricker sizes for one position instead of flattened sizes from other options", () => {
+    const methods = normalizeDecorationOptions([
+      { Component1: "Backpack", Location1: "Front pocket", Area1: "80 x 130", TableCodes1: "DTF1", TableCodesOptions1: "DTF1-01-A, DTF1-02-A, DTF1-03-A, DTF1-04-A", CustomizationTypes1: "Digital Transfer" },
+      { Component: "Backpack", Location: "Front pocket", CustomizationTypeName: "Digital Transfer", TableCode: "DTF1-01", TableCodeOption: "DTF1-01-A", TableMaxAreaCM: "3 x 4", LocationMaxPrintingAreaMM: "80 x 130" },
+      { Component: "Backpack", Location: "Front pocket", CustomizationTypeName: "Digital Transfer", TableCode: "DTF1-02", TableCodeOption: "DTF1-02-A", TableMaxAreaCM: "6 x 9.5", LocationMaxPrintingAreaMM: "80 x 130" },
+      { Component: "Backpack", Location: "Front pocket", CustomizationTypeName: "Digital Transfer", TableCode: "DTF1-03", TableCodeOption: "DTF1-03-A", TableMaxAreaCM: "8 x 13", LocationMaxPrintingAreaMM: "80 x 130" },
+      { Component: "Backpack", Location: "Upper front", CustomizationTypeName: "Digital Transfer", TableCode: "DTF1-04", TableCodeOption: "DTF1-04-A", TableMaxAreaCM: "8 x 6", LocationMaxPrintingAreaMM: "90 x 60" },
+    ], [], [{ CustomizationTables: [
+      { TableCode: "DTF1-01", TableCodeOption: "DTF1-01-A", TableMaxAreaCM: "3 x 4", MinQt1: 25, Price1: 1 },
+      { TableCode: "DTF1-02", TableCodeOption: "DTF1-02-A", TableMaxAreaCM: "6 x 9.5", MinQt1: 25, Price1: 1.5 },
+      { TableCode: "DTF1-03", TableCodeOption: "DTF1-03-A", TableMaxAreaCM: "8 x 13", MinQt1: 25, Price1: 2 },
+      { TableCode: "DTF1-04", TableCodeOption: "DTF1-04-A", TableMaxAreaCM: "8 x 6", MinQt1: 25, Price1: 1.7 },
+    ] }])
+    const front = methods[0].positions.find((position) => position.id === "backpack-front-pocket")!
+    expect(front.size_options?.map((size) => size.label)).toEqual(["3.0 × 4.0 cm", "6.0 × 9.5 cm", "8.0 × 13.0 cm"])
+    expect(validateDecorationChoice(methods[0], front, { pricing_code: "DTF1-04-A", print_width_mm: 80, print_height_mm: 60 })).toMatch(/size/)
+    expect(decorationPrice(methods[0], 25, { pricing_code: "DTF1-02-A", width_mm: 60, height_mm: 95 })).toEqual({ unit: 1.5, handling: 0, setup: 0, pending: false })
+  })
+
   it("parses indexed Stricker options and selects the exact colour price table", () => {
     const methods = normalizeDecorationOptions(
       [{

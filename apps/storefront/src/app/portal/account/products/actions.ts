@@ -41,6 +41,7 @@ export async function savePortalConfiguration(
 export async function previewPortalConfiguration(productId: string, input: Record<string, unknown>) {
   return sdk.client.fetch<{
     configuration: {
+      base_unit_price: number | null
       estimated_total: number | null
       branding_price_pending: boolean
       decoration_lines: Array<{ unit_price_eur: number | null; setup_price_eur: number | null; price_pending: boolean }>

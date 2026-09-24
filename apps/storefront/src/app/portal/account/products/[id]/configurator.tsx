@@ -86,7 +86,7 @@ export default function Configurator({ productId, productName, productImages, ba
   const [artwork, setArtwork] = useState<File>()
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
-  const [verified, setVerified] = useState<{ estimated_total: number | null; branding_price_pending: boolean; decoration_lines: Array<{ unit_price_eur: number | null; setup_price_eur: number | null; price_pending: boolean }> }>()
+  const [verified, setVerified] = useState<{ base_unit_price: number | null; estimated_total: number | null; branding_price_pending: boolean; decoration_lines: Array<{ unit_price_eur: number | null; setup_price_eur: number | null; price_pending: boolean }> }>()
   const [verificationStatus, setVerificationStatus] = useState<"checking" | "ready" | "error">("checking")
   const [verificationError, setVerificationError] = useState("")
   const variant = variants.find((item) => item.id === variantId) || variants[0]
@@ -113,21 +113,16 @@ export default function Configurator({ productId, productName, productImages, ba
     return Array.from(grouped.entries()).map(([key, group]) => ({ key, ...group }))
   }, [methods])
   const productBreaks = variant?.price_breaks || []
-  const productUnitPrice = [...productBreaks].filter((item) => item.quantity <= quantity).sort((a, b) => b.quantity - a.quantity)[0]?.price_eur ?? productBreaks[0]?.price_eur ?? variant?.price_eur
+  const productUnitPrice = [...productBreaks].filter((item) => item.quantity <= quantity).sort((a, b) => b.quantity - a.quantity)[0]?.price_eur ?? (productBreaks.length ? undefined : variant?.price_eur)
+  const displayedBasePrice = verified ? verified.base_unit_price : productUnitPrice
 
   const compatibleMethods = (positionId: string) => methods.filter((method) => method.positions.some((position) => position.id === positionId))
   const compatibleChoices = (positionId: string) => methodChoices.filter((choice) => choice.methods.some((method) => method.positions.some((position) => position.id === positionId)))
   const choiceForMethod = (methodId: string) => methodChoices.find((choice) => choice.methods.some((method) => method.id === methodId))
   const sizeChoices = (line: Line) => {
-    const choice = choiceForMethod(line.methodId)
-    const found = new Set<string>()
-    const orderedMethods = [...(choice?.methods || [])].sort((left, right) => Number(right.id === line.methodId) - Number(left.id === line.methodId))
-    return orderedMethods.flatMap((method) => (method.positions.find((position) => position.id === line.positionId)?.size_options || []).flatMap((size) => {
-      const key = `${size.width_mm}:${size.height_mm}`
-      if (found.has(key)) return []
-      found.add(key)
-      return [{ ...size, methodId: method.id }]
-    }))
+    const method = methods.find((item) => item.id === line.methodId)
+    const sizes = method?.positions.find((position) => position.id === line.positionId)?.size_options || []
+    return sizes.filter((size, index) => sizes.findIndex((other) => other.width_mm === size.width_mm && other.height_mm === size.height_mm && other.pricing_code === size.pricing_code) === index).map((size) => ({ ...size, methodId: line.methodId }))
   }
   const selectedPosition = (line: Line) => methods.find((item) => item.id === line.methodId)?.positions.find((item) => item.id === line.positionId) || positions.find((item) => item.id === line.positionId)
   const positionImage = (position?: Position) => {
@@ -234,7 +229,20 @@ export default function Configurator({ productId, productName, productImages, ba
         })}{lines.length < positions.length && <button className={styles.addPrint} type="button" onClick={() => setLines((items) => [...items, { key: Date.now(), positionId: "", methodId: "", sizeId: "", pricingCode: "", colours: 1, stitches: 0, width: "", height: "" }])}>+ Add print position</button>}</> : <p className={styles.notice}>No customisation information is available for this product.</p>}
         <label>Artwork (optional)<input type="file" accept=".pdf,.png,.jpg,.jpeg,.svg,application/pdf,image/png,image/jpeg,image/svg+xml" onChange={(event) => setArtwork(event.target.files?.[0])} /></label><p className={styles.helper}>PDF, SVG, PNG or JPG · maximum 10 MB.</p>
       </div>
-      <aside className={styles.priceSummary}><h2>Estimate</h2><div><span>Plain product</span><strong>{productUnitPrice === undefined || productUnitPrice <= 0 ? "Quote required" : `€${productUnitPrice.toFixed(2)} × ${quantity}`}</strong></div>{pricedLines.map(({ line, method }, index) => <div key={line.key}><span>{method?.name || `Print ${index + 1}`}</span><strong>{!verified?.decoration_lines[index] || verified.decoration_lines[index].price_pending ? "Quote required" : `€${verified.decoration_lines[index].unit_price_eur?.toFixed(2)} × ${quantity}`}</strong></div>)}<div className={styles.estimateTotal}><span>Estimated total</span><strong>{verificationStatus === "checking" ? "Checking…" : verified?.estimated_total === null || !verified ? "Quote required" : `€${verified.estimated_total.toFixed(2)}`}</strong></div>{verificationError && <p className={styles.helper} role="alert">{verificationError}</p>}{verified?.estimated_total !== null && verified?.estimated_total !== undefined && <p className={styles.helper}>€{(verified.estimated_total / quantity).toFixed(2)} per unit equivalent · excl. VAT. Final price confirmed by staff.</p>}<button className={styles.primary} type="button" disabled={busy || !variant || verificationStatus === "error"} onClick={save}>{busy ? "Adding…" : "Add to quote cart"}</button>{message && <p className={styles.configMessage} aria-live="polite">{message} <Link href="/portal/account/quotes">Review cart →</Link></p>}</aside>
+      <aside className={styles.priceSummary}>
+        <h2>Estimate for {quantity.toLocaleString()} units</h2>
+        <div><span>Plain product</span><strong>{displayedBasePrice === undefined || displayedBasePrice === null || !Number.isFinite(displayedBasePrice) || displayedBasePrice <= 0 ? "Quote required" : `€${displayedBasePrice.toFixed(2)} × ${quantity} = €${(displayedBasePrice * quantity).toFixed(2)}`}</strong></div>
+        {pricedLines.map(({ line, method }, index) => {
+          const price = verified?.decoration_lines[index]
+          return <div key={line.key}><span>{method?.name || `Print ${index + 1}`}</span><strong>{!price || price.price_pending || price.unit_price_eur === null ? "Quote required" : `€${price.unit_price_eur.toFixed(2)} × ${quantity}${price.setup_price_eur ? ` + €${price.setup_price_eur.toFixed(2)} setup` : ""} = €${(price.unit_price_eur * quantity + (price.setup_price_eur || 0)).toFixed(2)}`}</strong></div>
+        })}
+        <div className={styles.estimateTotal}><span>Estimated total · excl. VAT</span><strong>{verificationStatus === "checking" ? "Checking…" : verified?.estimated_total === null || !verified ? "Quote required" : `€${verified.estimated_total.toFixed(2)}`}</strong></div>
+        {verified?.base_unit_price === null && <p className={styles.helper}>The plain-product price is unavailable for this option. We’ll confirm the full amount in your quote.</p>}
+        {verificationError && <p className={styles.helper} role="alert">{verificationError}</p>}
+        {verified?.estimated_total !== null && verified?.estimated_total !== undefined && <p className={styles.helper}>€{(verified.estimated_total / quantity).toFixed(2)} per unit equivalent. Final price confirmed by staff.</p>}
+        <button className={styles.primary} type="button" disabled={busy || !variant || verificationStatus === "error"} onClick={save}>{busy ? "Adding…" : "Add to quote cart"}</button>
+        {message && <p className={styles.configMessage} aria-live="polite">{message} <Link href="/portal/account/quotes">Review cart →</Link></p>}
+      </aside>
     </section>
   </>
 }

@@ -217,20 +217,34 @@ export function productPriceBreaks(items: any[]) {
     if (Array.isArray(value)) return value.forEach(visit)
     if (!value || typeof value !== "object") return
     const item = value as ObjectValue
+    const strickerPrice = numberValue(item, ["YourPrice"])
+    const firstTier = numberValue(item, ["Price1"])
+    const commercialFactor = strickerPrice !== undefined && strickerPrice > 0 && firstTier !== undefined && firstTier > 0 ? strickerPrice / firstTier : 1
+    let hasStrickerTiers = false
+    for (let index = 1; index <= 15; index += 1) {
+      const quantity = numberValue(item, [`MinQt${index}`], true)
+      const price = numberValue(item, [`Price${index}`])
+      if (quantity !== undefined && quantity > 0 && price !== undefined && price > 0) {
+        breaks.set(Math.floor(quantity), Math.round(price * commercialFactor * 10000) / 10000)
+        hasStrickerTiers = true
+      }
+    }
+    if (hasStrickerTiers && strickerPrice !== undefined && strickerPrice > 0 && !breaks.has(1)) breaks.set(1, strickerPrice)
     for (const [name, rawPrice] of Object.entries(item)) {
       const match = name.replace(/[^a-z0-9]/giu, "").match(/^(?:your)?price(\d+)$/iu)
       const price = Number(typeof rawPrice === "string" ? rawPrice.replace(",", ".") : rawPrice)
-      if (match && Number.isFinite(price) && price >= 0) breaks.set(Number(match[1]), price)
+      if (!hasStrickerTiers && match && Number.isFinite(price) && price >= 0) breaks.set(Number(match[1]), price)
     }
     const quantity = numberValue(item, ["minimum_quantity", "min_quantity", "from_quantity", "quantity", "qty"], true)
     const price = numberValue(item, ["price", "your_price", "yourprice", "unit_price", "net_price", "price_1"])
-    if (quantity !== undefined && price !== undefined && quantity > 0 && price >= 0) breaks.set(Math.floor(quantity), price)
+    if (!hasStrickerTiers && quantity !== undefined && price !== undefined && quantity > 0 && price >= 0) breaks.set(Math.floor(quantity), price)
     Object.values(item).forEach(visit)
   }
   items.forEach((item) => {
     const payload = item.payload || item
-    const base = numberValue(payload, ["your_price", "yourprice", "price", "unit_price", "net_price", "price_1"])
-    if (base !== undefined && base >= 0 && !breaks.has(1)) breaks.set(1, base)
+    const hasQuantityTiers = Object.keys(payload).some((key) => /^minqt\d+$/iu.test(normalizedFieldName(key)))
+    const base = numberValue(payload, hasQuantityTiers ? ["your_price", "yourprice"] : ["your_price", "yourprice", "price", "unit_price", "net_price", "price_1"])
+    if (base !== undefined && base > 0 && !breaks.has(1)) breaks.set(1, base)
     visit(payload)
   })
   return [...breaks.entries()]
