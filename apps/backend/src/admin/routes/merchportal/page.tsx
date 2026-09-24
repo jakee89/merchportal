@@ -94,6 +94,7 @@ const MerchPortalPage = () => {
   const [companyAddress, setCompanyAddress] = useState("")
   const [companyLogo, setCompanyLogo] = useState("")
   const [publishableKey, setPublishableKey] = useState("")
+  const [supplierKeys, setSupplierKeys] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState("")
 
   const refresh = useCallback(async () => {
@@ -174,6 +175,25 @@ const MerchPortalPage = () => {
         toast.success(dryRun ? "Catalog preview started" : `${action} update started`)
       }
       setTimeout(() => refresh().catch(() => undefined), 1200)
+    } catch (error) {
+      toast.error((error as Error).message)
+    } finally {
+      setBusy("")
+    }
+  }
+
+  const saveSupplierKey = async (code: string) => {
+    const apiKey = supplierKeys[code]?.trim()
+    if (!apiKey) return toast.error("Enter the supplier API key")
+    setBusy(`${code}-save-key`)
+    try {
+      await api(`/admin/merchportal/suppliers/${code}/credential`, {
+        method: "POST",
+        body: JSON.stringify({ api_key: apiKey }),
+      })
+      setSupplierKeys((previous) => ({ ...previous, [code]: "" }))
+      await refresh()
+      toast.success("API key saved. Use Test connection to verify it.")
     } catch (error) {
       toast.error((error as Error).message)
     } finally {
@@ -353,11 +373,24 @@ const MerchPortalPage = () => {
                 <div>
                   <Text weight="plus">{supplier.display_name}</Text>
                   <Text size="small" className="text-ui-fg-subtle">
-                    {supplier.configured ? "API key configured" : "Add API key in Portainer"}
+                    {supplier.configured ? "API key configured" : "Add API key below"}
                   </Text>
                 </div>
                 <Button variant="secondary" size="small" onClick={() => supplierAction(supplier.code, "test")} isLoading={busy === `${supplier.code}-test`}>
                   Test connection
+                </Button>
+              </div>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <Input
+                  type="password"
+                  autoComplete="off"
+                  aria-label={`${supplier.display_name} API key`}
+                  placeholder={supplier.configured ? "Replace API key" : "Supplier API key"}
+                  value={supplierKeys[supplier.code] || ""}
+                  onChange={(event) => setSupplierKeys((previous) => ({ ...previous, [supplier.code]: event.target.value }))}
+                />
+                <Button size="small" variant="secondary" disabled={!supplierKeys[supplier.code]?.trim()} isLoading={busy === `${supplier.code}-save-key`} onClick={() => saveSupplierKey(supplier.code)}>
+                  Save key
                 </Button>
               </div>
               <div className="flex flex-wrap gap-2">

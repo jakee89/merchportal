@@ -3,12 +3,21 @@ import type {
   MedusaResponse,
 } from "@medusajs/framework/http"
 import { createSupplierAdapter } from "../../../../../../modules/merchportal/adapters"
+import { MERCHPORTAL_MODULE } from "../../../../../../modules/merchportal"
+import { resolveSupplierCredential } from "../../../../../../modules/merchportal/supplier-credentials"
 import { requireStaff } from "../../../auth"
 
 export async function POST(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   await requireStaff(req)
   try {
-    const adapter = createSupplierAdapter(req.params.code)
+    const code = req.params.code as "stricker" | "midocean"
+    if (!["stricker", "midocean"].includes(code)) {
+      res.status(400).json({ message: "Choose a supported supplier" })
+      return
+    }
+    const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
+    const [supplier] = await service.listSuppliers({ code }, { take: 1 })
+    const adapter = createSupplierAdapter(code, resolveSupplierCredential(code, supplier?.configuration))
     res.json({ connection: await adapter.testConnection() })
   } catch (error) {
     res.json({

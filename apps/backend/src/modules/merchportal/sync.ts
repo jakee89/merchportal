@@ -3,6 +3,7 @@ import type { MedusaContainer } from "@medusajs/framework/types"
 import { MedusaError } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "."
 import { createSupplierAdapter, SyncKind } from "./adapters"
+import { resolveSupplierCredential } from "./supplier-credentials"
 
 const suppliers = {
   stricker: {
@@ -290,7 +291,7 @@ export async function runSupplierSync(
   }
 
   try {
-    const adapter = createSupplierAdapter(supplierCode)
+    const adapter = createSupplierAdapter(supplierCode, resolveSupplierCredential(supplierCode, supplier.configuration))
     const abortController = new AbortController()
     const cancellationPoll = setInterval(() => {
       service.retrieveImportJob(job.id).then((current: any) => {
@@ -539,6 +540,4 @@ export async function runSupplierSync(
   }
 }
 
-export function supplierCredentialStatus(code: SupplierCode) {
-  return Boolean(code === "stricker" ? process.env.STRICKER_ACCESS_KEY : process.env.MIDOCEAN_API_KEY)
-}
+export { supplierCredentialStatus } from "./supplier-credentials"

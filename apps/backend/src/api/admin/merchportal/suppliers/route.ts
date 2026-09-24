@@ -6,8 +6,8 @@ import { MERCHPORTAL_MODULE } from "../../../../modules/merchportal"
 import {
   ensureSuppliers,
   reconcileStaleImportJobs,
-  supplierCredentialStatus,
 } from "../../../../modules/merchportal/sync"
+import { supplierCredentialStatus } from "../../../../modules/merchportal/supplier-credentials"
 import { requireStaff } from "../auth"
 
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
@@ -21,8 +21,15 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   )
   res.json({
     suppliers: suppliers.map((supplier: any) => ({
-      ...supplier,
-      configured: supplierCredentialStatus(supplier.code),
+      id: supplier.id,
+      code: supplier.code,
+      display_name: supplier.display_name,
+      status: supplier.status,
+      product_sync_at: supplier.product_sync_at,
+      price_sync_at: supplier.price_sync_at,
+      stock_sync_at: supplier.stock_sync_at,
+      last_error: supplier.last_error,
+      configured: supplierCredentialStatus(supplier.code, supplier.configuration),
       due: {
         catalog: !supplier.product_sync_at || Date.now() - new Date(supplier.product_sync_at).getTime() > 86_400_000,
         price: !supplier.price_sync_at || Date.now() - new Date(supplier.price_sync_at).getTime() > 86_400_000,
