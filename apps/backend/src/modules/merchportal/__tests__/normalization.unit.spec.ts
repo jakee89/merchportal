@@ -1,4 +1,5 @@
 import { catalogSummary, futureStock, normalizeSupplierCatalog, productPriceBreaks, supplierMasterReference } from "../normalization"
+import { supplierImageToken } from "../media"
 
 describe("supplier catalog normalization", () => {
   it("reports preparation progress so long imports can be monitored and stopped", async () => {
@@ -25,6 +26,23 @@ describe("supplier catalog normalization", () => {
     expect(
       supplierMasterReference("stricker", { Reference: "99822-105" }, "99822-105"),
     ).toBe("99822")
+  })
+
+  it("prefers each Stricker option image over the shared set image and retains supplied hex", async () => {
+    const records = [
+      { supplier_id: "supplier-1", external_id: "92323-102", payload: { ProdReference: "92323", Reference: "92323-102", Name: "Bag", ColorDesc1: "Pink", ColorCode: "102", ColorHex1: "#db3d6c", MainImage: "92323_set.jpg", OptionalImage1: "92323_102.jpg" } },
+      { supplier_id: "supplier-1", external_id: "92323-150", payload: { ProdReference: "92323", Reference: "92323-150", Name: "Bag", ColorDesc1: "Natural", ColorCode: "150", MainImage: "92323_set.jpg", OptionalImage1: "92323_150.jpg" } },
+    ]
+    const service = {
+      listSuppliers: jest.fn().mockResolvedValue([{ id: "supplier-1", code: "stricker", display_name: "Stricker" }]),
+      listRawSupplierRecords: jest.fn().mockImplementation(async (filters) => filters.record_type === "product" ? records : []),
+      listPublishedProductSources: jest.fn().mockResolvedValue([]),
+    }
+    const products = await normalizeSupplierCatalog({ resolve: () => service } as any, { supplier_code: "stricker", take: 10 })
+    const variants = products[0].variants
+    expect(variants.find((item) => item.sku === "92323-102")?.images[0]).toBe(`/media/${supplierImageToken("https://cdn.hideacontent.com/public/products/1000x1000/92323_102.jpg")}`)
+    expect(variants.find((item) => item.sku === "92323-150")?.images[0]).toBe(`/media/${supplierImageToken("https://cdn.hideacontent.com/public/products/1000x1000/92323_150.jpg")}`)
+    expect(variants.find((item) => item.sku === "92323-102")?.color_hex).toBe("#db3d6c")
   })
 
   it("keeps a supplier's explicit parent reference", () => {

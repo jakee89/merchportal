@@ -44,6 +44,7 @@ type Variant = {
   price_breaks?: Array<{ quantity: number; price_eur: number }>
   future_stock?: Array<{ date: string; quantity: number }>
   color_code?: string
+  color_hex?: string
   ean?: string
   pantone?: string
   dimensions?: string
@@ -120,8 +121,9 @@ export default function Configurator({ productId, productName, productImages, ba
   const sizeChoices = (line: Line) => {
     const choice = choiceForMethod(line.methodId)
     const found = new Set<string>()
-    return (choice?.methods || []).flatMap((method) => (method.positions.find((position) => position.id === line.positionId)?.size_options || []).flatMap((size) => {
-      const key = `${size.label}:${size.pricing_code || size.id}`
+    const orderedMethods = [...(choice?.methods || [])].sort((left, right) => Number(right.id === line.methodId) - Number(left.id === line.methodId))
+    return orderedMethods.flatMap((method) => (method.positions.find((position) => position.id === line.positionId)?.size_options || []).flatMap((size) => {
+      const key = `${size.width_mm}:${size.height_mm}`
       if (found.has(key)) return []
       found.add(key)
       return [{ ...size, methodId: method.id }]
@@ -204,7 +206,7 @@ export default function Configurator({ productId, productName, productImages, ba
       <div className={styles.productBuyPanel}>
         <h2>Choose colour and option</h2>
         <p className={styles.selectedColour}>{variants.length} options · Selected: <strong>{variant?.color || "—"}</strong>{variant?.size && variant.size !== "Standard" ? ` · ${variant.size}` : ""}</p>
-        <div className={styles.variantChoices} role="group" aria-label="Available colours and variants">{variants.map((item) => <button type="button" key={item.id} className={item.id === variant?.id ? styles.activeVariantChoice : ""} aria-pressed={item.id === variant?.id} title={`${item.color}${item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}`} onClick={() => setVariantId(item.id)}><span className={styles.variantChoiceImage}><SafeImage src={mediaUrl(backend, item.images?.[0])} alt="" /></span><span><strong>{item.color}</strong>{item.size && item.size !== "Standard" && <small>{item.size}</small>}</span></button>)}</div>
+        <div className={styles.variantChoices} role="group" aria-label="Available colours and variants">{variants.map((item) => <button type="button" key={item.id} className={item.id === variant?.id ? styles.activeVariantChoice : ""} aria-pressed={item.id === variant?.id} title={`${item.color}${item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}`} onClick={() => setVariantId(item.id)}><span className={styles.variantChoiceImage}>{item.color_hex ? <span className={styles.variantColour} style={{ backgroundColor: item.color_hex }} /> : <SafeImage src={mediaUrl(backend, item.images?.[0])} alt="" />}</span><span><strong>{item.color}</strong>{item.size && item.size !== "Standard" && <small>{item.size}</small>}</span></button>)}</div>
         {variants.length > 12 && <label className={styles.variantSelectFallback}>Find an option<select value={variant?.id || ""} onChange={(event) => setVariantId(event.target.value)}>{variants.map((item) => <option key={item.id} value={item.id}>{item.color}{item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}{item.sku ? ` · ${item.sku}` : ""}</option>)}</select></label>}
         <dl className={styles.variantFacts}><div><dt>SKU</dt><dd>{variant?.sku || "—"}</dd></div>{variant?.ean && <div><dt>EAN</dt><dd>{variant.ean}</dd></div>}{variant?.pantone && <div><dt>Pantone</dt><dd>{variant.pantone}</dd></div>}{variant?.dimensions && <div><dt>Dimensions</dt><dd>{variant.dimensions}</dd></div>}</dl>
         <h3>Plain product price <small>excl. VAT</small></h3>{productBreaks.some((item) => item.price_eur > 0) ? <table className={styles.priceTable}><thead><tr><th>Quantity</th><th>Unit price</th></tr></thead><tbody>{productBreaks.filter((item) => item.price_eur > 0).map((item) => <tr key={item.quantity}><td>{item.quantity}+</td><td>€{item.price_eur.toFixed(2)}</td></tr>)}</tbody></table> : <p>Price on request</p>}
@@ -223,7 +225,7 @@ export default function Configurator({ productId, productName, productImages, ba
             <div className={styles.positionCards}>{positions.filter((item) => item.id === line.positionId || !lines.some((other) => other.key !== line.key && other.positionId === item.id)).map((item) => <button type="button" key={item.id} className={item.id === line.positionId ? styles.activePositionCard : ""} aria-pressed={item.id === line.positionId} onClick={() => choosePosition(line, item.id)}><SafeImage src={positionImage(item)} alt={`${item.name} print area`} /><strong>{item.name}</strong>{item.max_width_mm && item.max_height_mm && <span>W {item.max_width_mm} × H {item.max_height_mm} mm</span>}</button>)}</div>
             {line.positionId && <label>Technique<select value={choiceForMethod(line.methodId)?.key || ""} onChange={(event) => chooseMethod(line, event.target.value)}>{compatible.map((item) => <option value={item.key} key={item.key}>{item.name}</option>)}</select></label>}
             {method && <label>Colour mode<input value={colourMode(method)} readOnly /></label>}
-            {sizes.length > 0 && <div className={styles.sizeOptions}><span>Print size (W × H)</span><div>{sizes.map((size) => <button type="button" key={size.id} className={size.id === line.sizeId ? styles.activeSizeOption : ""} onClick={() => chooseSize(line, size)}>{size.label}</button>)}</div></div>}
+            {sizes.length > 0 && <div className={styles.sizeOptions}><span>Print size (W × H)</span><div>{sizes.map((size) => <button type="button" key={`${size.methodId}:${size.id}`} className={Number(line.width) === size.width_mm && Number(line.height) === size.height_mm ? styles.activeSizeOption : ""} onClick={() => chooseSize(line, size)}>{size.label}</button>)}</div></div>}
             {position && !sizes.length && <p className={styles.helper}>{position.max_width_mm && position.max_height_mm ? `Maximum area ${position.max_width_mm} × ${position.max_height_mm} mm. ` : ""}{position.max_colours ? `Maximum ${position.max_colours} colours.` : ""}</p>}
             {method && colourMode(method) === "Spot colours" && <label>Number of print colours<select value={line.colours} onChange={(event) => updateLine(line.key, { colours: Number(event.target.value) })}>{Array.from({ length: position?.max_colours || 1 }, (_, colourIndex) => colourIndex + 1).map((count) => <option value={count} key={count}>{count}</option>)}</select></label>}
             {stitchTiers.length > 0 && <label>Stitch count<select value={line.stitches} onChange={(event) => updateLine(line.key, { stitches: Number(event.target.value) })}>{stitchTiers.map((count) => <option value={count} key={count}>Up to {count.toLocaleString()} stitches</option>)}</select></label>}

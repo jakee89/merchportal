@@ -13,6 +13,7 @@ export type NormalizedVariant = {
   title: string
   color: string
   color_code?: string
+  color_hex?: string
   color_group?: string
   size: string
   ean?: string
@@ -348,6 +349,8 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
       .map((row, index) => {
         const sku = value(row, ["sku", "SKU", "optionalReference", "reference", "variant_id"]) || `${record.external_id}-${index + 1}`
         const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "ColorCode", "Color1", "color"])
+        const suppliedHex = value(row, ["ColorHex1", "color_hex", "colour_hex"])
+        const colorHex = suppliedHex && /^#?[0-9a-f]{6}$/iu.test(suppliedHex) ? `#${suppliedHex.replace(/^#/u, "")}` : undefined
         const color = value(row, ["ColorDesc1", "ColorDescription", "color_description", "colour_description", "color_name", "colour_name", "color", "colour", "color_group"]) || colorCode || "Standard"
         const colorGroup = value(row, ["color_group", "colour_group", "color_family", "colour_family"]) || color
         let size = value(row, ["size_description", "size", "combined_sizes", "capacity", "format", "dimension"]) || "Standard"
@@ -358,19 +361,18 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         const stockMatches = matchingRecords(stockIndex, group.supplier_id, sku, group.master_id)
         const priceBreaks = productPriceBreaks(priceMatches.length ? priceMatches : [row])
         const stocksFound = stockMatches.map((item) => numberValue(item.payload, ["qty", "stock", "quantity", "available", "free_stock"], true)).filter((item): item is number => item !== undefined)
-        let variantImages = imageUrls(row, supplier?.code)
-        if (!variantImages.length && supplier?.code === "stricker") {
-          const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "ColorCode", "Color1", "color"])
-          if (colorCode) {
-            variantImages = [`https://cdn.hideacontent.com/public/products/1000x1000/${group.master_id}_${colorCode}.jpg`]
-          }
-        }
+        const suppliedVariantImage = supplier?.code === "stricker" ? value(row, ["OptionalImage1", "optional_image_1"]) : undefined
+        const preferredImage = suppliedVariantImage ? strickerProductImage(suppliedVariantImage) : supplier?.code === "stricker" && colorCode
+          ? strickerProductImage(`${group.master_id}_${colorCode}.jpg`)
+          : undefined
+        const variantImages = [preferredImage, ...imageUrls(row, supplier?.code)].filter((image, imageIndex, all): image is string => Boolean(image) && all.indexOf(image) === imageIndex)
         return {
           source_id: value(row, ["variant_id", "id", "ID"]) || sku,
           sku,
           title: [color, size === "Standard" ? "" : size].filter(Boolean).join(" "),
           color,
           color_code: colorCode,
+          color_hex: colorHex,
           color_group: colorGroup,
           size,
           ean: value(row, ["ean", "ean13", "barcode", "gtin"]),

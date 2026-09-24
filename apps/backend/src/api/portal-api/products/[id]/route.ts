@@ -53,6 +53,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           : [],
         future_stock: Array.isArray(indexedVariant?.future_stock) ? indexedVariant.future_stock : [],
         color_code: indexedVariant?.color_code,
+        color_hex: indexedVariant?.color_hex,
       }
     })
   const decorationOptions = Array.isArray(source.decoration_options)

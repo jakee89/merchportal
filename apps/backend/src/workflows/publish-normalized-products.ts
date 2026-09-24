@@ -95,6 +95,7 @@ async function persistProductSources(container: any, normalized: NormalizedProdu
             sku: variant.sku,
             color: variant.color,
             color_code: variant.color_code,
+            color_hex: variant.color_hex,
             color_group: variant.color_group,
             size: variant.size,
             ean: variant.ean,

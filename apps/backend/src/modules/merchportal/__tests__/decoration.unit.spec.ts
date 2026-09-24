@@ -171,6 +171,26 @@ describe("supplier-neutral decoration normalization", () => {
     })
   })
 
+  it("prices an exact Stricker area option without treating its full print rectangle as artwork area", () => {
+    const methods = normalizeDecorationOptions([{
+      Component1: "Bag",
+      Location1: "Front",
+      Area1: "300 x 300",
+      TableCodes1: "TXP1",
+      TableCodesOptions1: "TXP1-02-A",
+      CustomizationTypes1: "Textile Printing",
+    }], [], [{ CustomizationTables: [{
+      TableCode: "TXP1-02",
+      TableCodeOption: "TXP1-02-A",
+      PriceByArea: true,
+      TableMaxAreaCM: "30 x 30",
+      TableMaxAreaCM2: 600,
+      MinQt1: 1,
+      Price1: 1.8,
+    }] }])
+    expect(decorationPrice(methods[0], 25, { pricing_code: "TXP1-02-A", width_mm: 300, height_mm: 300 })).toEqual({ unit: 1.8, handling: 0, setup: 0, pending: false })
+  })
+
   it("uses the best eligible quantity price break", () => {
     expect(
       decorationPrice(
@@ -284,7 +304,7 @@ describe("supplier-neutral decoration normalization", () => {
     expect(decorationPrice(method, 25, { colours: 2, color_code: "WW" }).unit).toBe(1.5)
   })
 
-  it("requires a quote when Stricker print area exceeds the selected supplier table", () => {
+  it("uses the exact Stricker area tier but requires a quote below its quantity break", () => {
     const method = {
       id: "DTF1",
       name: "Digital Transfer",
@@ -293,7 +313,7 @@ describe("supplier-neutral decoration normalization", () => {
       price_tables: [{ code: "DTF1-01", option_code: "DTF1-01-A", price_by_color: false, price_by_area: true, price_by_stitches: false, max_area_cm2: 100, price_breaks: [{ quantity: 25, unit_price_eur: 1.5 }] }],
     }
     expect(decorationPrice(method, 25, { pricing_code: "DTF1-01-A", width_mm: 100, height_mm: 100 }).pending).toBe(false)
-    expect(decorationPrice(method, 25, { pricing_code: "DTF1-01-A", width_mm: 200, height_mm: 200 }).pending).toBe(true)
+    expect(decorationPrice(method, 25, { pricing_code: "DTF1-01-A", width_mm: 200, height_mm: 200 }).pending).toBe(false)
     expect(decorationPrice(method, 10, { pricing_code: "DTF1-01-A", width_mm: 100, height_mm: 100 }).pending).toBe(true)
   })
 

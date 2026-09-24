@@ -688,6 +688,7 @@
 }
 .swatches button img,
 .swatches button .productVisual { height: 100%; width: 100%; object-fit: cover; }
+.swatchColour { display: block; height: 100%; width: 100%; }
 .swatches button .productVisual { font-size: 10px; }
 .swatches button.activeSwatch {
   box-shadow: 0 0 0 2px var(--client-color, #0878e8);
@@ -814,6 +815,7 @@
 .variantChoiceImage img,
 .variantChoiceImage .imageUnavailable { height: 100%; min-height: 0; object-fit: cover; width: 100%; }
 .variantChoiceImage .imageUnavailable { font-size: 0; }
+.variantColour { display: block; height: 100%; width: 100%; }
 .variantChoices button > span:last-child { min-width: 0; }
 .variantChoices strong,
 .variantChoices small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -940,7 +942,7 @@
   align-items: start;
   display: grid;
   gap: 22px;
-  grid-template-columns: 1fr 360px;
+  grid-template-columns: minmax(0, 1fr) 360px;
 }
 .configForm,
 .priceSummary {
@@ -1028,12 +1030,14 @@
   display: grid;
   gap: 18px;
   margin-top: 34px;
+  min-width: 0;
 }
 .productSections > section {
   background: #fff;
   border: 1px solid #dce6f0;
   border-radius: 14px;
   padding: 24px;
+  min-width: 0;
 }
 .productSections h2,
 .related h2 { font-size: 21px; margin-bottom: 15px; }
@@ -1042,7 +1046,7 @@
 .specifications div { border-bottom: 1px solid #edf1f5; display: grid; font-size: 12px; grid-template-columns: 42% 58%; padding: 11px 8px; }
 .specifications dt { color: #738197; }
 .specifications dd { font-weight: 650; }
-.printCarouselWrap { align-items: center; display: flex; gap: 10px; }
+.printCarouselWrap { align-items: center; display: flex; gap: 10px; max-width: 100%; min-width: 0; overflow: hidden; }
 .headerActions { display: flex; gap: 10px; }
 .quoteLayout { display: grid; gap: 20px; grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); margin-top: 25px; }
 .quotePanel { align-self: start; background: #fff; border: 1px solid #dce6f0; border-radius: 14px; display: grid; gap: 15px; padding: 22px; }
@@ -1058,7 +1062,7 @@
 .quoteHistory { border-top: 1px solid #e9eef4; display: grid; gap: 7px; padding: 13px 0; }
 .quoteHistory span { color: #69798e; font-size: 12px; }
 .quoteHistory summary { color: var(--client-color, #086bea); cursor: pointer; font-size: 12px; }
-.printCarousel { display: flex; gap: 14px; overflow-x: auto; scroll-behavior: smooth; scroll-snap-type: x mandatory; width: 100%; }
+.printCarousel { display: flex; flex: 1 1 auto; gap: 14px; max-width: 100%; min-width: 0; overflow-x: auto; scroll-behavior: smooth; scroll-snap-type: x mandatory; }
 .printCarouselCard { flex: 0 0 200px; scroll-snap-align: start; }
 .printCarouselCard .productImage,
 .printCarouselCard .productVisual { background: #f5f8fb; border-radius: 10px; height: 155px; object-fit: contain; width: 100%; }

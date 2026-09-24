@@ -506,7 +506,7 @@ export function decorationPrice(method: DecorationMethod | undefined, quantity: 
     }
     const areaTables = tables.filter((table) => table.price_by_area && areaCm2 !== undefined && (!table.max_area_cm2 || areaCm2 <= table.max_area_cm2))
     selectedTable = exactTables.length
-      ? tables.find((table) => !table.price_by_area || (areaCm2 !== undefined && (!table.max_area_cm2 || areaCm2 <= table.max_area_cm2)))
+      ? tables[0]
       : (areaTables.length ? areaTables.sort((left, right) => (left.max_area_cm2 || Number.MAX_SAFE_INTEGER) - (right.max_area_cm2 || Number.MAX_SAFE_INTEGER)) : tables.filter((table) => !table.price_by_area))[0]
     if (!selectedTable) return { unit: 0, handling: 0, setup: 0, pending: true }
   }

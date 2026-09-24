@@ -18,7 +18,7 @@ export type CatalogProduct = {
   brand?: string
   sustainable: boolean
   color_option_count?: number
-  color_options: Array<{ name: string; image_url?: string; sku?: string; price_eur?: number; stock_quantity?: number }>
+  color_options: Array<{ name: string; color_hex?: string; image_url?: string; sku?: string; price_eur?: number; stock_quantity?: number }>
 }
 
 function mediaUrl(backend: string, value?: string) {
@@ -44,7 +44,7 @@ export default function CatalogCard({ product, backend }: { product: CatalogProd
       <div className={styles.cardBody}>
         <div className={styles.badges}>{product.category && <span>{product.category}</span>}{product.sustainable && <span className={styles.ecoBadge}>Sustainable</span>}</div>
         {product.color_options?.length > 0 && <><div className={styles.cardColourHeading}>Colours · {product.color_option_count || product.color_options.length} available</div><div className={styles.swatches} aria-label="Available colours">
-          {product.color_options.slice(0, 7).map((item) => <button key={item.name} className={item.name === option?.name ? styles.activeSwatch : ""} type="button" title={item.name} aria-label={`Show ${item.name}`} aria-pressed={item.name === option?.name} onClick={() => setOption(item)}>{item.image_url ? <ProductImage src={mediaUrl(backend, item.image_url)} name={item.name} /> : <span>{item.name.slice(0, 1)}</span>}</button>)}
+          {product.color_options.slice(0, 7).map((item) => <button key={item.name} className={item.name === option?.name ? styles.activeSwatch : ""} type="button" title={item.name} aria-label={`Show ${item.name}`} aria-pressed={item.name === option?.name} onClick={() => setOption(item)}>{item.color_hex ? <span className={styles.swatchColour} style={{ backgroundColor: item.color_hex }} /> : item.image_url ? <ProductImage src={mediaUrl(backend, item.image_url)} name={item.name} /> : <span>{item.name.slice(0, 1)}</span>}</button>)}
           {(product.color_option_count || product.color_options.length) > 7 && <small>+{(product.color_option_count || product.color_options.length) - 7}</small>}
         </div><p className={styles.selectedColour}>Selected: {option?.name}</p></>}
         <h2><Link href={productHref}>{product.name}</Link></h2>

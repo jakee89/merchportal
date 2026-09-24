@@ -95,7 +95,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           color_options: variants.reduce((items: any[], variant: any) => {
             const color = variant.color
             if (!color || items.some((item) => item.name === color)) return items
-            items.push({ name: color, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })
+            items.push({ name: color, color_hex: variant.color_hex, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })
             return items
           }, []).slice(0, 12),
         }
