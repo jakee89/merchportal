@@ -466,6 +466,20 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
   return [...methods.values()].sort((left, right) => left.name.localeCompare(right.name))
 }
 
+export function validateDecorationChoice(method: DecorationMethod, position: DecorationPosition, choice: { print_colours?: number; print_stitches?: number; pricing_code?: string; print_width_mm?: number; print_height_mm?: number }) {
+  const colours = choice.print_colours || 1
+  if (!Number.isInteger(colours) || colours < 1 || (position.max_colours && colours > position.max_colours)) return "Choose a valid number of print colours"
+  if (method.colour_mode !== "spot_colour" && colours !== 1) return "This printing technique does not allow a colour-count selection"
+  const sizes = position.size_options || []
+  const size = sizes.find((item) => item.pricing_code === choice.pricing_code || item.id === choice.pricing_code)
+  if (sizes.length && !size) return "Choose an available print size"
+  if (size && (size.width_mm !== choice.print_width_mm || size.height_mm !== choice.print_height_mm)) return "Choose a print size supplied for this technique"
+  if ((choice.print_width_mm && choice.print_width_mm < 1) || (choice.print_height_mm && choice.print_height_mm < 1) || (position.max_width_mm && choice.print_width_mm && choice.print_width_mm > position.max_width_mm) || (position.max_height_mm && choice.print_height_mm && choice.print_height_mm > position.max_height_mm)) return "Artwork dimensions exceed the selected print area"
+  const stitchTables = (method.price_tables || []).filter((table) => table.price_by_stitches && table.max_stitches)
+  if (stitchTables.length && (!choice.print_stitches || choice.print_stitches < 1 || choice.print_stitches > Math.max(...stitchTables.map((table) => Number(table.max_stitches))))) return "Choose a supported stitch count"
+  return null
+}
+
 export function decorationPrice(method: DecorationMethod | undefined, quantity: number, options: { colours?: number; width_mm?: number; height_mm?: number; color_code?: string; pricing_code?: string; handling_price_eur?: number; stitches?: number } = {}) {
   if (!method) return { unit: 0, handling: 0, setup: 0, pending: false }
   const colours = Math.max(1, Math.floor(options.colours || 1))
@@ -492,7 +506,7 @@ export function decorationPrice(method: DecorationMethod | undefined, quantity: 
     }
     const areaTables = tables.filter((table) => table.price_by_area && areaCm2 !== undefined && (!table.max_area_cm2 || areaCm2 <= table.max_area_cm2))
     selectedTable = exactTables.length
-      ? tables[0]
+      ? tables.find((table) => !table.price_by_area || (areaCm2 !== undefined && (!table.max_area_cm2 || areaCm2 <= table.max_area_cm2)))
       : (areaTables.length ? areaTables.sort((left, right) => (left.max_area_cm2 || Number.MAX_SAFE_INTEGER) - (right.max_area_cm2 || Number.MAX_SAFE_INTEGER)) : tables.filter((table) => !table.price_by_area))[0]
     if (!selectedTable) return { unit: 0, handling: 0, setup: 0, pending: true }
   }
@@ -508,6 +522,7 @@ export function decorationPrice(method: DecorationMethod | undefined, quantity: 
       return areaCm2 >= from && areaCm2 <= to
     })
     .sort((left, right) => (right.area_from_cm2 || 0) - (left.area_from_cm2 || 0))[0]
+  if (!selectedTable && method.price_ranges?.some((item) => item.area_from_cm2 !== undefined || item.area_to_cm2 !== undefined) && !range) return { unit: 0, handling: 0, setup: 0, pending: true }
   const breaks = selectedTable?.price_breaks?.length ? selectedTable.price_breaks : range?.price_breaks?.length ? range.price_breaks : method.price_breaks
   if (!breaks.length || (needsArea && areaCm2 === undefined)) return { unit: 0, handling: 0, setup: method?.setup_price_eur || 0, pending: true }
   const selected = [...breaks].filter((item) => item.quantity <= quantity).sort((left, right) => right.quantity - left.quantity)[0]

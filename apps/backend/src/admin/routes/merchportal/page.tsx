@@ -270,6 +270,7 @@ const MerchPortalPage = () => {
         <div>
           <Heading>MerchPortal setup</Heading>
           <Text className="text-ui-fg-subtle">Malta commerce, clients and supplier updates</Text>
+          <a className="text-ui-fg-interactive text-sm" href="/app/merchportal/quotes">Review quote requests →</a>
         </div>
         <Button onClick={setup} isLoading={busy === "setup"}>
           Configure Malta & EUR

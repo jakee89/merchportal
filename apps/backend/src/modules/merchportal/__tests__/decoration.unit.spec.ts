@@ -1,4 +1,4 @@
-import { decorationPrice, normalizeDecorationOptions } from "../decoration"
+import { decorationPrice, normalizeDecorationOptions, validateDecorationChoice } from "../decoration"
 
 describe("supplier-neutral decoration normalization", () => {
   it("normalizes midocean print positions and techniques", () => {
@@ -282,5 +282,37 @@ describe("supplier-neutral decoration normalization", () => {
       pending: false,
     })
     expect(decorationPrice(method, 25, { colours: 2, color_code: "WW" }).unit).toBe(1.5)
+  })
+
+  it("requires a quote when Stricker print area exceeds the selected supplier table", () => {
+    const method = {
+      id: "DTF1",
+      name: "Digital Transfer",
+      positions: [],
+      price_breaks: [],
+      price_tables: [{ code: "DTF1-01", option_code: "DTF1-01-A", price_by_color: false, price_by_area: true, price_by_stitches: false, max_area_cm2: 100, price_breaks: [{ quantity: 25, unit_price_eur: 1.5 }] }],
+    }
+    expect(decorationPrice(method, 25, { pricing_code: "DTF1-01-A", width_mm: 100, height_mm: 100 }).pending).toBe(false)
+    expect(decorationPrice(method, 25, { pricing_code: "DTF1-01-A", width_mm: 200, height_mm: 200 }).pending).toBe(true)
+    expect(decorationPrice(method, 10, { pricing_code: "DTF1-01-A", width_mm: 100, height_mm: 100 }).pending).toBe(true)
+  })
+
+  it("requires a quote outside midocean supplied area ranges", () => {
+    const method = { id: "P", name: "Pad printing", positions: [], price_breaks: [{ quantity: 1, unit_price_eur: 1 }], price_ranges: [{ area_from_cm2: 1, area_to_cm2: 50, price_breaks: [{ quantity: 1, unit_price_eur: 1.2 }] }] }
+    expect(decorationPrice(method, 100, { width_mm: 50, height_mm: 50 }).unit).toBe(1.2)
+    expect(decorationPrice(method, 100, { width_mm: 100, height_mm: 100 }).pending).toBe(true)
+  })
+
+  it("checks supplier colour, size and stitch limits before quoting", () => {
+    const method = {
+      id: "PDP1", name: "Pad Printing", colour_mode: "spot_colour" as const, price_breaks: [],
+      positions: [{ id: "front", name: "Front", max_width_mm: 60, max_height_mm: 20, max_colours: 2, size_options: [{ id: "size-1", label: "6 × 2 cm", width_mm: 60, height_mm: 20, pricing_code: "PDP1-01" }] }],
+    }
+    const position = method.positions[0]
+    const valid = { print_colours: 2, pricing_code: "PDP1-01", print_width_mm: 60, print_height_mm: 20 }
+    expect(validateDecorationChoice(method, position, valid)).toBeNull()
+    expect(validateDecorationChoice(method, position, { ...valid, print_colours: 3 })).toMatch(/colours/)
+    expect(validateDecorationChoice(method, position, { ...valid, pricing_code: "wrong" })).toMatch(/size/)
+    expect(validateDecorationChoice(method, position, { ...valid, print_width_mm: 70 })).toMatch(/size/)
   })
 })

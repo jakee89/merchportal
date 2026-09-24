@@ -140,6 +140,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
 }
 
 type Body = {
+  preview_only?: boolean
   variant_id?: string
   quantity?: number
   color?: string
@@ -183,7 +184,8 @@ export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaRes
       artwork_file_id: req.body.artwork_file_id,
       artwork_filename: req.body.artwork_filename,
       decorations: req.body.decorations,
+      preview_only: Boolean(req.body.preview_only),
     },
   })
-  res.status(201).json({ configuration: result })
+  res.status(req.body.preview_only ? 200 : 201).json({ configuration: result })
 }

@@ -1043,6 +1043,21 @@
 .specifications dt { color: #738197; }
 .specifications dd { font-weight: 650; }
 .printCarouselWrap { align-items: center; display: flex; gap: 10px; }
+.headerActions { display: flex; gap: 10px; }
+.quoteLayout { display: grid; gap: 20px; grid-template-columns: minmax(0, 1.3fr) minmax(280px, .7fr); margin-top: 25px; }
+.quotePanel { align-self: start; background: #fff; border: 1px solid #dce6f0; border-radius: 14px; display: grid; gap: 15px; padding: 22px; }
+.quotePanel h2 { font-size: 20px; }
+.quotePanel label { display: grid; font-size: 13px; font-weight: 700; gap: 7px; }
+.quotePanel textarea { border: 1px solid #ccd8e5; border-radius: 8px; min-height: 90px; padding: 10px; }
+.quoteItem { align-items: start; border-top: 1px solid #e9eef4; display: flex; gap: 15px; justify-content: space-between; padding: 15px 0; }
+.quoteItem p { color: #66768a; font-size: 12px; margin: 6px 0; }
+.quoteItem small { color: #6f7d90; display: block; font-size: 11px; margin: 3px 0; }
+.quoteItem > div:last-child { display: grid; flex-shrink: 0; gap: 8px; text-align: right; }
+.quoteItem button { color: #b4232c; font-size: 12px; }
+.quoteTotal { border-top: 1px solid #dce6f0; display: flex; justify-content: space-between; padding-top: 15px; }
+.quoteHistory { border-top: 1px solid #e9eef4; display: grid; gap: 7px; padding: 13px 0; }
+.quoteHistory span { color: #69798e; font-size: 12px; }
+.quoteHistory summary { color: var(--client-color, #086bea); cursor: pointer; font-size: 12px; }
 .printCarousel { display: flex; gap: 14px; overflow-x: auto; scroll-behavior: smooth; scroll-snap-type: x mandatory; width: 100%; }
 .printCarouselCard { flex: 0 0 200px; scroll-snap-align: start; }
 .printCarouselCard .productImage,
@@ -1130,6 +1145,7 @@
   }
   .catalogGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .productHero { grid-template-columns: 1fr; }
+  .quoteLayout { grid-template-columns: 1fr; }
   .relatedGrid { grid-template-columns: repeat(2, 1fr); }
   .catalogLayout { grid-template-columns: 1fr; }
   .mobileFilterButton {

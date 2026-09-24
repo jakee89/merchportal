@@ -30,7 +30,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
   try { product = (await sdk.client.fetch<{ product: Product }>(`/portal-api/products/${id}`, { headers: await getAuthHeaders(), cache: "no-store" })).product } catch { notFound() }
   const backend = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
   return <div className={styles.page}>
-    <header className={styles.topbar}><Link href="/portal/account" className={styles.brand}><span className={styles.mark}>M</span>MerchPortal</Link><Link className={styles.secondary} href="/portal/account">Back to catalogue</Link></header>
+    <header className={styles.topbar}><Link href="/portal/account" className={styles.brand}><span className={styles.mark}>M</span>MerchPortal</Link><div className={styles.headerActions}><Link className={styles.secondary} href="/portal/account">Back to catalogue</Link><Link className={styles.secondary} href="/portal/account/quotes">Quote cart</Link></div></header>
     <main className={styles.productMain}>
       <nav className={styles.breadcrumbs} aria-label="Breadcrumb"><Link href="/portal/account">Catalogue</Link>{product.category_hierarchy?.map((item) => <span key={item}>/ {item}</span>)}</nav>
       <header className={styles.productTitle}><div><div className={styles.badges}>{product.category && <span>{product.category}</span>}{product.sustainable && <span className={styles.ecoBadge}>Sustainable</span>}</div><h1>{product.name}</h1><p>{[product.brand, product.code ? `Code ${product.code}` : ""].filter(Boolean).join(" · ")}</p></div></header>

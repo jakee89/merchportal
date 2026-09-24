@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react"
 import styles from "../../../../portal-shell.module.css"
-import { savePortalConfiguration, uploadPortalArtwork } from "../actions"
+import Link from "next/link"
+import { previewPortalConfiguration, savePortalConfiguration, uploadPortalArtwork } from "../actions"
 
 type PriceBreak = { quantity: number; unit_price_eur: number; next_colour_price_eur?: number }
 type PriceTable = { code: string; option_code?: string; max_colours?: number; max_area_cm2?: number; max_stitches?: number; price_by_color: boolean; price_by_area: boolean; price_by_stitches?: boolean; price_breaks: PriceBreak[] }
@@ -84,6 +85,9 @@ export default function Configurator({ productId, productName, productImages, ba
   const [artwork, setArtwork] = useState<File>()
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
+  const [verified, setVerified] = useState<{ estimated_total: number | null; branding_price_pending: boolean; decoration_lines: Array<{ unit_price_eur: number | null; setup_price_eur: number | null; price_pending: boolean }> }>()
+  const [verificationStatus, setVerificationStatus] = useState<"checking" | "ready" | "error">("checking")
+  const [verificationError, setVerificationError] = useState("")
   const variant = variants.find((item) => item.id === variantId) || variants[0]
   const gallery = useMemo(() => [...(variant?.images || []), ...productImages].filter((item, index, all) => item && all.indexOf(item) === index), [productImages, variant?.images])
   const [activeImage, setActiveImage] = useState(gallery[0] || "")
@@ -146,41 +150,23 @@ export default function Configurator({ productId, productName, productImages, ba
   }
   const chooseSize = (line: Line, size: SizeOption & { methodId: string }) => updateLine(line.key, { methodId: size.methodId, sizeId: size.id, pricingCode: size.pricing_code || size.id, colours: 1, stitches: firstStitchTier(methods.find((item) => item.id === size.methodId)), width: String(size.width_mm), height: String(size.height_mm) })
 
-  const linePrice = (line: Line) => {
-    const method = methods.find((item) => item.id === line.methodId)
-    if (!method) return { unit: 0, setup: 0, pending: false }
-    let pricingType = method.pricing_type?.toLowerCase() || ""
-    const area = Number(line.width) && Number(line.height) ? Number(line.width) * Number(line.height) / 100 : undefined
-    let selectedTable: PriceTable | undefined
-    if (method.price_tables?.length) {
-      const exactTables = method.price_tables.filter((table) => table.option_code === line.pricingCode || table.code === line.pricingCode)
-      let tables = exactTables
-      if (!tables.length) tables = method.price_tables.filter((table) => table.code.startsWith(`${line.pricingCode}-`))
-      if (tables.some((table) => table.price_by_color)) tables = tables.filter((table) => table.price_by_color && table.max_colours === line.colours)
-      if (tables.some((table) => table.price_by_stitches)) tables = tables.filter((table) => table.price_by_stitches && Boolean(table.max_stitches) && line.stitches > 0 && line.stitches <= Number(table.max_stitches)).sort((left, right) => Number(left.max_stitches) - Number(right.max_stitches))
-      const areaTables = tables.filter((table) => table.price_by_area && area !== undefined && (!table.max_area_cm2 || area <= table.max_area_cm2))
-      selectedTable = exactTables.length ? tables[0] : (areaTables.length ? areaTables.sort((left, right) => (left.max_area_cm2 || Infinity) - (right.max_area_cm2 || Infinity)) : tables.filter((table) => !table.price_by_area))[0]
-      if (!selectedTable) return { unit: 0, setup: 0, pending: true }
-      pricingType = selectedTable.price_by_color ? "numberofcolours" : selectedTable.price_by_area ? "arearange" : ""
-    }
-    const range = method.price_ranges?.filter((item) => area !== undefined && area >= (item.area_from_cm2 || 0) && area <= (item.area_to_cm2 || Infinity)).sort((a, b) => (b.area_from_cm2 || 0) - (a.area_from_cm2 || 0))[0]
-    if (pricingType.includes("area") && area === undefined) return { unit: 0, setup: method.setup_price_eur || 0, pending: true }
-    const breaks = selectedTable?.price_breaks?.length ? selectedTable.price_breaks : range?.price_breaks?.length ? range.price_breaks : method.price_breaks
-    const selected = [...breaks].filter((item) => item.quantity <= quantity).sort((a, b) => b.quantity - a.quantity)[0]
-    if (!selected) return { unit: 0, setup: method.setup_price_eur || 0, pending: true }
-    const byColour = pricingType.includes("colour") || pricingType.includes("color")
-    let unit = selectedTable?.price_by_color ? selected.unit_price_eur : byColour ? method.next_colour_cost_indicator && selected.next_colour_price_eur !== undefined ? selected.unit_price_eur + selected.next_colour_price_eur * (line.colours - 1) : selected.unit_price_eur * line.colours : selected.unit_price_eur
-    if (pricingType === "area" && area !== undefined) unit *= area
-    const handling = [...(method.handling_price_breaks || [])].filter((item) => item.quantity <= quantity).sort((a, b) => b.quantity - a.quantity)[0]?.unit_price_eur || 0
-    return { unit: unit + (selectedPosition(line)?.handling_price_eur ?? handling), setup: (method.setup_price_eur || 0) * (byColour && !selectedTable?.price_by_color ? line.colours : 1), pending: false }
-  }
   const pricedLines = lines.map((line) => {
     const method = methods.find((item) => item.id === line.methodId)
-    return { line, price: linePrice(line), method, position: selectedPosition(line) }
+    return { line, method, position: selectedPosition(line) }
   })
-  const decorationUnit = pricedLines.reduce((sum, item) => sum + item.price.unit, 0)
-  const setup = pricedLines.reduce((sum, item) => sum + item.price.setup, 0)
-  const total = productUnitPrice === undefined ? undefined : (productUnitPrice + decorationUnit) * quantity + setup
+  const decorations = lines.map((line) => ({ branding_method: line.methodId, print_position: line.positionId, pricing_code: line.pricingCode, print_colours: line.colours, print_stitches: line.stitches || undefined, print_width_mm: line.width ? Number(line.width) : undefined, print_height_mm: line.height ? Number(line.height) : undefined }))
+  const selectionKey = JSON.stringify({ variant_id: variant?.id, quantity, decorations })
+  useEffect(() => {
+    if (!variant || lines.some((line) => !line.positionId || !line.methodId)) { setVerified(undefined); setVerificationStatus("checking"); return }
+    let cancelled = false
+    setVerified(undefined)
+    setVerificationStatus("checking")
+    setVerificationError("")
+    const timer = window.setTimeout(() => previewPortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations })
+      .then((result) => { if (!cancelled) { setVerified(result.configuration); setVerificationStatus("ready") } })
+      .catch((error) => { if (!cancelled) { setVerificationStatus("error"); setVerificationError(error instanceof Error ? error.message : "Could not verify this configuration") } }), 450)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [productId, selectionKey])
 
   const fileContent = (file: File) => new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -200,8 +186,8 @@ export default function Configurator({ productId, productName, productImages, ba
         const result = await uploadPortalArtwork({ filename: artwork.name, mime_type: artwork.type, content: await fileContent(artwork) })
         uploaded = result.file
       }
-      const result = await savePortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations: lines.map((line) => ({ branding_method: line.methodId, print_position: line.positionId, pricing_code: line.pricingCode, print_colours: line.colours, print_stitches: line.stitches || undefined, print_width_mm: line.width ? Number(line.width) : undefined, print_height_mm: line.height ? Number(line.height) : undefined })), artwork_file_id: uploaded?.id, artwork_filename: uploaded?.filename })
-      setMessage(result.configuration.branding_price_pending ? "Configuration saved. One or more printing prices will be confirmed in the final quote." : `Configuration saved. Estimated total €${result.configuration.estimated_total.toFixed(2)}.`)
+      const result = await savePortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations, artwork_file_id: uploaded?.id, artwork_filename: uploaded?.filename })
+      setMessage(result.configuration.branding_price_pending ? "Added to cart · Quote required for one or more prices." : `Added to cart · Estimated total €${result.configuration.estimated_total?.toFixed(2)}.`)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save configuration")
     } finally {
@@ -227,7 +213,8 @@ export default function Configurator({ productId, productName, productImages, ba
     </section>
     <section className={styles.configurator}>
       <div className={styles.configForm}><span className={styles.eyebrow}>Configure printing</span><label>Quantity<input type="number" min="1" max="100000" value={quantity} onChange={(event) => setQuantity(Math.max(1, Math.min(100000, Number(event.target.value) || 1)))} /></label>
-        {methods.length ? <>{pricedLines.map(({ line, method, position, price }, index) => {
+        {methods.length ? <>{pricedLines.map(({ line, method, position }, index) => {
+          const price = verified?.decoration_lines[index]
           const compatible = compatibleChoices(line.positionId)
           const sizes = sizeChoices(line)
           const stitchTiers = Array.from(new Set((method?.price_tables || []).filter((table) => table.price_by_stitches && table.max_stitches).map((table) => Number(table.max_stitches)))).sort((left, right) => left - right)
@@ -240,12 +227,12 @@ export default function Configurator({ productId, productName, productImages, ba
             {position && !sizes.length && <p className={styles.helper}>{position.max_width_mm && position.max_height_mm ? `Maximum area ${position.max_width_mm} × ${position.max_height_mm} mm. ` : ""}{position.max_colours ? `Maximum ${position.max_colours} colours.` : ""}</p>}
             {method && colourMode(method) === "Spot colours" && <label>Number of print colours<select value={line.colours} onChange={(event) => updateLine(line.key, { colours: Number(event.target.value) })}>{Array.from({ length: position?.max_colours || 1 }, (_, colourIndex) => colourIndex + 1).map((count) => <option value={count} key={count}>{count}</option>)}</select></label>}
             {stitchTiers.length > 0 && <label>Stitch count<select value={line.stitches} onChange={(event) => updateLine(line.key, { stitches: Number(event.target.value) })}>{stitchTiers.map((count) => <option value={count} key={count}>Up to {count.toLocaleString()} stitches</option>)}</select></label>}
-            {method && <p className={styles.linePrice}>{price.pending ? "Printing price to be confirmed" : `€${price.unit.toFixed(2)} each${price.setup ? ` + €${price.setup.toFixed(2)} setup` : ""}`}</p>}
+            {method && <p className={styles.linePrice}>{verificationStatus === "checking" ? "Checking supplier price…" : !price || price.price_pending ? "Quote required" : `€${price.unit_price_eur?.toFixed(2)} each${price.setup_price_eur ? ` + €${price.setup_price_eur.toFixed(2)} setup` : ""}`}</p>}
           </div>
         })}{lines.length < positions.length && <button className={styles.addPrint} type="button" onClick={() => setLines((items) => [...items, { key: Date.now(), positionId: "", methodId: "", sizeId: "", pricingCode: "", colours: 1, stitches: 0, width: "", height: "" }])}>+ Add print position</button>}</> : <p className={styles.notice}>No customisation information is available for this product.</p>}
         <label>Artwork (optional)<input type="file" accept=".pdf,.png,.jpg,.jpeg,.svg,application/pdf,image/png,image/jpeg,image/svg+xml" onChange={(event) => setArtwork(event.target.files?.[0])} /></label><p className={styles.helper}>PDF, SVG, PNG or JPG · maximum 10 MB.</p>
       </div>
-      <aside className={styles.priceSummary}><h2>Estimate</h2><div><span>Plain product</span><strong>{productUnitPrice === undefined ? "On request" : `€${productUnitPrice.toFixed(2)} × ${quantity}`}</strong></div>{pricedLines.map(({ line, method, price }, index) => <div key={line.key}><span>{method?.name || `Print ${index + 1}`}</span><strong>{price.pending ? "To confirm" : `€${price.unit.toFixed(2)} × ${quantity}`}</strong></div>)}{setup > 0 && <div><span>Setup charges</span><strong>€{setup.toFixed(2)}</strong></div>}<div className={styles.estimateTotal}><span>Estimated total</span><strong>{total === undefined ? "On request" : `€${total.toFixed(2)}`}</strong></div>{total !== undefined && <p className={styles.helper}>€{(total / quantity).toFixed(2)} per unit equivalent · excl. VAT</p>}<button className={styles.primary} type="button" disabled={busy || !variant} onClick={save}>{busy ? "Saving…" : "Save configuration"}</button>{message && <p className={styles.configMessage} aria-live="polite">{message}</p>}</aside>
+      <aside className={styles.priceSummary}><h2>Estimate</h2><div><span>Plain product</span><strong>{productUnitPrice === undefined || productUnitPrice <= 0 ? "Quote required" : `€${productUnitPrice.toFixed(2)} × ${quantity}`}</strong></div>{pricedLines.map(({ line, method }, index) => <div key={line.key}><span>{method?.name || `Print ${index + 1}`}</span><strong>{!verified?.decoration_lines[index] || verified.decoration_lines[index].price_pending ? "Quote required" : `€${verified.decoration_lines[index].unit_price_eur?.toFixed(2)} × ${quantity}`}</strong></div>)}<div className={styles.estimateTotal}><span>Estimated total</span><strong>{verificationStatus === "checking" ? "Checking…" : verified?.estimated_total === null || !verified ? "Quote required" : `€${verified.estimated_total.toFixed(2)}`}</strong></div>{verificationError && <p className={styles.helper} role="alert">{verificationError}</p>}{verified?.estimated_total !== null && verified?.estimated_total !== undefined && <p className={styles.helper}>€{(verified.estimated_total / quantity).toFixed(2)} per unit equivalent · excl. VAT. Final price confirmed by staff.</p>}<button className={styles.primary} type="button" disabled={busy || !variant || verificationStatus === "error"} onClick={save}>{busy ? "Adding…" : "Add to quote cart"}</button>{message && <p className={styles.configMessage} aria-live="polite">{message} <Link href="/portal/account/quotes">Review cart →</Link></p>}</aside>
     </section>
   </>
 }

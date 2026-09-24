@@ -41,7 +41,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   const pageHref = (page: number) => { const next = new URLSearchParams(query); next.set("page", String(page)); return `/portal/account?${next}` }
   const backend = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
   return <div className={styles.page} style={{ "--client-color": me.organization.primary_color } as React.CSSProperties}>
-    <header className={styles.topbar}><Link href="/portal" className={styles.brand}><span className={styles.mark}>M</span>{me.organization.name}</Link><span>{customer.first_name || customer.email} · {me.membership?.role.replace("client_", "")}</span></header>
+    <header className={styles.topbar}><Link href="/portal" className={styles.brand}><span className={styles.mark}>M</span>{me.organization.name}</Link><span>{customer.first_name || customer.email} · {me.membership?.role.replace("client_", "")} · <Link href="/portal/account/quotes">Quote cart</Link></span></header>
     <main className={styles.catalogMain}>
       <header className={styles.catalogIntro}><span className={styles.eyebrow}>Private client catalogue</span><h1>Promotional products</h1><p>Explore products, live availability and custom branding options.</p></header>
       <form className={styles.catalogToolbar} method="get">
