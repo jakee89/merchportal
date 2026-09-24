@@ -4,6 +4,7 @@ import { MERCHPORTAL_MODULE } from "."
 import { categoryHierarchy, fieldValue, normalizedFieldName, productAttributes, productSpecifications, supplierCategory } from "./catalog-rules"
 import { normalizeDecorationOptions, type DecorationMethod } from "./decoration"
 import { supplierImageToken } from "./media"
+import { interruptibleSupplierRead } from "./sync"
 
 type ObjectValue = Record<string, any>
 
@@ -250,39 +251,42 @@ export function futureStock(items: any[]) {
   return arrivals.filter((item, index, all) => all.findIndex((other) => other.date === item.date && other.quantity === item.quantity) === index).sort((left, right) => left.date.localeCompare(right.date))
 }
 
-async function listAllRawSupplierRecords(service: any, filters: Record<string, unknown>, order?: Record<string, "ASC" | "DESC">) {
+async function listAllRawSupplierRecords(service: any, filters: Record<string, unknown>, order?: Record<string, "ASC" | "DESC">, onPage?: (count: number) => Promise<void>, checkCancelled?: () => Promise<void>) {
   const records: any[] = []
-  const take = 5000
+  const take = onPage ? 2000 : 5000
   for (let skip = 0; ; skip += take) {
-    const batch = await service.listRawSupplierRecords(filters, { take, skip, order })
+    const batch = await interruptibleSupplierRead<any[]>(() => service.listRawSupplierRecords(filters, { take, skip, order }), `Loading ${String(filters.record_type || "supplier")} records`, checkCancelled)
     records.push(...batch)
+    await onPage?.(records.length)
     if (batch.length < take) return records
   }
 }
 
-async function listAllPublishedSources(service: any, filters: Record<string, unknown>) {
+async function listAllPublishedSources(service: any, filters: Record<string, unknown>, onPage?: (count: number) => Promise<void>, checkCancelled?: () => Promise<void>) {
   const sources: any[] = []
-  const take = 5000
+  const take = onPage ? 2000 : 5000
   for (let skip = 0; ; skip += take) {
-    const batch = await service.listPublishedProductSources(filters, { take, skip })
+    const batch = await interruptibleSupplierRead<any[]>(() => service.listPublishedProductSources(filters, { take, skip }), "Loading published supplier links", checkCancelled)
     sources.push(...batch)
+    await onPage?.(sources.length)
     if (batch.length < take) return sources
   }
 }
 
-export async function normalizeSupplierCatalog(container: MedusaContainer, options: { source_keys?: string[]; supplier_code?: string; take?: number; skip?: number; onProgress?: (completed: number, total: number) => Promise<void> } = {}): Promise<NormalizedProduct[]> {
+export async function normalizeSupplierCatalog(container: MedusaContainer, options: { source_keys?: string[]; supplier_code?: string; take?: number; skip?: number; onProgress?: (completed: number, total: number) => Promise<void>; onStage?: (message: string) => Promise<void>; checkCancelled?: () => Promise<void> } = {}): Promise<NormalizedProduct[]> {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const suppliers = await service.listSuppliers(options.supplier_code ? { code: options.supplier_code } : {})
   const supplierById = new Map<string, any>(suppliers.map((supplier: any) => [supplier.id, supplier]))
   const supplierIds = [...supplierById.keys()]
   if (!supplierIds.length) return []
   const filters = (recordType: string) => ({ record_type: recordType, supplier_id: supplierIds })
+  const report = (label: string) => options.onStage ? async (count: number) => { await options.onStage?.(`Loading ${label} (${count.toLocaleString()} records)`) } : undefined
   const [records, prices, stocks, decorations, decorationPrices] = await Promise.all([
-    listAllRawSupplierRecords(service, filters("product"), { updated_at: "DESC" }),
-    listAllRawSupplierRecords(service, filters("price")),
-    listAllRawSupplierRecords(service, filters("stock")),
-    listAllRawSupplierRecords(service, filters("decoration")),
-    listAllRawSupplierRecords(service, filters("decoration_price")),
+    listAllRawSupplierRecords(service, filters("product"), { updated_at: "DESC" }, report("products"), options.checkCancelled),
+    listAllRawSupplierRecords(service, filters("price"), undefined, report("prices"), options.checkCancelled),
+    listAllRawSupplierRecords(service, filters("stock"), undefined, report("stock"), options.checkCancelled),
+    listAllRawSupplierRecords(service, filters("decoration"), undefined, report("print options"), options.checkCancelled),
+    listAllRawSupplierRecords(service, filters("decoration_price"), undefined, report("print prices"), options.checkCancelled),
   ])
   const priceIndex = indexedRecords(prices, supplierById)
   const stockIndex = indexedRecords(stocks, supplierById)
@@ -317,7 +321,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
   }
   const sourceKeys = selectedGroups.map((group) => opaqueSourceKey(group.supplier_id, group.master_id))
   const selectedSourceKeySet = new Set(sourceKeys)
-  const existingSources = await listAllPublishedSources(service, { supplier_id: supplierIds })
+  const existingSources = await listAllPublishedSources(service, { supplier_id: supplierIds }, report("published products"), options.checkCancelled)
   const published = new Set(existingSources.map((source: any) => source.source_key).filter((key: string) => selectedSourceKeySet.has(key)))
   const normalized: NormalizedProduct[] = []
   await options.onProgress?.(0, selectedGroups.length)

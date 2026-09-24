@@ -5,6 +5,7 @@ import { normalizeSupplierCatalog, normalizedProductHandle, type NormalizedProdu
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
 import { sellingPrice } from "../modules/merchportal/catalog-rules"
 import { resolveMarkup } from "./manage-pricing-rules"
+import { interruptibleSupplierRead } from "../modules/merchportal/sync"
 
 type Input = { source_keys: string[] }
 
@@ -30,22 +31,23 @@ function publishErrorDetails(error: unknown) {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error)
 }
 
-async function listAllPublishedProductSources(service: any, filters: Record<string, unknown>) {
+async function listAllPublishedProductSources(service: any, filters: Record<string, unknown>, onPage?: (count: number) => Promise<void>, checkCancelled?: () => Promise<void>) {
   const sources: any[] = []
-  const take = 5000
+  const take = onPage ? 1000 : 5000
   for (let skip = 0; ; skip += take) {
-    const batch = await service.listPublishedProductSources(filters, { take, skip })
+    const batch = await interruptibleSupplierRead<any[]>(() => service.listPublishedProductSources(filters, { take, skip }), "Loading published supplier links", checkCancelled)
     sources.push(...batch)
+    await onPage?.(sources.length)
     if (batch.length < take) return sources
   }
 }
 
-async function persistProductSources(container: any, normalized: NormalizedProduct[], nativeProducts: any[]) {
+async function persistProductSources(container: any, normalized: NormalizedProduct[], nativeProducts: any[], onProgress?: (percent: number, message: string) => Promise<void>, checkCancelled?: () => Promise<void>) {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const suppliers = await service.listSuppliers({})
   const supplierByCode = new Map<string, any>(suppliers.map((supplier: any) => [supplier.code, supplier]))
   const nativeByKey = new Map<string, any>(nativeProducts.map((product: any) => [product.external_id, product]))
-  const existingSources = await listAllPublishedProductSources(service, {})
+  const existingSources = await listAllPublishedProductSources(service, {}, async (count) => { await onProgress?.(98, `Loading saved catalog entries (${count.toLocaleString()})`) }, checkCancelled)
   const existingByKey = new Map<string, any>(existingSources.map((source: any) => [source.source_key, source]))
   const creates: any[] = []
   const updates: any[] = []
@@ -116,51 +118,90 @@ async function persistProductSources(container: any, normalized: NormalizedProdu
       creates.push(data)
     }
   }
-  for (const batch of batches(creates)) {
+  let saved = 0
+  for (const batch of batches(creates, 100)) {
+    await checkCancelled?.()
     await service.createPublishedProductSources(batch)
+    saved += batch.length
+    await onProgress?.(99, `Saving catalog entries (${saved.toLocaleString()} of ${(creates.length + updates.length).toLocaleString()})`)
   }
-  for (const batch of batches(updates)) {
+  for (const batch of batches(updates, 100)) {
+    await checkCancelled?.()
     await service.updatePublishedProductSources(batch)
+    saved += batch.length
+    await onProgress?.(99, `Saving catalog entries (${saved.toLocaleString()} of ${(creates.length + updates.length).toLocaleString()})`)
   }
 }
 
-export async function refreshPublishedSupplierProducts(container: any, supplierCode?: "stricker" | "midocean", normalizedProducts?: NormalizedProduct[], onProgress?: (percent: number, message: string) => Promise<void>) {
+export async function refreshPublishedSupplierProducts(container: any, supplierCode?: "stricker" | "midocean", normalizedProducts?: NormalizedProduct[], onProgress?: (percent: number, message: string) => Promise<void>, checkCancelled?: () => Promise<void>) {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const markup = await resolveMarkup(service)
+  await onProgress?.(92, "Finding published supplier products")
   let selectedSourceKeys = normalizedProducts?.map((product) => product.source_key)
   if (!selectedSourceKeys && supplierCode) {
     const suppliers = await service.listSuppliers({ code: supplierCode }, { take: 1 })
-    const sources = suppliers.length ? await listAllPublishedProductSources(service, { supplier_id: suppliers[0].id }) : []
+    const sources = suppliers.length ? await listAllPublishedProductSources(service, { supplier_id: suppliers[0].id }, async (count) => { await onProgress?.(92, `Finding published supplier products (${count.toLocaleString()})`) }, checkCancelled) : []
     selectedSourceKeys = sources.map((source) => source.source_key)
   }
-  await onProgress?.(92, "Loading the published supplier catalog")
-  const [{ data: products }, { data: locations }] = await Promise.all([
-    query.graph({
-      entity: "product",
-      fields: ["id", "external_id", "variants.id", "variants.sku"],
-      filters: selectedSourceKeys
-        ? { status: ProductStatus.PUBLISHED, external_id: selectedSourceKeys }
-        : { status: ProductStatus.PUBLISHED },
-      pagination: { take: 50000 },
-    }),
-    query.graph({
-      entity: "stock_location",
-      fields: ["id"],
-      filters: { name: "Malta Operations" },
-    }),
-  ])
-  const published = products.filter((product: any) => product.external_id?.startsWith("mp_"))
+  if (selectedSourceKeys?.length === 0) return { updated_products: 0, updated_prices: 0, updated_stock: 0 }
+  const { data: locations } = await interruptibleSupplierRead<{ data: any[] }>(() => query.graph({
+    entity: "stock_location",
+    fields: ["id"],
+    filters: { name: "Malta Operations" },
+  }), "Loading the Malta stock location", checkCancelled)
+  const products: any[] = []
+  const pageSize = 250
+  if (selectedSourceKeys) {
+    for (const [index, sourceKeys] of batches(selectedSourceKeys, pageSize).entries()) {
+      const { data: batch } = await interruptibleSupplierRead<{ data: any[] }>(() => query.graph({
+        entity: "product",
+        fields: ["id", "external_id", "variants.id", "variants.sku"],
+        filters: { status: ProductStatus.PUBLISHED, external_id: sourceKeys },
+        pagination: { take: pageSize },
+      }), "Loading published products", checkCancelled)
+      products.push(...batch.filter((product: any) => product.external_id?.startsWith("mp_")))
+      await onProgress?.(92, `Loading published products (${Math.min((index + 1) * pageSize, selectedSourceKeys.length).toLocaleString()} of ${selectedSourceKeys.length.toLocaleString()} checked)`)
+    }
+  } else {
+    for (let skip = 0; ; skip += pageSize) {
+      const { data: batch } = await interruptibleSupplierRead<{ data: any[] }>(() => query.graph({
+        entity: "product",
+        fields: ["id", "external_id", "variants.id", "variants.sku"],
+        filters: { status: ProductStatus.PUBLISHED },
+        pagination: { take: pageSize, skip },
+      }), "Loading published products", checkCancelled)
+      products.push(...batch.filter((product: any) => product.external_id?.startsWith("mp_")))
+      await onProgress?.(92, `Loading published products (${(skip + batch.length).toLocaleString()} checked)`)
+      if (batch.length < pageSize) break
+    }
+  }
+  const published = products
   if (!published.length || !locations.length) {
     return { updated_products: 0, updated_prices: 0, updated_stock: 0 }
   }
 
+  await onProgress?.(93, "Normalizing saved supplier data")
+  let lastNormalizationReport = 0
   const normalized =
     normalizedProducts ||
     (await normalizeSupplierCatalog(container, {
       source_keys: published.map((product: any) => product.external_id),
       supplier_code: supplierCode,
       take: published.length,
+      checkCancelled,
+      onStage: async (message) => {
+        await checkCancelled?.()
+        if (Date.now() - lastNormalizationReport < 2_000) return
+        lastNormalizationReport = Date.now()
+        await onProgress?.(93, message)
+      },
+      onProgress: async (completed, total) => {
+        await checkCancelled?.()
+        if (completed !== total && Date.now() - lastNormalizationReport < 2_000) return
+        lastNormalizationReport = Date.now()
+        await onProgress?.(93, `Normalizing saved products (${completed.toLocaleString()} of ${total.toLocaleString()})`)
+      },
     }))
   const selected = supplierCode ? normalized.filter((product) => product.supplier_code === supplierCode) : normalized
   await onProgress?.(93, `Normalized ${selected.length.toLocaleString()} published products`)
@@ -205,16 +246,17 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
       })
       await onProgress?.(94, `Adding product options (${Math.min((index + 1) * 100, missingVariants.length).toLocaleString()} of ${missingVariants.length.toLocaleString()})`)
     }
-    const { data: refreshedProducts } = await query.graph({
-      entity: "product",
-      fields: ["id", "external_id", "variants.id", "variants.sku"],
-      filters: { id: published.map((product: any) => product.id) },
-      pagination: { take: 50000 },
-    })
-    for (const product of refreshedProducts) {
-      nativeProductByKey.set(product.external_id, product)
-      for (const variant of product.variants || []) {
-        if (variant.sku) variantBySku.set(variant.sku, variant)
+    for (const group of batches(published.map((product: any) => product.id), 250)) {
+      const { data: refreshedProducts } = await interruptibleSupplierRead<{ data: any[] }>(() => query.graph({
+        entity: "product",
+        fields: ["id", "external_id", "variants.id", "variants.sku"],
+        filters: { id: group },
+      }), "Reloading new product options", checkCancelled)
+      for (const product of refreshedProducts) {
+        nativeProductByKey.set(product.external_id, product)
+        for (const variant of product.variants || []) {
+          if (variant.sku) variantBySku.set(variant.sku, variant)
+        }
       }
     }
     await onProgress?.(94, `Added ${missingVariants.length.toLocaleString()} new product options`)
@@ -252,7 +294,7 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
   const stockBySku = new Map(selected.flatMap((product) => product.variants.flatMap((variant) => (variant.stock_quantity === undefined ? [] : [[variant.sku, variant.stock_quantity] as const]))))
   const skus = [...stockBySku.keys()].filter((sku) => variantBySku.has(sku))
   if (!skus.length) {
-    await persistProductSources(container, selected, [...nativeProductByKey.values()])
+    await persistProductSources(container, selected, [...nativeProductByKey.values()], onProgress, checkCancelled)
     await onProgress?.(99, "Updated catalog search and filters")
     return {
       updated_products: selected.length,
@@ -260,11 +302,16 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
       updated_stock: 0,
     }
   }
-  const { data: inventoryItems } = await query.graph({
-    entity: "inventory_item",
-    fields: ["id", "sku", "location_levels.id", "location_levels.location_id"],
-    filters: { sku: skus },
-  })
+  const inventoryItems: any[] = []
+  for (const [index, group] of batches(skus, 250).entries()) {
+    const { data: batch } = await interruptibleSupplierRead<{ data: any[] }>(() => query.graph({
+      entity: "inventory_item",
+      fields: ["id", "sku", "location_levels.id", "location_levels.location_id"],
+      filters: { sku: group },
+    }), "Loading inventory records", checkCancelled)
+    inventoryItems.push(...batch)
+    await onProgress?.(97, `Loading inventory (${Math.min((index + 1) * 250, skus.length).toLocaleString()} of ${skus.length.toLocaleString()})`)
+  }
   const creates: any[] = []
   const updates: any[] = []
   for (const item of inventoryItems) {
@@ -306,7 +353,7 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     }
   }
   await onProgress?.(98, `Updated ${(updates.length + creates.length).toLocaleString()} stock quantities`)
-  await persistProductSources(container, selected, [...nativeProductByKey.values()])
+  await persistProductSources(container, selected, [...nativeProductByKey.values()], onProgress, checkCancelled)
   await onProgress?.(99, "Updated catalog search and filters")
   return {
     updated_products: selected.length,

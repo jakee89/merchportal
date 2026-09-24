@@ -91,7 +91,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
             current_message: message,
             progress_percent: percent,
           })
-        })
+        }, () => stopIfImportCancelled(service, job.id).then(() => undefined))
       })()
     await updateImportJobActivity(service, job.id, {
       status: "completed",
@@ -133,7 +133,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
       log: {
         failure: {
           at: new Date().toISOString(),
-          phase: "publishing",
+          phase: failedJob.phase || "refreshing",
           type: error instanceof Error ? error.name : "Error",
           message,
         },

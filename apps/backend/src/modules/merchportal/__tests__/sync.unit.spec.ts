@@ -1,4 +1,4 @@
-import { deduplicateSupplierRecords } from "../sync"
+import { deduplicateSupplierRecords, ImportCancelledError, interruptibleSupplierRead, reconcileStaleImportJobs } from "../sync"
 
 describe("supplier sync record deduplication", () => {
   it("keeps every Stricker OptionalReference when the feed uses PascalCase fields", () => {
@@ -64,5 +64,33 @@ describe("supplier sync record deduplication", () => {
     )
 
     expect(records).toEqual([{ id: "PDP1-01 " }])
+  })
+})
+
+describe("supplier update interruption", () => {
+  it("times out a read that never returns with a useful stage name", async () => {
+    await expect(interruptibleSupplierRead(() => new Promise(() => undefined), "Loading published products", undefined, { timeoutMs: 20 })).rejects.toThrow("Loading published products timed out")
+  })
+
+  it("stops a pending read when staff requests cancellation", async () => {
+    let checks = 0
+    const checkCancelled = async () => { if (++checks > 1) throw new ImportCancelledError() }
+    await expect(interruptibleSupplierRead(() => new Promise(() => undefined), "Loading published products", checkCancelled, { timeoutMs: 1000, pollMs: 10 })).rejects.toBeInstanceOf(ImportCancelledError)
+  })
+
+  it("closes unresponsive running and cancelling jobs", async () => {
+    const updatedAt = new Date(Date.now() - 6 * 60_000)
+    const jobs = [
+      { id: "running", status: "running", phase: "refreshing", updated_at: updatedAt, log: {} },
+      { id: "cancelling", status: "cancelling", phase: "cancelling", updated_at: updatedAt, log: {} },
+    ]
+    const service = {
+      listImportJobs: jest.fn().mockResolvedValue(jobs),
+      retrieveImportJob: jest.fn().mockImplementation(async (id) => jobs.find((job) => job.id === id)),
+      updateImportJobs: jest.fn().mockResolvedValue(undefined),
+    }
+    await reconcileStaleImportJobs(service)
+    expect(service.updateImportJobs).toHaveBeenCalledWith(expect.objectContaining({ id: "running", status: "failed", phase: "failed" }))
+    expect(service.updateImportJobs).toHaveBeenCalledWith(expect.objectContaining({ id: "cancelling", status: "cancelled", phase: "cancelled" }))
   })
 })

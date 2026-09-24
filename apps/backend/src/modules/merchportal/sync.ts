@@ -27,6 +27,29 @@ export class ImportCancelledError extends Error {
   }
 }
 
+export async function interruptibleSupplierRead<T>(read: () => Promise<T>, label: string, checkCancelled?: () => Promise<void>, options: { timeoutMs?: number; pollMs?: number } = {}): Promise<T> {
+  await checkCancelled?.()
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  let poll: ReturnType<typeof setInterval> | undefined
+  let checking = false
+  const interruption = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error(`${label} timed out after ${Math.round((options.timeoutMs || 90_000) / 1000)} seconds`)), options.timeoutMs || 90_000)
+    if (checkCancelled) {
+      poll = setInterval(() => {
+        if (checking) return
+        checking = true
+        checkCancelled().catch(reject).finally(() => { checking = false })
+      }, options.pollMs || 2_000)
+    }
+  })
+  try {
+    return await Promise.race([read(), interruption])
+  } finally {
+    if (timeout) clearTimeout(timeout)
+    if (poll) clearInterval(poll)
+  }
+}
+
 export async function updateImportJobActivity(service: any, id: string, data: Record<string, unknown>) {
   const job = await service.retrieveImportJob(id)
   const log = job.log && typeof job.log === "object" ? job.log : {}
@@ -43,6 +66,7 @@ export async function updateImportJobActivity(service: any, id: string, data: Re
 
 export async function stopIfImportCancelled(service: any, id: string) {
   const job = await service.retrieveImportJob(id)
+  if (job.status === "failed" && String(job.error_message || "").startsWith("Import watchdog:")) throw new MedusaError(MedusaError.Types.UNEXPECTED_STATE, job.error_message)
   if (job.status !== "cancelling" && job.status !== "cancelled") return false
   if (job.status === "cancelling") {
     await updateImportJobActivity(service, id, {
@@ -60,19 +84,19 @@ export async function reconcileStaleImportJobs(service: any) {
   const now = Date.now()
   for (const job of jobs) {
     const idleFor = now - new Date(job.updated_at || job.created_at).getTime()
-    if (job.status === "cancelling" && idleFor > 120_000) {
+    if (job.status === "cancelling" && idleFor > 60_000) {
       await updateImportJobActivity(service, job.id, {
         status: "cancelled",
         phase: "cancelled",
         current_message: "Stopped after the worker became unresponsive",
         completed_at: new Date(),
       })
-    } else if ((job.status === "running" || job.status === "queued") && idleFor > 15 * 60_000) {
+    } else if ((job.status === "running" || job.status === "queued") && idleFor > 5 * 60_000) {
       await updateImportJobActivity(service, job.id, {
         status: "failed",
         phase: "failed",
-        current_message: "The worker stopped reporting progress. Run the update again.",
-        error_message: "Import watchdog: no progress was reported for 15 minutes",
+        current_message: "The worker stopped reporting progress for 5 minutes. Check the log before retrying.",
+        error_message: `Import watchdog: no progress was reported for 5 minutes during ${job.phase || "unknown"}`,
         error_count: 1,
         completed_at: new Date(),
       })
