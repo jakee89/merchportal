@@ -15,7 +15,7 @@ export default async function QuotePage() {
   if (!(await retrieveCustomer())) redirect("/portal/login")
   const { cart, history, buyer_details } = await sdk.client.fetch<{ cart: Quote | null; history: Quote[]; buyer_details: QuoteDetails }>("/portal-api/quotes", { headers: await getAuthHeaders(), cache: "no-store" })
   return <div className={styles.page}>
-    <header className={styles.topbar}><Link href="/portal/account" className={styles.brand}><span className={styles.mark}>M</span>MerchPortal</Link><Link className={styles.secondary} href="/portal/account">Continue browsing</Link></header>
+    <header className={styles.topbar}><Link href="/portal/account" className={styles.brand}><span className={styles.mark}>M</span>MerchPortal</Link><span className={styles.headerActions}><Link href="/portal/account/profile">Profile</Link><Link className={styles.secondary} href="/portal/account">Continue browsing</Link></span></header>
   <main className={styles.productMain}><h1>Quote cart</h1><p className={styles.helper}>Review your configured products and business details, then send one request for a final price.</p><QuoteCart cart={cart} history={history} buyerDetails={buyer_details} backend={process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"} /></main>
   </div>
 }
