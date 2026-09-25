@@ -25,6 +25,6 @@ export async function updateBuyerProfile(scope: any, service: any, actorId: stri
   const customers = scope.resolve(Modules.CUSTOMER) as any
   const customer = await customers.retrieveCustomer(actorId)
   const details = validateQuoteDetails({ ...(input as object), contact_email: customer.email })
-  await customers.updateCustomers({ id: actorId, phone: details.phone, metadata: { ...(customer.metadata || {}), merchportal_business: { ...details, contact_email: undefined } } })
+  await customers.updateCustomers(actorId, { phone: details.phone, metadata: { ...(customer.metadata || {}), merchportal_business: { ...details, contact_email: undefined } } })
   return buyerProfile(scope, service, actorId, organizationId)
 }
