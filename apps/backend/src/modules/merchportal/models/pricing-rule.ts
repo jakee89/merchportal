@@ -6,6 +6,7 @@ const PricingRule = model
     scope_key: model.text(),
     organization_id: model.text().nullable(),
     markup_percentage: model.number().default(30),
+    quantity_tiers: model.json().nullable(),
     status: model.enum(["active", "disabled"]).default("active"),
   })
   .indexes([

@@ -49,6 +49,7 @@ export async function previewPortalConfiguration(productId: string, input: Recor
       estimated_total: number | null
       branding_price_pending: boolean
       decoration_lines: Array<{ unit_price_eur: number | null; setup_price_eur: number | null; price_pending: boolean }>
+      quantity_prices: Array<{ quantity: number; estimated_total: number | null; unit_price_eur: number | null }>
     }
   }>(`/portal-api/products/${productId}`, {
     method: "POST",

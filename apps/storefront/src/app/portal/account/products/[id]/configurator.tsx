@@ -100,7 +100,7 @@ export default function Configurator({ productId, productName, productImages, ba
   const [artwork, setArtwork] = useState<File>()
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
-  const [verified, setVerified] = useState<{ base_unit_price: number | null; estimated_total: number | null; branding_price_pending: boolean; decoration_lines: Array<{ unit_price_eur: number | null; setup_price_eur: number | null; price_pending: boolean }> }>()
+  const [verified, setVerified] = useState<{ base_unit_price: number | null; estimated_total: number | null; branding_price_pending: boolean; decoration_lines: Array<{ unit_price_eur: number | null; setup_price_eur: number | null; price_pending: boolean }>; quantity_prices: Array<{ quantity: number; estimated_total: number | null; unit_price_eur: number | null }> }>()
   const [verificationStatus, setVerificationStatus] = useState<"checking" | "ready" | "error">("checking")
   const [verificationError, setVerificationError] = useState("")
   const variant = variants.find((item) => item.id === variantId) || variants[0]
@@ -266,6 +266,7 @@ export default function Configurator({ productId, productName, productImages, ba
         {verified?.base_unit_price === null && <p className={styles.helper}>The plain-product price is unavailable for this option. We’ll confirm the full amount in your quote.</p>}
         {verificationError && <p className={styles.helper} role="alert">{verificationError}</p>}
         {verified?.estimated_total !== null && verified?.estimated_total !== undefined && <div><span>Per unit incl. setup · excl. VAT</span><strong>€{(verified.estimated_total / quantity).toFixed(2)}</strong></div>}
+        {verified?.quantity_prices?.some((price) => price.quantity >= quantity) && <section aria-label="Quantity price guide"><h3>Prices at higher quantities</h3><p className={styles.helper}>For this colour and print selection, including setup · excl. VAT.</p><table className={styles.priceTable}><thead><tr><th>Quantity</th><th>Per unit</th><th>Estimated total</th></tr></thead><tbody>{verified.quantity_prices.filter((price) => price.quantity >= quantity).map((price) => <tr key={price.quantity}><td>{price.quantity.toLocaleString()}</td><td>{price.unit_price_eur === null ? "Quote required" : `€${price.unit_price_eur.toFixed(2)}`}</td><td>{price.estimated_total === null ? "Quote required" : `€${price.estimated_total.toFixed(2)}`}</td></tr>)}</tbody></table></section>}
         <p className={styles.helper}>Final price confirmed by staff.</p>
         <button className={styles.primary} type="button" disabled={busy || !variant || verificationStatus === "error"} onClick={save}>{busy ? "Adding…" : "Add to quote cart"}</button>
         {message && <p className={styles.configMessage} aria-live="polite">{message} {message.startsWith("Added to cart") && <Link href="/portal/account/quotes">Review cart →</Link>}</p>}

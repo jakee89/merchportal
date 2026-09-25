@@ -13,27 +13,11 @@ type Supplier = {
   last_error?: string
 }
 
-type EmailSettings = {
-  host: string
-  port: number
-  username: string
-  from_email: string
-  notification_email: string
-  password_configured: boolean
-  verified: boolean
-}
-
 type Organization = {
   id: string
   name: string
   join_code: string
   status: string
-}
-type PricingRule = {
-  id: string
-  scope_key: string
-  organization_id?: string
-  markup_percentage: number
 }
 type Job = {
   id: string
@@ -97,32 +81,20 @@ const MerchPortalPage = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
   const [organizations, setOrganizations] = useState<Organization[]>([])
-  const [pricingRules, setPricingRules] = useState<PricingRule[]>([])
-  const [globalMarkup, setGlobalMarkup] = useState("30")
-  const [clientMarkups, setClientMarkups] = useState<Record<string, string>>({})
   const [companyName, setCompanyName] = useState("")
   const [companyAddress, setCompanyAddress] = useState("")
   const [companyLogo, setCompanyLogo] = useState("")
-  const [publishableKey, setPublishableKey] = useState("")
-  const [supplierKeys, setSupplierKeys] = useState<Record<string, string>>({})
-  const [emailSettings, setEmailSettings] = useState<EmailSettings>({ host: "smtppro.zoho.eu", port: 587, username: "", from_email: "", notification_email: "", password_configured: false, verified: false })
-  const [emailPassword, setEmailPassword] = useState("")
   const [busy, setBusy] = useState("")
 
   const refresh = useCallback(async () => {
-    const [supplierData, companyData, pricingData] = await Promise.all([api<{ suppliers: Supplier[]; jobs: Job[] }>("/admin/merchportal/suppliers"), api<{ organizations: Organization[] }>("/admin/merchportal/organizations"), api<{ rules: PricingRule[] }>("/admin/merchportal/pricing-rules")])
+    const [supplierData, companyData] = await Promise.all([api<{ suppliers: Supplier[]; jobs: Job[] }>("/admin/merchportal/suppliers"), api<{ organizations: Organization[] }>("/admin/merchportal/organizations")])
     setSuppliers(supplierData.suppliers)
     setJobs(supplierData.jobs)
     setOrganizations(companyData.organizations)
-    setPricingRules(pricingData.rules)
-    const globalRule = pricingData.rules.find((rule) => rule.scope_key === "global")
-    if (globalRule) setGlobalMarkup(String(globalRule.markup_percentage))
-    setClientMarkups(Object.fromEntries(pricingData.rules.filter((rule) => rule.organization_id).map((rule) => [rule.organization_id!, String(rule.markup_percentage)])))
   }, [])
 
   useEffect(() => {
     refresh().catch((error) => toast.error(error.message))
-    api<{ email: EmailSettings }>("/admin/merchportal/email").then((result) => setEmailSettings(result.email)).catch((error) => toast.error(error.message))
   }, [refresh])
 
   useEffect(() => {
@@ -131,112 +103,16 @@ const MerchPortalPage = () => {
     return () => window.clearInterval(timer)
   }, [jobs, refresh])
 
-  const setup = async () => {
-    setBusy("setup")
-    try {
-      const result = await api<{
-        setup: { publishable_api_key: { token: string } }
-      }>("/admin/merchportal/setup", { method: "POST" })
-      setPublishableKey(result.setup.publishable_api_key.token)
-      toast.success("Malta shop configured. The publishable key is shown below.")
-    } catch (error) {
-      toast.error((error as Error).message)
-    } finally {
-      setBusy("")
-    }
-  }
-
-  const copyKey = async () => {
-    let copied = false
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(publishableKey)
-        copied = true
-      }
-    } catch {}
-    if (!copied) {
-      try {
-        const input = document.createElement("textarea")
-        input.value = publishableKey
-        input.style.position = "fixed"
-        input.style.opacity = "0"
-        document.body.appendChild(input)
-        input.select()
-        copied = document.execCommand("copy")
-        input.remove()
-      } catch {}
-    }
-    copied ? toast.success("Publishable key copied") : toast.info("Select the key and copy it manually")
-  }
-
   const supplierAction = async (code: string, action: string, dryRun = false) => {
     const key = `${code}-${action}${dryRun ? "-preview" : ""}`
     setBusy(key)
     try {
-      if (action === "test") {
-        const result = await api<{
-          connection: { ok: boolean; message: string }
-        }>(`/admin/merchportal/suppliers/${code}/connection`, {
-          method: "POST",
-        })
-        result.connection.ok ? toast.success(result.connection.message) : toast.error(result.connection.message)
-      } else {
-        await api(`/admin/merchportal/suppliers/${code}/sync`, {
-          method: "POST",
-          body: JSON.stringify({ kind: action, dry_run: dryRun }),
-        })
-        toast.success(dryRun ? "Catalog preview started" : `${action} update started`)
-      }
+      await api(`/admin/merchportal/suppliers/${code}/sync`, {
+        method: "POST",
+        body: JSON.stringify({ kind: action, dry_run: dryRun }),
+      })
+      toast.success(dryRun ? "Catalog preview started" : `${action} update started`)
       setTimeout(() => refresh().catch(() => undefined), 1200)
-    } catch (error) {
-      toast.error((error as Error).message)
-    } finally {
-      setBusy("")
-    }
-  }
-
-  const saveSupplierKey = async (code: string) => {
-    const apiKey = supplierKeys[code]?.trim()
-    if (!apiKey) return toast.error("Enter the supplier API key")
-    setBusy(`${code}-save-key`)
-    try {
-      await api(`/admin/merchportal/suppliers/${code}/credential`, {
-        method: "POST",
-        body: JSON.stringify({ api_key: apiKey }),
-      })
-      setSupplierKeys((previous) => ({ ...previous, [code]: "" }))
-      await refresh()
-      toast.success("API key saved. Use Test connection to verify it.")
-    } catch (error) {
-      toast.error((error as Error).message)
-    } finally {
-      setBusy("")
-    }
-  }
-
-  const saveEmail = async () => {
-    setBusy("email-save")
-    try {
-      const result = await api<{ email: EmailSettings }>("/admin/merchportal/email", {
-        method: "POST",
-        body: JSON.stringify({ ...emailSettings, app_password: emailPassword }),
-      })
-      setEmailSettings(result.email)
-      setEmailPassword("")
-      toast.success("Zoho email settings saved. Send a test email to verify them.")
-    } catch (error) {
-      toast.error((error as Error).message)
-    } finally {
-      setBusy("")
-    }
-  }
-
-  const testEmail = async () => {
-    setBusy("email-test")
-    try {
-      const result = await api<{ recipient: string }>("/admin/merchportal/email/verify", { method: "POST" })
-      setEmailSettings((current) => ({ ...current, verified: true }))
-      toast.success(`Test email sent to ${result.recipient}`)
     } catch (error) {
       toast.error((error as Error).message)
     } finally {
@@ -249,26 +125,6 @@ const MerchPortalPage = () => {
     try {
       await api(`/admin/merchportal/import-jobs/${job.id}/cancel`, { method: "POST" })
       toast.success("Stop requested. The current database batch will finish safely.")
-      await refresh()
-    } catch (error) {
-      toast.error((error as Error).message)
-    } finally {
-      setBusy("")
-    }
-  }
-
-  const resetCatalog = async () => {
-    const confirmation = window.prompt("Type RESET to permanently delete all imported supplier products and start again.")
-    if (confirmation !== "RESET") return
-    setBusy("reset-catalog")
-    try {
-      const result = await api<{
-        reset: { deleted_products: number; deleted_supplier_records: number; deleted_inventory_items: number }
-      }>("/admin/merchportal/catalog/reset", {
-        method: "POST",
-        body: JSON.stringify({ confirmation }),
-      })
-      toast.success(`Catalog reset: ${result.reset.deleted_products} products and ${result.reset.deleted_inventory_items} inventory items removed`)
       await refresh()
     } catch (error) {
       toast.error((error as Error).message)
@@ -303,26 +159,6 @@ const MerchPortalPage = () => {
     }
   }
 
-  const saveMarkup = async (organizationId?: string) => {
-    const value = organizationId ? clientMarkups[organizationId] : globalMarkup
-    setBusy(`pricing-${organizationId || "global"}`)
-    try {
-      await api("/admin/merchportal/pricing-rules", {
-        method: "POST",
-        body: JSON.stringify({
-          organization_id: organizationId || null,
-          markup_percentage: Number(value),
-        }),
-      })
-      toast.success("Pricing rule saved")
-      await refresh()
-    } catch (error) {
-      toast.error((error as Error).message)
-    } finally {
-      setBusy("")
-    }
-  }
-
   const activeJobs = jobs.filter((job) => job.status === "running" || job.status === "queued" || job.status === "cancelling")
   const failedJobs = jobs.filter((job) => job.status === "failed" || job.error_count > 0)
   const latestCompleted = jobs.find((job) => job.status === "completed" && !job.log?.dry_run)
@@ -333,24 +169,9 @@ const MerchPortalPage = () => {
         <div>
           <Heading>MerchPortal setup</Heading>
           <Text className="text-ui-fg-subtle">Malta commerce, clients and supplier updates</Text>
-          <a className="text-ui-fg-interactive text-sm" href="/app/merchportal/quotes">Review quote requests →</a>
+          <div className="flex gap-4"><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/quotes">Review quote requests →</a><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/settings">Supplier API & settings →</a></div>
         </div>
-        <Button onClick={setup} isLoading={busy === "setup"}>
-          Configure Malta & EUR
-        </Button>
       </Container>
-      {publishableKey && (
-        <Container>
-          <Heading level="h2">Storefront publishable key</Heading>
-          <Text className="mb-3 text-ui-fg-subtle">The live storefront already uses this key. Keep it for reference; changing it requires a storefront rebuild.</Text>
-          <div className="flex gap-2">
-            <Input readOnly value={publishableKey} onFocus={(event) => event.currentTarget.select()} />
-            <Button variant="secondary" onClick={copyKey}>
-              Copy key
-            </Button>
-          </div>
-        </Container>
-      )}
 
       <Container>
         <Heading level="h2">Operations dashboard</Heading>
@@ -416,25 +237,10 @@ const MerchPortalPage = () => {
                 <div>
                   <Text weight="plus">{supplier.display_name}</Text>
                   <Text size="small" className="text-ui-fg-subtle">
-                    {supplier.configured ? "API key configured" : "Add API key below"}
+                    {supplier.configured ? "API key configured" : "API key needed — open Supplier API & settings"}
                   </Text>
                 </div>
-                <Button variant="secondary" size="small" onClick={() => supplierAction(supplier.code, "test")} isLoading={busy === `${supplier.code}-test`}>
-                  Test connection
-                </Button>
-              </div>
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <Input
-                  type="password"
-                  autoComplete="off"
-                  aria-label={`${supplier.display_name} API key`}
-                  placeholder={supplier.configured ? "Replace API key" : "Supplier API key"}
-                  value={supplierKeys[supplier.code] || ""}
-                  onChange={(event) => setSupplierKeys((previous) => ({ ...previous, [supplier.code]: event.target.value }))}
-                />
-                <Button size="small" variant="secondary" disabled={!supplierKeys[supplier.code]?.trim()} isLoading={busy === `${supplier.code}-save-key`} onClick={() => saveSupplierKey(supplier.code)}>
-                  Save key
-                </Button>
+                <a className="text-ui-fg-interactive text-sm" href="/app/merchportal/settings">Connection settings →</a>
               </div>
               <div className="flex flex-wrap gap-2">
                 {(["catalog", "price", "stock"] as const).map((kind) => (
@@ -460,37 +266,6 @@ const MerchPortalPage = () => {
       </Container>
 
       <Container>
-        <Heading level="h2">Quote emails · Zoho EU</Heading>
-        <Text className="mb-4 text-ui-fg-subtle">Enter your Zoho mailbox and app password here. The password is encrypted on the server and is never shown again. Quote emails start only after a successful test.</Text>
-        <Text size="small" className="mb-3 text-ui-fg-subtle">Status: {emailSettings.verified ? "Verified · quote emails enabled" : emailSettings.password_configured ? "Saved · send a test to enable quote emails" : "Not configured"}</Text>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <label className="flex flex-col gap-1 text-sm">SMTP host
-            <Input value={emailSettings.host} onChange={(event) => setEmailSettings((current) => ({ ...current, host: event.target.value }))} placeholder="smtppro.zoho.eu" />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">SMTP port
-            <Input type="number" value={emailSettings.port} onChange={(event) => setEmailSettings((current) => ({ ...current, port: Number(event.target.value) }))} placeholder="587" />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">Zoho login email
-            <Input type="email" value={emailSettings.username} onChange={(event) => setEmailSettings((current) => ({ ...current, username: event.target.value }))} placeholder="info@customislandgifts.mt" />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">Sender email
-            <Input type="email" value={emailSettings.from_email} onChange={(event) => setEmailSettings((current) => ({ ...current, from_email: event.target.value }))} placeholder="info@customislandgifts.mt" />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">Staff notification email
-            <Input type="email" value={emailSettings.notification_email} onChange={(event) => setEmailSettings((current) => ({ ...current, notification_email: event.target.value }))} placeholder="info@customislandgifts.mt" />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">Zoho app password
-            <Input type="password" autoComplete="new-password" value={emailPassword} onChange={(event) => setEmailPassword(event.target.value)} placeholder={emailSettings.password_configured ? "Leave blank to keep current password" : "Enter app password"} />
-          </label>
-        </div>
-        <Text size="small" className="mt-3 text-ui-fg-subtle">Use port 587 (TLS) on this server; port 465 did not respond in the connectivity check. Check the exact host shown in your Zoho account.</Text>
-        <div className="mt-4 flex gap-2">
-          <Button onClick={saveEmail} isLoading={busy === "email-save"}>Save email settings</Button>
-          <Button variant="secondary" onClick={testEmail} disabled={!emailSettings.password_configured} isLoading={busy === "email-test"}>Send test email</Button>
-        </div>
-      </Container>
-
-      <Container>
         <Heading level="h2">Client companies</Heading>
         <div className="my-4 grid grid-cols-1 gap-2 md:grid-cols-4">
           <Input placeholder="Company name" value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
@@ -509,65 +284,6 @@ const MerchPortalPage = () => {
               </Text>
             </div>
           ))}
-        </div>
-      </Container>
-
-      <Container>
-        <Heading level="h2">Catalog publishing</Heading>
-        <Text className="text-ui-fg-subtle">Every supplier catalog update now normalizes and publishes all products automatically. Supplier categories are kept as the active categories. AI and manual category mapping will be added later as a separate tool.</Text>
-        <div className="mt-4 flex items-center justify-between gap-4 rounded border border-ui-border-error p-3">
-          <div>
-            <Text weight="plus">Start catalog from scratch</Text>
-            <Text size="small" className="text-ui-fg-subtle">Deletes imported products and supplier records only. Users, companies, pricing rules and shop settings are preserved.</Text>
-          </div>
-          <Button variant="danger" disabled={activeJobs.length > 0} isLoading={busy === "reset-catalog"} onClick={resetCatalog}>
-            Reset supplier catalog
-          </Button>
-        </div>
-      </Container>
-
-      <Container>
-        <Heading level="h2">Pricing rules</Heading>
-        <Text className="mb-4 text-ui-fg-subtle">Supplier cost is private. Clients see cost plus their company markup, or the global markup when no client rule exists.</Text>
-        <div className="mb-3 flex items-center gap-2">
-          <Text weight="plus">Global markup %</Text>
-          <Input type="number" min="0" max="1000" value={globalMarkup} onChange={(event) => setGlobalMarkup(event.target.value)} />
-          <Button isLoading={busy === "pricing-global"} onClick={() => saveMarkup()}>
-            Save
-          </Button>
-        </div>
-        <div className="flex flex-col gap-y-2">
-          {organizations.map((organization) => {
-            const existing = pricingRules.find((rule) => rule.organization_id === organization.id)
-            return (
-              <div key={`price-${organization.id}`} className="flex items-center justify-between rounded border p-3">
-                <div>
-                  <Text weight="plus">{organization.name}</Text>
-                  <Text size="xsmall" className="text-ui-fg-subtle">
-                    {existing ? "Custom client price" : `Uses global ${globalMarkup}% markup`}
-                  </Text>
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    min="0"
-                    max="1000"
-                    placeholder={globalMarkup}
-                    value={clientMarkups[organization.id] || ""}
-                    onChange={(event) =>
-                      setClientMarkups((current) => ({
-                        ...current,
-                        [organization.id]: event.target.value,
-                      }))
-                    }
-                  />
-                  <Button size="small" variant="secondary" disabled={!clientMarkups[organization.id]} isLoading={busy === `pricing-${organization.id}`} onClick={() => saveMarkup(organization.id)}>
-                    Save client markup
-                  </Button>
-                </div>
-              </div>
-            )
-          })}
         </div>
       </Container>
 

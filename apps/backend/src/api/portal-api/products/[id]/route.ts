@@ -2,7 +2,7 @@ import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/frame
 import { ContainerRegistrationKeys, MedusaError, ProductStatus } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../../../../modules/merchportal"
 import { markedUpUnitPrice, sellingPrice } from "../../../../modules/merchportal/catalog-rules"
-import { resolveMarkup } from "../../../../workflows/manage-pricing-rules"
+import { markupForQuantity, resolveMarkupRule } from "../../../../workflows/manage-pricing-rules"
 import { saveProductConfigurationWorkflow } from "../../../../workflows/save-product-configuration"
 
 async function context(req: AuthenticatedMedusaRequest) {
@@ -28,7 +28,9 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const source = sources[0]
   const catalogDocument = (source.catalog_document || {}) as any
   const currentSkus = new Set((catalogDocument.variants || []).map((variant: any) => variant.sku))
-  const markup = await resolveMarkup(service, membership.organization_id)
+  const supplier = (await service.listSuppliers({ id: source.supplier_id }, { take: 1 }))[0]
+  const rule = await resolveMarkupRule(service, membership.organization_id, supplier?.code)
+  const markup = markupForQuantity(rule)
   const variants = (product.variants || [])
     .filter((variant: any) => !currentSkus.size || currentSkus.has(variant.sku))
     .map((variant: any) => {
@@ -49,7 +51,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         stock_quantity: Number.isFinite(indexedVariant?.stock_quantity) ? indexedVariant.stock_quantity : variant.inventory_quantity,
         price_eur: Number.isFinite(cost) ? markedUpUnitPrice(cost, markup) : nativePrice,
         price_breaks: Array.isArray(indexedVariant?.price_breaks)
-          ? indexedVariant.price_breaks.map((price: any) => ({ quantity: price.quantity, price_eur: markedUpUnitPrice(Number(price.price_eur), markup) }))
+          ? indexedVariant.price_breaks.map((price: any) => ({ quantity: price.quantity, price_eur: markedUpUnitPrice(Number(price.price_eur), markupForQuantity(rule, Number(price.quantity))) }))
           : [],
         future_stock: Array.isArray(indexedVariant?.future_stock) ? indexedVariant.future_stock : [],
         color_code: indexedVariant?.color_code,

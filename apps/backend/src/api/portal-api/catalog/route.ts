@@ -2,7 +2,7 @@ import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/frame
 import { ContainerRegistrationKeys, ProductStatus } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
 import { sellingPrice } from "../../../modules/merchportal/catalog-rules"
-import { resolveMarkup } from "../../../workflows/manage-pricing-rules"
+import { markupForQuantity } from "../../../workflows/manage-pricing-rules"
 import { cachePortalCatalogResponse, portalCatalogCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
 import { catalogFacets, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 
@@ -36,12 +36,16 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     return res.status(403).json({ message: "Join a company before viewing the catalog" })
   }
 
-  const [markup, completedJobs] = await Promise.all([
-    resolveMarkup(service, membership[0].organization_id),
+  const [rules, suppliers, completedJobs] = await Promise.all([
+    service.listPricingRules({ status: "active" }),
+    service.listSuppliers({}),
     service.listImportJobs({ status: "completed" }, { take: 100, order: { completed_at: "DESC" } }),
   ])
+  const rulesByScope = new Map<string, any>(rules.map((rule: any) => [rule.scope_key, rule]))
+  const supplierCodes = new Map<string, string>(suppliers.map((supplier: any) => [supplier.id, supplier.code]))
+  const ruleForSource = (source: any) => rulesByScope.get(`organization:${membership[0].organization_id}`) || rulesByScope.get(`supplier:${supplierCodes.get(source?.supplier_id)}`) || rulesByScope.get("global")
   const latestChange = completedJobs.find((job: any) => job.log?.catalog_refreshed === true || (job.log?.catalog_refreshed === undefined && (job.created_count > 0 || job.updated_count > 0)))
-  const cacheKey = `${markup}:${latestChange?.id || "initial"}`
+  const cacheKey = `${JSON.stringify(rules.map((rule: any) => [rule.scope_key, rule.markup_percentage, rule.quantity_tiers]))}:${latestChange?.id || "initial"}`
   removeExpiredPortalCatalogCacheEntries()
   const cached = portalCatalogCache.get(cacheKey)
   let safeProducts: any[]
@@ -54,13 +58,14 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
       safeProducts = indexed.map((source: any) => {
         const document = source.catalog_document as any
         const costs = (source.cost_by_sku || {}) as Record<string, number>
+        const rule = ruleForSource(source)
         const variants = (document.variants || []).map((variant: any) => {
           const cost = Number(costs[variant.sku])
           return {
             ...variant,
-            price_eur: Number.isFinite(cost) ? sellingPrice(cost, markup) : undefined,
+            price_eur: Number.isFinite(cost) ? sellingPrice(cost, markupForQuantity(rule)) : undefined,
             price_breaks: Array.isArray(variant.price_breaks)
-              ? variant.price_breaks.map((price: any) => ({ quantity: price.quantity, price_eur: sellingPrice(Number(price.price_eur), markup) }))
+              ? variant.price_breaks.map((price: any) => ({ quantity: price.quantity, price_eur: sellingPrice(Number(price.price_eur), markupForQuantity(rule, Number(price.quantity))) }))
               : [],
           }
         })
@@ -105,6 +110,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
       const sourceByProduct = new Map<string, any>(sources.map((source: any) => [source.product_id, source]))
       safeProducts = nativeProducts.map((product: any) => {
         const source = sourceByProduct.get(product.id)
+        const markup = markupForQuantity(ruleForSource(source))
         const document = source?.catalog_document || {}
         const costs = (source?.cost_by_sku || {}) as Record<string, number>
         const variants = (product.variants || []).map((variant: any) => {

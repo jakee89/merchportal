@@ -5,7 +5,7 @@ import type {
 import { managePricingRulesWorkflow } from "../../../../workflows/manage-pricing-rules"
 import { requireStaff } from "../auth"
 
-type Body = { organization_id?: string | null; markup_percentage?: number }
+type Body = { organization_id?: string | null; supplier_code?: string; markup_percentage?: number; quantity_tiers?: Array<{ min_quantity: number; max_quantity: number | null; markup_percentage: number }> }
 
 async function run(req: AuthenticatedMedusaRequest<Body>) {
   await requireStaff(req)

@@ -3,7 +3,7 @@ import { ContainerRegistrationKeys, MedusaError } from "@medusajs/framework/util
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
 import { markedUpUnitPrice, sellingPrice } from "../modules/merchportal/catalog-rules"
 import { decorationPrice, validateDecorationChoice, type DecorationMethod } from "../modules/merchportal/decoration"
-import { resolveMarkup } from "./manage-pricing-rules"
+import { markupForQuantity, resolveMarkupRule } from "./manage-pricing-rules"
 import { addConfigurationToCart } from "./quote-cart"
 
 type DecorationInput = {
@@ -56,16 +56,12 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
       : []
   const indexedVariant = ((source.catalog_document as any)?.variants || []).find((item: any) => item.sku === variant.sku)
   const priceBreaks = Array.isArray(indexedVariant?.price_breaks) ? indexedVariant.price_breaks : []
-  const selectedCost = [...priceBreaks].filter((item: any) => Number(item.quantity) <= input.quantity).sort((left: any, right: any) => Number(right.quantity) - Number(left.quantity))[0]?.price_eur
-  const cost = Number(selectedCost ?? (source.cost_by_sku || {})[String(variant.sku || "")])
   const nativePrice = Number(variant.prices?.find((item: any) => item.currency_code === "eur")?.amount)
-  const markup = await resolveMarkup(service, memberships[0].organization_id)
-  const knownBaseUnitPrice = priceBreaks.length && selectedCost === undefined ? undefined : Number.isFinite(cost) ? markedUpUnitPrice(cost, markup) : nativePrice
-  const basePricePending = knownBaseUnitPrice === undefined || !Number.isFinite(knownBaseUnitPrice) || knownBaseUnitPrice <= 0
-  const baseUnitPrice = basePricePending ? 0 : (knownBaseUnitPrice ?? 0)
+  const supplier = (await service.listSuppliers({ id: source.supplier_id }, { take: 1 }))[0]
+  const rule = await resolveMarkupRule(service, memberships[0].organization_id, supplier?.code)
 
   const usedPositions = new Set<string>()
-  const decorationLines = requested.map((line) => {
+  const validatedLines = requested.map((line) => {
     const method = methods.find((item) => item.id === line.branding_method)
     if (!method) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose an available branding method")
     const position = method.positions.find((item) => item.id === line.print_position)
@@ -74,14 +70,42 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
     usedPositions.add(position.id)
     const validationError = validateDecorationChoice(method, position, line)
     if (validationError) throw new MedusaError(MedusaError.Types.INVALID_DATA, validationError)
-    const price = decorationPrice(method, input.quantity, { colours: line.print_colours, stitches: line.print_stitches, width_mm: line.print_width_mm, height_mm: line.print_height_mm, color_code: indexedVariant?.color_code, pricing_code: line.pricing_code, handling_price_eur: position.handling_price_eur })
-    return { ...line, method_name: method.name, position_name: position.name, unit_price_eur: price.pending ? null : markedUpUnitPrice(price.unit + price.handling, markup), setup_price_eur: price.pending ? null : sellingPrice(price.setup, markup), price_pending: price.pending }
+    return { line, method, position }
   })
-  const brandingUnitPrice = decorationLines.reduce((sum, line) => sum + (line.unit_price_eur || 0), 0)
-  const setupPrice = decorationLines.reduce((sum, line) => sum + (line.setup_price_eur || 0), 0)
-  const total = Math.round(((baseUnitPrice + brandingUnitPrice) * input.quantity + setupPrice) * 100) / 100
-  const pricePending = basePricePending || decorationLines.some((line) => line.price_pending)
-  if (input.preview_only) return new StepResponse({ id: null, base_unit_price: basePricePending ? null : baseUnitPrice, branding_unit_price: pricePending ? null : brandingUnitPrice, setup_price: pricePending ? null : setupPrice, estimated_total: pricePending ? null : total, branding_price_pending: pricePending, decoration_lines: decorationLines, status: "preview" })
+  const calculate = (quantity: number) => {
+    const markup = markupForQuantity(rule, quantity)
+    const selectedCost = [...priceBreaks].filter((item: any) => Number(item.quantity) <= quantity).sort((left: any, right: any) => Number(right.quantity) - Number(left.quantity))[0]?.price_eur
+    const cost = Number(selectedCost ?? (source.cost_by_sku || {})[String(variant.sku || "")])
+    const knownBaseUnitPrice = priceBreaks.length && selectedCost === undefined ? undefined : Number.isFinite(cost) ? markedUpUnitPrice(cost, markup) : nativePrice
+    const basePricePending = knownBaseUnitPrice === undefined || !Number.isFinite(knownBaseUnitPrice) || knownBaseUnitPrice <= 0
+    const baseUnitPrice = basePricePending ? 0 : (knownBaseUnitPrice ?? 0)
+    const decorationLines = validatedLines.map(({ line, method, position }) => {
+      const price = decorationPrice(method, quantity, { colours: line.print_colours, stitches: line.print_stitches, width_mm: line.print_width_mm, height_mm: line.print_height_mm, color_code: indexedVariant?.color_code, pricing_code: line.pricing_code, handling_price_eur: position.handling_price_eur })
+      return { ...line, method_name: method.name, position_name: position.name, unit_price_eur: price.pending ? null : markedUpUnitPrice(price.unit + price.handling, markup), setup_price_eur: price.pending ? null : sellingPrice(price.setup, markup), price_pending: price.pending }
+    })
+    const brandingUnitPrice = decorationLines.reduce((sum, line) => sum + (line.unit_price_eur || 0), 0)
+    const setupPrice = decorationLines.reduce((sum, line) => sum + (line.setup_price_eur || 0), 0)
+    const total = Math.round(((baseUnitPrice + brandingUnitPrice) * quantity + setupPrice) * 100) / 100
+    const pricePending = basePricePending || decorationLines.some((line) => line.price_pending)
+    return { quantity, baseUnitPrice, brandingUnitPrice, setupPrice, decorationLines, total, pricePending, basePricePending }
+  }
+  const selected = calculate(input.quantity)
+  const { baseUnitPrice, brandingUnitPrice, setupPrice, decorationLines, total, pricePending, basePricePending } = selected
+  if (input.preview_only) {
+    const breakQuantities = [1, input.quantity, ...priceBreaks.map((item: any) => Number(item.quantity)), ...(Array.isArray(rule.quantity_tiers) ? rule.quantity_tiers.map((tier: any) => Number(tier.min_quantity)) : [])]
+    for (const { method } of validatedLines) {
+      breakQuantities.push(...(method.price_breaks || []).map((item) => Number(item.quantity)))
+      breakQuantities.push(...(method.handling_price_breaks || []).map((item) => Number(item.quantity)))
+      for (const range of method.price_ranges || []) breakQuantities.push(...range.price_breaks.map((item) => Number(item.quantity)))
+      for (const table of method.price_tables || []) breakQuantities.push(...table.price_breaks.map((item) => Number(item.quantity)))
+    }
+    const quantities = [...new Set(breakQuantities.filter((quantity) => Number.isInteger(quantity) && quantity >= input.quantity && quantity <= 100000))].sort((a, b) => a - b).slice(0, 12)
+    const quantityPrices = quantities.map((quantity) => {
+      const price = quantity === input.quantity ? selected : calculate(quantity)
+      return { quantity, estimated_total: price.pricePending ? null : price.total, unit_price_eur: price.pricePending ? null : Math.round(price.total / quantity * 100) / 100 }
+    })
+    return new StepResponse({ id: null, base_unit_price: basePricePending ? null : baseUnitPrice, branding_unit_price: pricePending ? null : brandingUnitPrice, setup_price: pricePending ? null : setupPrice, estimated_total: pricePending ? null : total, branding_price_pending: pricePending, decoration_lines: decorationLines, quantity_prices: quantityPrices, status: "preview" })
+  }
   const currentCart = (await service.listQuoteRequests({ organization_id: memberships[0].organization_id, status: "cart" }, { take: 1 }))[0]
   if (Array.isArray(currentCart?.item_ids) && currentCart.item_ids.length >= 50) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Cart limit is 50 configured products")
   const first = decorationLines[0]
