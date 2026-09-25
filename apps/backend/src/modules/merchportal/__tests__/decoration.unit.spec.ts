@@ -115,6 +115,31 @@ describe("supplier-neutral decoration normalization", () => {
     expect(decorationPrice(methods[0], 25, { pricing_code: "DTF1-02-A", width_mm: 60, height_mm: 95 })).toEqual({ unit: 1.5, handling: 0, setup: 0, pending: false })
   })
 
+  it("matches Stricker technique labels to their table families and prices every supplied size", () => {
+    const methods = normalizeDecorationOptions([{
+      Component1: "Bag",
+      Location1: "Front",
+      Area1: "200 x 120",
+      TableCodes1: "TRD1-01, TRS1-01, TRS1-02, TXP1-01",
+      TableCodesOptions1: "TRD1-01-F, TRD1-02-F, TRS1-01-01, TRS1-02-01, TXP1-01-01",
+      CustomizationTypes1: "Digital Transfer, Transfer, Textile Printing",
+    }], [], [{ CustomizationTables: [
+      { CustomizationTypeName: "Digital Transfer", TableCode: "TRD1-01", TableCodeOption: "TRD1-01-F", TableMaxAreaCM: "4 x 3", MinQt1: 1, Price1: 2 },
+      { CustomizationTypeName: "Digital Transfer", TableCode: "TRD1-02", TableCodeOption: "TRD1-02-F", TableMaxAreaCM: "9.5 x 6", MinQt1: 1, Price1: 3 },
+      { CustomizationTypeName: "Transfer", TableCode: "TRS1-01", TableCodeOption: "TRS1-01-01", TableMaxAreaCM: "4 x 3", MinQt1: 1, Price1: 4 },
+      { CustomizationTypeName: "Transfer", TableCode: "TRS1-02", TableCodeOption: "TRS1-02-01", TableMaxAreaCM: "9.5 x 6", MinQt1: 1, Price1: 5 },
+      { CustomizationTypeName: "Textile Printing", TableCode: "TXP1-01", TableCodeOption: "TXP1-01-01", TableMaxAreaCM: "20 x 12", MinQt1: 1, Price1: 6 },
+    ] }])
+
+    expect(methods.map((method) => [method.id, method.name])).toEqual([
+      ["TRD1", "Digital Transfer"],
+      ["TXP1", "Textile Printing"],
+      ["TRS1", "Transfer"],
+    ])
+    expect(decorationPrice(methods[0], 25, { pricing_code: "TRD1-02-F", width_mm: 95, height_mm: 60 })).toEqual({ unit: 3, handling: 0, setup: 0, pending: false })
+    expect(methods.find((method) => method.id === "TXP1")?.positions[0].size_options?.map((size) => size.pricing_code)).toEqual(["TXP1-01-01"])
+  })
+
   it("parses indexed Stricker options and selects the exact colour price table", () => {
     const methods = normalizeDecorationOptions(
       [{

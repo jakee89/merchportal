@@ -60,6 +60,7 @@ type PricingIndex = {
   candidates: AnyObject[]
   byId: Map<string, AnyObject[]>
   byOption: Map<string, AnyObject>
+  familiesByName: Map<string, Set<string>>
   matches: Map<string, AnyObject[]>
   prepared: Map<string, { tables: DecorationPriceTable[]; prices: DecorationPriceBreak[]; ranges: ReturnType<typeof priceRanges>[] }>
 }
@@ -147,6 +148,10 @@ function slug(value: string) {
   )
 }
 
+function strickerMethodFamily(code: string) {
+  return code.replace(/(?:-\d+)+(?:-[A-Z])?$/iu, "")
+}
+
 function priceBreaks(candidate: AnyObject) {
   const breaks: DecorationPriceBreak[] = []
   const entries = new Map(Object.entries(candidate).map(([name, value]) => [normalizedFieldName(name), value]))
@@ -220,9 +225,18 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
     const candidates = pricingPayloads.flatMap((payload) => objects(payload))
     const byId = new Map<string, AnyObject[]>()
     const byOption = new Map<string, AnyObject>()
+    const familiesByName = new Map<string, Set<string>>()
     for (const candidate of candidates) {
       const optionCode = directValue(candidate, ["table_code_option", "tablecodeoption"])
       if (optionCode && !byOption.has(optionCode)) byOption.set(optionCode, candidate)
+      const tableCode = directValue(candidate, ["table_code", "tablecode"])
+      const name = directValue(candidate, ["customization_type_name", "customization_type", "technique"])
+      if (tableCode && name) {
+        const nameKey = name.trim().toLowerCase()
+        const families = familiesByName.get(nameKey) || new Set<string>()
+        families.add(strickerMethodFamily(tableCode).toLowerCase())
+        familiesByName.set(nameKey, families)
+      }
       const id = directValue(candidate, ["id", "technique_id", "service_code", "servicecode", "table_code", "tablecode", "table_full_code", "tablefullcode"])
       if (!id) continue
       const key = id.toLowerCase()
@@ -230,7 +244,7 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
       if (bucket) bucket.push(candidate)
       else byId.set(key, [candidate])
     }
-    pricingIndex = { candidates, byId, byOption, matches: new Map(), prepared: new Map() }
+    pricingIndex = { candidates, byId, byOption, familiesByName, matches: new Map(), prepared: new Map() }
     if (cacheKey) pricingCache.set(cacheKey, pricingIndex)
   }
   const pricingCandidates = pricingIndex.candidates
@@ -312,7 +326,7 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
     const component = directValue(candidate, ["component"])
     const location = directValue(candidate, ["location"])
     const code = directValue(candidate, ["table_code", "tablecode"])
-    return component && location && code ? [`${slug(`${component}-${location}`)}:${code.split("-")[0].toLowerCase()}`] : []
+    return component && location && code ? [`${slug(`${component}-${location}`)}:${strickerMethodFamily(code).toLowerCase()}`] : []
   }))
   const handled = new WeakSet<object>()
   for (const payload of payloads) {
@@ -334,10 +348,11 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
       const handlingCosts = String(key(product, [`handling_costs${index}`]) || "0").split(",").map((item) => number(item.trim()) || 0)
       for (let methodIndex = 0; methodIndex < methodNames.length; methodIndex += 1) {
         const methodName = methodNames[methodIndex]
-        const methodId = methodIds[methodIndex] || slug(methodName)
+        const families = [...new Set(methodIds.map(strickerMethodFamily))]
+        const supplierFamilies = pricingIndex.familiesByName.get(methodName.toLowerCase())
+        const methodId = families.find((family) => supplierFamilies?.has(family.toLowerCase())) || strickerMethodFamily(methodIds[methodIndex] || slug(methodName))
         if (authoritativeOptions.has(`${positionId}:${methodId.toLowerCase()}`)) continue
-        const prefix = methodId.slice(0, 4)
-        const allowedCodes = optionCodes.filter((code) => code.startsWith(prefix))
+        const allowedCodes = optionCodes.filter((code) => code.toLowerCase().startsWith(`${methodId.toLowerCase()}-`))
         const sizeOptions = allowedCodes.flatMap((optionCode) => {
           const table = pricingIndex.byOption.get(optionCode)
           if (!table) return []
@@ -397,7 +412,7 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
       const positionName = fieldValue(candidate, ["composed_location"]) || `${component} - ${location}`
       const positionId = slug(`${component}-${location}`)
       const image = fieldValue(candidate, ["area_image", "location_image"])
-      const methodId = tableCode.split("-")[0] || slug(strickerMethodName)
+      const methodId = strickerMethodFamily(tableCode) || slug(strickerMethodName)
       add(strickerMethodName, methodId, {
         id: positionId,
         name: positionName,
