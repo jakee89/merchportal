@@ -78,4 +78,24 @@ describe("AODACi supplier", () => {
     expect(decorationPrice(method, 100, { pricing_code: size.pricing_code, variant_sku: "AAP001_103", colours: 2 })).toMatchObject({ unit: 1.4, pending: false })
     expect(decorationPrice(method, 10, { pricing_code: size.pricing_code, variant_sku: "AAP001_103", colours: 2 }).pending).toBe(true)
   })
+
+  it("loads print records only for the selected AODACi catalogue page", async () => {
+    const products = ["AAP001", "AAP002"].map((code) => ({
+      id: code,
+      supplier_id: "supplier-1",
+      external_id: `${code}_103`,
+      sku: `${code}_103`,
+      payload: { productCode: code, productSKU: `${code}_103`, productName: code },
+    }))
+    const service = {
+      listSuppliers: jest.fn().mockResolvedValue([{ id: "supplier-1", code: "aodaci", display_name: "AODACi" }]),
+      listRawSupplierRecords: jest.fn().mockImplementation(async (filters) => filters.record_type === "product" ? products : []),
+      listPublishedProductSources: jest.fn().mockResolvedValue([]),
+    }
+    await normalizeSupplierCatalog({ resolve: () => service } as any, { supplier_code: "aodaci", take: 1 })
+    expect(service.listRawSupplierRecords).toHaveBeenCalledWith(
+      expect.objectContaining({ record_type: "decoration", sku: ["AAP001_103"] }),
+      expect.anything(),
+    )
+  })
 })

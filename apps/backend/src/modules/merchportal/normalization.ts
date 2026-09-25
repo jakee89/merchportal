@@ -343,22 +343,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
   if (!supplierIds.length) return []
   const filters = (recordType: string) => ({ record_type: recordType, supplier_id: supplierIds })
   const report = (label: string) => options.onStage ? async (count: number) => { await options.onStage?.(`Loading ${label} (${count.toLocaleString()} records)`) } : undefined
-  const [records, prices, stocks, decorations, decorationPrices] = await Promise.all([
-    listAllRawSupplierRecords(service, filters("product"), { updated_at: "DESC" }, report("products"), options.checkCancelled),
-    listAllRawSupplierRecords(service, filters("price"), undefined, report("prices"), options.checkCancelled),
-    listAllRawSupplierRecords(service, filters("stock"), undefined, report("stock"), options.checkCancelled),
-    listAllRawSupplierRecords(service, filters("decoration"), undefined, report("print options"), options.checkCancelled),
-    listAllRawSupplierRecords(service, filters("decoration_price"), undefined, report("print prices"), options.checkCancelled),
-  ])
-  const priceIndex = indexedRecords(prices, supplierById)
-  const stockIndex = indexedRecords(stocks, supplierById)
-  const decorationIndex = indexedRecords(decorations, supplierById)
-  const decorationPricesBySupplier = new Map<string, any[]>()
-  for (const item of decorationPrices) {
-    const bucket = decorationPricesBySupplier.get(item.supplier_id)
-    if (bucket) bucket.push(item.payload)
-    else decorationPricesBySupplier.set(item.supplier_id, [item.payload])
-  }
+  const records = await listAllRawSupplierRecords(service, filters("product"), { updated_at: "DESC" }, report("products"), options.checkCancelled)
   const groups = new Map<string, { supplier_id: string; master_id: string; records: any[] }>()
   for (const record of records) {
     const payload = (record.payload || {}) as ObjectValue
@@ -380,6 +365,25 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
   } else {
     const skip = options.skip || 0
     selectedGroups = selectedGroups.slice(skip, skip + (options.take ?? 24))
+  }
+  if (!selectedGroups.length) return []
+  const selectedSkus = [...new Set(selectedGroups.flatMap((group) => group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue)).map((row) => value(row, ["productSKU", "sku", "SKU", "optionalReference", "reference", "variant_id"])).filter((sku): sku is string => Boolean(sku))))]
+  const onlySelectedAodaci = suppliers.length === 1 && suppliers[0].code === "aodaci" && selectedGroups.length < groups.size && selectedSkus.length > 0
+  const auxiliaryFilters = (recordType: string) => onlySelectedAodaci ? { ...filters(recordType), sku: selectedSkus } : filters(recordType)
+  const [prices, stocks, decorations, decorationPrices] = await Promise.all([
+    listAllRawSupplierRecords(service, auxiliaryFilters("price"), undefined, report("prices"), options.checkCancelled),
+    listAllRawSupplierRecords(service, auxiliaryFilters("stock"), undefined, report("stock"), options.checkCancelled),
+    listAllRawSupplierRecords(service, auxiliaryFilters("decoration"), undefined, report("print options"), options.checkCancelled),
+    listAllRawSupplierRecords(service, auxiliaryFilters("decoration_price"), undefined, report("print prices"), options.checkCancelled),
+  ])
+  const priceIndex = indexedRecords(prices, supplierById)
+  const stockIndex = indexedRecords(stocks, supplierById)
+  const decorationIndex = indexedRecords(decorations, supplierById)
+  const decorationPricesBySupplier = new Map<string, any[]>()
+  for (const item of decorationPrices) {
+    const bucket = decorationPricesBySupplier.get(item.supplier_id)
+    if (bucket) bucket.push(item.payload)
+    else decorationPricesBySupplier.set(item.supplier_id, [item.payload])
   }
   const sourceKeys = selectedGroups.map((group) => opaqueSourceKey(group.supplier_id, group.master_id))
   const selectedSourceKeySet = new Set(sourceKeys)

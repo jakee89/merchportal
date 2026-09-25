@@ -11,6 +11,7 @@ services:
       - "127.0.0.1:9100:9000"
     environment:
       S3_ENDPOINT: http://minio:8333
+      NODE_OPTIONS: --max-old-space-size=768
     mem_limit: 1200m
 
   worker:
