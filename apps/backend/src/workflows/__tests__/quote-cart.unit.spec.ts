@@ -45,6 +45,18 @@ describe("quote cart", () => {
     expect(summary.items[0].image_url).toBe("/media/blue")
     expect(summary.items[0].decorations[0].position_image_url).toBe("/media/guide-blue")
     expect(summary.items[0].artwork_url).toBe("/portal/account/quotes/artwork/config-1")
+    expect(summary.items[0].artwork_files).toEqual([{ filename: "logo.svg", url: "/portal/account/quotes/artwork/config-1?file=0" }])
+  })
+
+  it("shows a separate secure download for every artwork file", async () => {
+    const store = service()
+    store.listProductConfigurations.mockResolvedValue([{ ...configuration, artwork_file_id: "", artwork_files: [{ file_id: "file-1", filename: "front.svg" }, { file_id: "file-2", filename: "back.pdf" }] } as any])
+    const cart = await addConfigurationToCart(store, "company-1", "buyer-1", "config-1")
+    const summary = await quoteWithItems(store, cart)
+    expect(summary.items[0].artwork_files).toEqual([
+      { filename: "front.svg", url: "/portal/account/quotes/artwork/config-1?file=0" },
+      { filename: "back.pdf", url: "/portal/account/quotes/artwork/config-1?file=1" },
+    ])
   })
 
   it("allows staff to set the final total only after submission", async () => {

@@ -1,5 +1,6 @@
 import { MedusaError } from "@medusajs/framework/utils"
 import type { QuoteDetails } from "../modules/merchportal/quote-details"
+import { artworkFiles } from "../modules/merchportal/artwork-download"
 
 function ids(quote: any): string[] {
   return Array.isArray(quote?.item_ids) ? quote.item_ids.filter((id: unknown): id is string => typeof id === "string") : []
@@ -50,6 +51,7 @@ export async function quoteWithItems(service: any, quote: any) {
       }) : [],
       artwork_filename: item.artwork_filename,
       artwork_url: item.artwork_file_id ? `/portal/account/quotes/artwork/${encodeURIComponent(item.id)}` : null,
+      artwork_files: artworkFiles(item).map((file, index) => ({ filename: file.filename, url: `/portal/account/quotes/artwork/${encodeURIComponent(item.id)}?file=${index}` })),
       base_unit_price: item.base_unit_price > 0 ? item.base_unit_price : null,
       estimated_total: item.branding_price_pending ? null : item.estimated_total,
       quote_required: Boolean(item.branding_price_pending),

@@ -9,5 +9,5 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
   const configuration = (await service.listProductConfigurations({ id: req.params.id }, { take: 1 }))[0]
   if (!configuration) throw new MedusaError(MedusaError.Types.NOT_FOUND, "Artwork is not available")
-  await sendArtworkDownload(req.scope, res, configuration)
+  await sendArtworkDownload(req.scope, res, configuration, req.query.file)
 }

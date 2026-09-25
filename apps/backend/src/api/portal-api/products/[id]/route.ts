@@ -157,6 +157,7 @@ type Body = {
   artwork_file_id?: string
   artwork_filename?: string
   artwork_proof?: string
+  artwork_files?: Array<{ id: string; filename: string; proof: string }>
   decorations?: Array<{
     branding_method: string
     print_position: string
@@ -188,6 +189,7 @@ export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaRes
       artwork_file_id: req.body.artwork_file_id,
       artwork_filename: req.body.artwork_filename,
       artwork_proof: req.body.artwork_proof,
+      artwork_files: req.body.artwork_files,
       decorations: req.body.decorations,
       preview_only: Boolean(req.body.preview_only),
     },

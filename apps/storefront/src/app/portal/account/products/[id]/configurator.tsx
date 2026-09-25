@@ -97,7 +97,7 @@ export default function Configurator({ productId, productName, productImages, ba
   const [variantId, setVariantId] = useState(variants.find((item) => item.sku === initialSku)?.id || variants[0]?.id || "")
   const [quantity, setQuantity] = useState(25)
   const [lines, setLines] = useState<Line[]>([])
-  const [artwork, setArtwork] = useState<File>()
+  const [artwork, setArtwork] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const [verified, setVerified] = useState<{ base_unit_price: number | null; estimated_total: number | null; branding_price_pending: boolean; decoration_lines: Array<{ unit_price_eur: number | null; setup_price_eur: number | null; price_pending: boolean }>; quantity_prices: Array<{ quantity: number; estimated_total: number | null; unit_price_eur: number | null }> }>()
@@ -192,16 +192,17 @@ export default function Configurator({ productId, productName, productImages, ba
   const save = async () => {
     if (!variant) return
     if (lines.some((line) => !line.positionId || !line.methodId)) return setMessage("Choose a position and print technology for every print line")
-    if (artwork && artwork.size > 10 * 1024 * 1024) return setMessage("Artwork must be smaller than 10 MB")
+    if (artwork.length > 5) return setMessage("Choose no more than five artwork files")
+    if (artwork.some((file) => file.size > 10 * 1024 * 1024)) return setMessage("Each artwork file must be smaller than 10 MB")
     setBusy(true)
     setMessage("")
     try {
-      let uploaded: { id: string; filename: string; proof: string } | undefined
-      if (artwork) {
-        const result = await uploadPortalArtwork({ filename: artwork.name, mime_type: artwork.type, content: await fileContent(artwork) })
-        uploaded = result.file
+      const uploaded: Array<{ id: string; filename: string; proof: string }> = []
+      for (const file of artwork) {
+        const result = await uploadPortalArtwork({ filename: file.name, mime_type: file.type, content: await fileContent(file) })
+        uploaded.push(result.file)
       }
-      const result = await savePortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations, artwork_file_id: uploaded?.id, artwork_filename: uploaded?.filename, artwork_proof: uploaded?.proof })
+      const result = await savePortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations, artwork_files: uploaded })
       setMessage(result.configuration.branding_price_pending ? "Added to cart · Quote required for one or more prices." : `Added to cart · Estimated total €${result.configuration.estimated_total?.toFixed(2)}.`)
       router.refresh()
     } catch (error) {
@@ -249,7 +250,7 @@ export default function Configurator({ productId, productName, productImages, ba
             {method && <p className={styles.linePrice}>{verificationStatus === "checking" ? "Checking supplier price…" : !price || price.price_pending || price.unit_price_eur === null ? "Quote required" : `€${printUnitPrice(price.unit_price_eur)} each${price.setup_price_eur ? ` + €${price.setup_price_eur.toFixed(2)} setup` : ""}`}</p>}
           </div>
         })}{lines.length < positions.length && <button className={styles.addPrint} type="button" onClick={() => setLines((items) => [...items, { key: Date.now(), positionId: "", methodId: "", sizeId: "", pricingCode: "", colours: 1, stitches: 0, width: "", height: "" }])}>+ Add print position</button>}</> : <p className={styles.notice}>No customisation information is available for this product.</p>}
-        <label>Artwork (optional)<input type="file" accept=".pdf,.png,.jpg,.jpeg,.svg,application/pdf,image/png,image/jpeg,image/svg+xml" onChange={(event) => setArtwork(event.target.files?.[0])} /></label><p className={styles.helper}>PDF, SVG, PNG or JPG · maximum 10 MB.</p>
+        <label>Artwork files (optional, up to 5)<input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.svg,application/pdf,image/png,image/jpeg,image/svg+xml" onChange={(event) => setArtwork(Array.from(event.target.files || []))} /></label><p className={styles.helper}>PDF, SVG, PNG or JPG · maximum 10 MB per file. {artwork.length ? `${artwork.length} file${artwork.length === 1 ? "" : "s"} selected: ${artwork.map((file) => file.name).join(", ")}` : "Choose all files for this product together."}</p>
       </div>
       <aside className={styles.priceSummary}>
         <h2>Estimate for {quantity.toLocaleString()} units</h2>

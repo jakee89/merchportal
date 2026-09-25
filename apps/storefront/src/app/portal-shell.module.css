@@ -1077,7 +1077,7 @@
 .quoteBusiness h3, .quoteBusiness h4 { color: #1b324e; font-size: 16px; margin: 0; }
 .quoteBusiness h4 { font-size: 14px; }
 .quoteDetailsGrid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 10px; }
-.artworkLink { color: #075fbf; display: inline-block; font-size: 12px; font-weight: 700; margin-top: 8px; overflow-wrap: anywhere; }
+.artworkLink { color: #075fbf; display: block; font-size: 12px; font-weight: 700; margin-top: 8px; overflow-wrap: anywhere; }
 .quoteItem { align-items: start; border-top: 1px solid #e9eef4; display: flex; gap: 15px; justify-content: space-between; padding: 15px 0; }
 .quoteProductImage { background: #f4f8fb; border-radius: 10px; display: block; flex: 0 0 86px; overflow: hidden; }
 .quoteProductImage .productImage, .quoteProductImage .productVisual { height: 86px; object-fit: contain; width: 86px; }

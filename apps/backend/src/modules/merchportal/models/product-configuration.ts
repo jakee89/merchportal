@@ -17,6 +17,7 @@ const ProductConfiguration = model
     decoration_lines: model.json().nullable(),
     artwork_file_id: model.text().nullable(),
     artwork_filename: model.text().nullable(),
+    artwork_files: model.json().nullable(),
     base_unit_price: model.number(),
     branding_unit_price: model.number().default(0),
     setup_price: model.number().default(0),

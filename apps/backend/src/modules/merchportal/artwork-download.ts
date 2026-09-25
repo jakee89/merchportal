@@ -1,10 +1,17 @@
 import type { MedusaResponse } from "@medusajs/framework/http"
 import { MedusaError, Modules } from "@medusajs/framework/utils"
 
-export async function sendArtworkDownload(scope: any, res: MedusaResponse, configuration: any) {
-  if (!configuration?.artwork_file_id) throw new MedusaError(MedusaError.Types.NOT_FOUND, "Artwork is not available")
+export function artworkFiles(configuration: any): Array<{ file_id: string; filename: string }> {
+  if (Array.isArray(configuration?.artwork_files) && configuration.artwork_files.length) return configuration.artwork_files.filter((file: any) => typeof file?.file_id === "string" && typeof file?.filename === "string").slice(0, 5)
+  return configuration?.artwork_file_id ? [{ file_id: configuration.artwork_file_id, filename: configuration.artwork_filename || "artwork" }] : []
+}
+
+export async function sendArtworkDownload(scope: any, res: MedusaResponse, configuration: any, fileParam?: unknown) {
+  const index = fileParam === undefined ? 0 : typeof fileParam === "string" && /^(0|[1-9]\d*)$/.test(fileParam) ? Number(fileParam) : -1
+  const selected = artworkFiles(configuration)[index]
+  if (!selected) throw new MedusaError(MedusaError.Types.NOT_FOUND, "Artwork is not available")
   const fileService = scope.resolve(Modules.FILE) as any
-  const file = await fileService.retrieveFile(configuration.artwork_file_id)
+  const file = await fileService.retrieveFile(selected.file_id)
   const url = new URL(file.url)
   if (!["http:", "https:"].includes(url.protocol)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Artwork storage URL is invalid")
   const upstream = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(15_000) })
@@ -22,7 +29,7 @@ export async function sendArtworkDownload(scope: any, res: MedusaResponse, confi
     }
     chunks.push(Buffer.from(value))
   }
-  const filename = String(configuration.artwork_filename || "artwork").replace(/[^a-zA-Z0-9._-]/g, "-").slice(-120) || "artwork"
+  const filename = selected.filename.replace(/[^a-zA-Z0-9._-]/g, "-").slice(-120) || "artwork"
   res.setHeader("Content-Type", "application/octet-stream")
   res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
   res.setHeader("Content-Security-Policy", "sandbox")

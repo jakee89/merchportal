@@ -36,10 +36,12 @@ describe("quote and artwork security", () => {
   })
 
   it("escapes customer-provided text in the staff email", () => {
-    const email = staffQuoteEmail({ id: "quote-1", contact_details: { ...details, company_name: "<script>alert(1)</script>" }, items: [{ id: "config-1", product_name: "Bag", color: "Blue", quantity: 10, decorations: [], artwork_url: "/portal/account/quotes/artwork/config-1", artwork_filename: "logo.svg" }] })
+    const email = staffQuoteEmail({ id: "quote-1", contact_details: { ...details, company_name: "<script>alert(1)</script>" }, items: [{ id: "config-1", product_name: "Bag", color: "Blue", quantity: 10, decorations: [], artwork_files: [{ filename: "front.svg" }, { filename: "back.pdf" }] }] })
     expect(email.html).not.toContain("<script>")
     expect(email.html).toContain("&lt;script&gt;")
     expect(email.html).toContain("/admin/merchportal/artwork/config-1")
+    expect(email.html).toContain("back.pdf")
+    expect(email.text).toContain("?file=1")
     expect(email.text).toContain("Billing:")
   })
 

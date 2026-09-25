@@ -35,6 +35,7 @@ type Input = {
   artwork_file_id?: string
   artwork_filename?: string
   artwork_proof?: string
+  artwork_files?: Array<{ id: string; filename: string; proof: string }>
 }
 
 const saveConfigurationStep = createStep("save-configuration", async (input: Input, { container }) => {
@@ -43,7 +44,12 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
   if (!memberships.length) throw new MedusaError(MedusaError.Types.UNAUTHORIZED, "Active company membership required")
   if (!input.preview_only && memberships[0].role === "client_viewer") throw new MedusaError(MedusaError.Types.UNAUTHORIZED, "Your account can view products but cannot add items to a quote")
   if (!Number.isInteger(input.quantity) || input.quantity < 1 || input.quantity > 100000) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Quantity must be between 1 and 100,000")
-  if (!input.preview_only && (input.artwork_file_id || input.artwork_filename || input.artwork_proof)) verifyArtwork(input.artwork_proof, input.artwork_file_id, input.artwork_filename, input.actor_id, memberships[0].organization_id)
+  if (!input.preview_only) {
+    if (input.artwork_files !== undefined && (!Array.isArray(input.artwork_files) || input.artwork_files.length > 5)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Attach no more than five artwork files")
+    if (input.artwork_files?.length && (input.artwork_file_id || input.artwork_filename || input.artwork_proof)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Use one artwork upload format")
+    for (const file of input.artwork_files || []) verifyArtwork(file?.proof, file?.id, file?.filename, input.actor_id, memberships[0].organization_id)
+    if (input.artwork_file_id || input.artwork_filename || input.artwork_proof) verifyArtwork(input.artwork_proof, input.artwork_file_id, input.artwork_filename, input.actor_id, memberships[0].organization_id)
+  }
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const { data: products } = await query.graph({ entity: "product", fields: ["id", "variants.id", "variants.sku", "variants.prices.amount", "variants.prices.currency_code"], filters: { id: input.product_id } })
   const variant = products[0]?.variants?.find((item: any) => item.id === input.variant_id) as any
@@ -127,12 +133,13 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
     decoration_lines: decorationLines,
     artwork_file_id: input.artwork_file_id || null,
     artwork_filename: input.artwork_filename || null,
+    artwork_files: input.artwork_files?.map((file) => ({ file_id: file.id, filename: file.filename })) || null,
     base_unit_price: baseUnitPrice,
     branding_unit_price: brandingUnitPrice,
     setup_price: setupPrice,
     estimated_total: total,
     branding_price_pending: pricePending,
-    status: pricePending || (!input.artwork_file_id && decorationLines.length) ? "draft" : "ready",
+    status: pricePending || (!input.artwork_file_id && !input.artwork_files?.length && decorationLines.length) ? "draft" : "ready",
   })
   await addConfigurationToCart(service, memberships[0].organization_id, input.actor_id, configuration.id)
   return new StepResponse({ id: configuration.id, base_unit_price: basePricePending ? null : baseUnitPrice, branding_unit_price: pricePending ? null : brandingUnitPrice, setup_price: pricePending ? null : setupPrice, estimated_total: pricePending ? null : total, branding_price_pending: pricePending, decoration_lines: decorationLines, status: configuration.status })
