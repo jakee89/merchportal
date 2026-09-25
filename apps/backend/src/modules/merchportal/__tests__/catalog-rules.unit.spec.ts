@@ -1,4 +1,4 @@
-import { categoryHierarchy, productAttributes, productSpecifications, sellingPrice, supplierCategory } from "../catalog-rules"
+import { categoryHierarchy, markedUpPrintUnitPrice, productAttributes, productSpecifications, sellingPrice, supplierCategory } from "../catalog-rules"
 
 describe("catalog rules", () => {
   it("reads the supplier's original category", () => {
@@ -21,6 +21,12 @@ describe("catalog rules", () => {
 
   it("calculates a rounded selling price from private cost", () => {
     expect(sellingPrice(4.2, 30)).toBe(5.46)
+  })
+
+  it("preserves fractional-cent print pricing until the quantity total", () => {
+    const unit = markedUpPrintUnitPrice(0.589, 30)
+    expect(unit).toBe(0.7657)
+    expect(Math.round(unit * 1000 * 100) / 100).toBe(765.7)
   })
 
   it("retains Stricker category hierarchy and specifications", () => {

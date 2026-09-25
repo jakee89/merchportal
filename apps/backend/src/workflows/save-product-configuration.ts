@@ -1,7 +1,7 @@
 import { createStep, createWorkflow, StepResponse, WorkflowResponse } from "@medusajs/framework/workflows-sdk"
 import { ContainerRegistrationKeys, MedusaError } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
-import { sellingPrice } from "../modules/merchportal/catalog-rules"
+import { markedUpPrintUnitPrice, sellingPrice } from "../modules/merchportal/catalog-rules"
 import { decorationPrice, validateDecorationChoice, type DecorationMethod } from "../modules/merchportal/decoration"
 import { resolveMarkup } from "./manage-pricing-rules"
 import { addConfigurationToCart } from "./quote-cart"
@@ -75,7 +75,7 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
     const validationError = validateDecorationChoice(method, position, line)
     if (validationError) throw new MedusaError(MedusaError.Types.INVALID_DATA, validationError)
     const price = decorationPrice(method, input.quantity, { colours: line.print_colours, stitches: line.print_stitches, width_mm: line.print_width_mm, height_mm: line.print_height_mm, color_code: indexedVariant?.color_code, pricing_code: line.pricing_code, handling_price_eur: position.handling_price_eur })
-    return { ...line, method_name: method.name, position_name: position.name, unit_price_eur: price.pending ? null : sellingPrice(price.unit + price.handling, markup), setup_price_eur: price.pending ? null : sellingPrice(price.setup, markup), price_pending: price.pending }
+    return { ...line, method_name: method.name, position_name: position.name, unit_price_eur: price.pending ? null : markedUpPrintUnitPrice(price.unit + price.handling, markup), setup_price_eur: price.pending ? null : sellingPrice(price.setup, markup), price_pending: price.pending }
   })
   const brandingUnitPrice = decorationLines.reduce((sum, line) => sum + (line.unit_price_eur || 0), 0)
   const setupPrice = decorationLines.reduce((sum, line) => sum + (line.setup_price_eur || 0), 0)

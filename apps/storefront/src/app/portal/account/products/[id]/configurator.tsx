@@ -53,6 +53,14 @@ type Variant = {
 type Line = { key: number; positionId: string; methodId: string; sizeId: string; pricingCode: string; colours: number; stitches: number; width: string; height: string }
 type Props = { productId: string; productName: string; productImages: string[]; backend: string; variants: Variant[]; methods: Method[]; initialSku?: string }
 
+function orderedSizes<T extends { width_mm: number; height_mm: number }>(sizes: T[]) {
+  return [...sizes].sort((left, right) => left.width_mm * left.height_mm - right.width_mm * right.height_mm || left.width_mm - right.width_mm || left.height_mm - right.height_mm)
+}
+
+function printUnitPrice(value: number) {
+  return new Intl.NumberFormat("en-IE", { minimumFractionDigits: 2, maximumFractionDigits: 6 }).format(value)
+}
+
 function mediaUrl(backend: string, value?: string) {
   if (!value) return
   if (value.startsWith("/media/")) return `/portal${value}`
@@ -128,7 +136,7 @@ export default function Configurator({ productId, productName, productImages, ba
   const sizeChoices = (line: Line) => {
     const method = methods.find((item) => item.id === line.methodId)
     const sizes = method?.positions.find((position) => position.id === line.positionId)?.size_options || []
-    return sizes.filter((size, index) => sizes.findIndex((other) => other.width_mm === size.width_mm && other.height_mm === size.height_mm && other.pricing_code === size.pricing_code) === index).map((size) => ({ ...size, methodId: line.methodId }))
+    return orderedSizes(sizes.filter((size, index) => sizes.findIndex((other) => other.width_mm === size.width_mm && other.height_mm === size.height_mm && other.pricing_code === size.pricing_code) === index)).map((size) => ({ ...size, methodId: line.methodId }))
   }
   const selectedPosition = (line: Line) => methods.find((item) => item.id === line.methodId)?.positions.find((item) => item.id === line.positionId) || positions.find((item) => item.id === line.positionId)
   const positionImage = (position?: Position) => {
@@ -142,7 +150,7 @@ export default function Configurator({ productId, productName, productImages, ba
   const choosePosition = (line: Line, positionId: string) => {
     const method = compatibleMethods(positionId)[0]
     const position = method?.positions.find((item) => item.id === positionId) || positions.find((item) => item.id === positionId)
-    const size = position?.size_options?.[0]
+    const size = orderedSizes(position?.size_options || [])[0]
     updateLine(line.key, { positionId, methodId: method?.id || "", sizeId: size?.id || "", pricingCode: size?.pricing_code || method?.id || "", colours: 1, stitches: firstStitchTier(method), width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
   }
   const chooseMethod = (line: Line, choiceKey: string) => {
@@ -150,7 +158,7 @@ export default function Configurator({ productId, productName, productImages, ba
     if (!method) return
     const methodId = method.id
     const position = method.positions.find((item) => item.id === line.positionId)
-    const size = position?.size_options?.[0]
+    const size = orderedSizes(position?.size_options || [])[0]
     updateLine(line.key, { methodId, sizeId: size?.id || "", pricingCode: size?.pricing_code || methodId, colours: 1, stitches: firstStitchTier(method), width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
   }
   const chooseSize = (line: Line, size: SizeOption & { methodId: string }) => updateLine(line.key, { methodId: size.methodId, sizeId: size.id, pricingCode: size.pricing_code || size.id, colours: 1, stitches: firstStitchTier(methods.find((item) => item.id === size.methodId)), width: String(size.width_mm), height: String(size.height_mm) })
@@ -238,7 +246,7 @@ export default function Configurator({ productId, productName, productImages, ba
             {position && !sizes.length && <p className={styles.helper}>{position.max_width_mm && position.max_height_mm ? `Maximum area ${position.max_width_mm} × ${position.max_height_mm} mm. ` : ""}{position.max_colours ? `Maximum ${position.max_colours} colours.` : ""}</p>}
             {method && colourMode(method) === "Spot colours" && <label>Number of print colours<select value={line.colours} onChange={(event) => updateLine(line.key, { colours: Number(event.target.value) })}>{Array.from({ length: position?.max_colours || 1 }, (_, colourIndex) => colourIndex + 1).map((count) => <option value={count} key={count}>{count}</option>)}</select></label>}
             {stitchTiers.length > 0 && <label>Stitch count<select value={line.stitches} onChange={(event) => updateLine(line.key, { stitches: Number(event.target.value) })}>{stitchTiers.map((count) => <option value={count} key={count}>Up to {count.toLocaleString()} stitches</option>)}</select></label>}
-            {method && <p className={styles.linePrice}>{verificationStatus === "checking" ? "Checking supplier price…" : !price || price.price_pending ? "Quote required" : `€${price.unit_price_eur?.toFixed(2)} each${price.setup_price_eur ? ` + €${price.setup_price_eur.toFixed(2)} setup` : ""}`}</p>}
+            {method && <p className={styles.linePrice}>{verificationStatus === "checking" ? "Checking supplier price…" : !price || price.price_pending || price.unit_price_eur === null ? "Quote required" : `€${printUnitPrice(price.unit_price_eur)} each${price.setup_price_eur ? ` + €${price.setup_price_eur.toFixed(2)} setup` : ""}`}</p>}
           </div>
         })}{lines.length < positions.length && <button className={styles.addPrint} type="button" onClick={() => setLines((items) => [...items, { key: Date.now(), positionId: "", methodId: "", sizeId: "", pricingCode: "", colours: 1, stitches: 0, width: "", height: "" }])}>+ Add print position</button>}</> : <p className={styles.notice}>No customisation information is available for this product.</p>}
         <label>Artwork (optional)<input type="file" accept=".pdf,.png,.jpg,.jpeg,.svg,application/pdf,image/png,image/jpeg,image/svg+xml" onChange={(event) => setArtwork(event.target.files?.[0])} /></label><p className={styles.helper}>PDF, SVG, PNG or JPG · maximum 10 MB.</p>
@@ -248,7 +256,7 @@ export default function Configurator({ productId, productName, productImages, ba
         <div><span>Plain product</span><strong>{displayedBasePrice === undefined || displayedBasePrice === null || !Number.isFinite(displayedBasePrice) || displayedBasePrice <= 0 ? "Quote required" : `€${displayedBasePrice.toFixed(2)} × ${quantity} = €${(displayedBasePrice * quantity).toFixed(2)}`}</strong></div>
         {pricedLines.map(({ line, method }, index) => {
           const price = verified?.decoration_lines[index]
-          return <div key={line.key}><span>{method?.name || `Print ${index + 1}`}</span><strong>{!price || price.price_pending || price.unit_price_eur === null ? "Quote required" : `€${price.unit_price_eur.toFixed(2)} × ${quantity}${price.setup_price_eur ? ` + €${price.setup_price_eur.toFixed(2)} setup` : ""} = €${(price.unit_price_eur * quantity + (price.setup_price_eur || 0)).toFixed(2)}`}</strong></div>
+          return <div key={line.key}><span>{method?.name || `Print ${index + 1}`}</span><strong>{!price || price.price_pending || price.unit_price_eur === null ? "Quote required" : `€${printUnitPrice(price.unit_price_eur)} × ${quantity}${price.setup_price_eur ? ` + €${price.setup_price_eur.toFixed(2)} setup` : ""} = €${(price.unit_price_eur * quantity + (price.setup_price_eur || 0)).toFixed(2)}`}</strong></div>
         })}
         {verified?.estimated_total === null && knownPrintingLines.length > 0 && <>
           <div><span>Known printing subtotal</span><strong>€{knownPrintingSubtotal.toFixed(2)}</strong></div>

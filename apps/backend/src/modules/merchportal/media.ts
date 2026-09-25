@@ -31,6 +31,16 @@ export function isAllowedSupplierImage(value: string) {
   }
 }
 
+export function supplierMediaType(bytes: Uint8Array) {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg"
+  if (bytes.length >= 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => bytes[index] === byte)) return "image/png"
+  if (bytes.length >= 6 && String.fromCharCode(...bytes.subarray(0, 6)).match(/^GIF8[79]a$/u)) return "image/gif"
+  if (bytes.length >= 12 && String.fromCharCode(...bytes.subarray(0, 4)) === "RIFF" && String.fromCharCode(...bytes.subarray(8, 12)) === "WEBP") return "image/webp"
+  if (bytes.length >= 12 && String.fromCharCode(...bytes.subarray(4, 8)) === "ftyp" && ["avif", "avis"].includes(String.fromCharCode(...bytes.subarray(8, 12)))) return "image/avif"
+  if (bytes.length >= 5 && String.fromCharCode(...bytes.subarray(0, 5)) === "%PDF-") return "application/pdf"
+  return null
+}
+
 export function supplierImageToken(url: string) {
   if (!isAllowedSupplierImage(url)) return null
   const key = createHash("sha256").update(secret()).digest()
