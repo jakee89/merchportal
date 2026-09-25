@@ -40,7 +40,7 @@ const managePricingRulesStep = createStep(
   "manage-pricing-rules",
   async (input: Input, { container }) => {
     const service = container.resolve(MERCHPORTAL_MODULE) as any
-    if (input.supplier_code && !["stricker", "midocean"].includes(input.supplier_code)) {
+    if (input.supplier_code && !["stricker", "midocean", "aodaci"].includes(input.supplier_code)) {
       throw new MedusaError(MedusaError.Types.INVALID_DATA, "Unknown supplier")
     }
     if (input.quantity_tiers !== undefined) {

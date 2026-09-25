@@ -10,13 +10,14 @@ export type DecorationPosition = {
   max_colours?: number
   handling_price_eur?: number
   image_url?: string
-  images?: Array<{ variant_color?: string; url: string }>
+  images?: Array<{ variant_color?: string; variant_sku?: string; url: string }>
   size_options?: Array<{
     id: string
     label: string
     width_mm: number
     height_mm: number
     pricing_code?: string
+    variant_sku?: string
   }>
 }
 
@@ -47,6 +48,7 @@ type DecorationPriceBreak = {
 type DecorationPriceTable = {
   code: string
   option_code?: string
+  variant_sku?: string
   max_colours?: number
   max_area_cm2?: number
   max_stitches?: number
@@ -66,6 +68,78 @@ type PricingIndex = {
 }
 
 const pricingCache = new WeakMap<object, PricingIndex>()
+
+export function normalizeAodaciDecorationOptions(payloads: unknown[]): DecorationMethod[] {
+  const methods = new Map<string, DecorationMethod>()
+  for (const payload of payloads) {
+    if (!payload || typeof payload !== "object") continue
+    const row = payload as AnyObject
+    const sku = String(row.productSKU || "").trim()
+    const methodId = String(row.printTechniqueCode || "").trim()
+    const positionId = String(row.productPrintLocationCode || "").trim()
+    const printCode = String(row.printCode || "").trim()
+    const width = number(row.printTechniqueWidthMM)
+    const height = number(row.printTechniqueHeightMM)
+    if (!sku || !methodId || !positionId || !printCode || !width || !height || width <= 0 || height <= 0) continue
+    const method = methods.get(methodId) || {
+      id: methodId,
+      name: String(row.printTechniqueName || methodId),
+      positions: [],
+      price_breaks: [],
+      price_tables: [],
+      pricing_type: "aodaci",
+      colour_mode: /digital|sublimation|full.?colou?r|cmyk|dtf/iu.test(String(row.printTechniqueName || "")) ? "full_colour" : "spot_colour",
+    } as DecorationMethod
+    const position = method.positions.find((item) => item.id === positionId) || {
+      id: positionId,
+      name: String(row.productPrintLocationDescription || positionId),
+      images: [],
+      size_options: [],
+    } as DecorationPosition
+    position.max_width_mm = Math.max(position.max_width_mm || 0, width)
+    position.max_height_mm = Math.max(position.max_height_mm || 0, height)
+    const maxColours = number(row.printTechniqueMaxColors)
+    if (maxColours && maxColours > 0) position.max_colours = Math.max(position.max_colours || 0, maxColours)
+    const guide = String(row.printTechniqueImageImprintLines || "").trim()
+    if (guide) {
+      position.images ||= []
+      if (!position.images.some((item) => item.variant_sku === sku && item.url === guide)) position.images.push({ variant_sku: sku, url: guide })
+    }
+    const pricingCode = `${sku}:${positionId}:${printCode}:${width}x${height}`
+    position.size_options ||= []
+    if (!position.size_options.some((item) => item.id === pricingCode)) position.size_options.push({
+      id: pricingCode,
+      pricing_code: pricingCode,
+      variant_sku: sku,
+      label: `${(width / 10).toFixed(1)} × ${(height / 10).toFixed(1)} cm`,
+      width_mm: width,
+      height_mm: height,
+    })
+    if (!method.positions.some((item) => item.id === positionId)) method.positions.push(position)
+    const breaks: DecorationPriceBreak[] = []
+    if (String(row.currency || "").toUpperCase() === "EUR") {
+      for (let index = 1; index <= 15; index += 1) {
+        const quantity = quantityNumber(row[`minQty${index}`])
+        const price = number(row[`price${index}`])
+        if (quantity && quantity > 0 && price !== undefined && price >= 0) breaks.push({ quantity: Math.floor(quantity), unit_price_eur: price })
+      }
+    }
+    const colourCount = number(row.printTechniqueColor)
+    const tableCode = `${pricingCode}:${colourCount ?? "standard"}`
+    if (breaks.length && !method.price_tables?.some((item) => item.code === tableCode)) method.price_tables?.push({
+      code: tableCode,
+      option_code: pricingCode,
+      variant_sku: sku,
+      max_colours: method.colour_mode === "spot_colour" ? colourCount : undefined,
+      price_by_color: method.colour_mode === "spot_colour" && Number.isFinite(colourCount),
+      price_by_area: false,
+      price_by_stitches: false,
+      price_breaks: breaks.sort((a, b) => a.quantity - b.quantity),
+    })
+    methods.set(methodId, method)
+  }
+  return [...methods.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
 
 function number(value: unknown) {
   const parsed = Number(typeof value === "string" ? value.replace(",", ".") : value)
@@ -481,11 +555,11 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
   return [...methods.values()].sort((left, right) => left.name.localeCompare(right.name))
 }
 
-export function validateDecorationChoice(method: DecorationMethod, position: DecorationPosition, choice: { print_colours?: number; print_stitches?: number; pricing_code?: string; print_width_mm?: number; print_height_mm?: number }) {
+export function validateDecorationChoice(method: DecorationMethod, position: DecorationPosition, choice: { print_colours?: number; print_stitches?: number; pricing_code?: string; print_width_mm?: number; print_height_mm?: number }, variantSku?: string) {
   const colours = choice.print_colours || 1
   if (!Number.isInteger(colours) || colours < 1 || (position.max_colours && colours > position.max_colours)) return "Choose a valid number of print colours"
   if (method.colour_mode !== "spot_colour" && colours !== 1) return "This printing technique does not allow a colour-count selection"
-  const sizes = position.size_options || []
+  const sizes = (position.size_options || []).filter((item) => !item.variant_sku || item.variant_sku === variantSku)
   const size = sizes.find((item) => (item.pricing_code === choice.pricing_code || item.id === choice.pricing_code) && item.width_mm === choice.print_width_mm && item.height_mm === choice.print_height_mm)
   if (sizes.length && !size) return "Choose a print size supplied for this technique"
   if ((choice.print_width_mm && choice.print_width_mm < 1) || (choice.print_height_mm && choice.print_height_mm < 1) || (position.max_width_mm && choice.print_width_mm && choice.print_width_mm > position.max_width_mm) || (position.max_height_mm && choice.print_height_mm && choice.print_height_mm > position.max_height_mm)) return "Artwork dimensions exceed the selected print area"
@@ -494,19 +568,20 @@ export function validateDecorationChoice(method: DecorationMethod, position: Dec
   return null
 }
 
-export function decorationPrice(method: DecorationMethod | undefined, quantity: number, options: { colours?: number; width_mm?: number; height_mm?: number; color_code?: string; pricing_code?: string; handling_price_eur?: number; stitches?: number } = {}) {
+export function decorationPrice(method: DecorationMethod | undefined, quantity: number, options: { colours?: number; width_mm?: number; height_mm?: number; color_code?: string; pricing_code?: string; handling_price_eur?: number; stitches?: number; variant_sku?: string } = {}) {
   if (!method) return { unit: 0, handling: 0, setup: 0, pending: false }
   const colours = Math.max(1, Math.floor(options.colours || 1))
   const areaCm2 = options.width_mm && options.height_mm ? (options.width_mm * options.height_mm) / 100 : undefined
   let selectedTable: DecorationPriceTable | undefined
   if (method.price_tables?.length) {
     const exactTables = method.price_tables.filter((table) => {
+      if (table.variant_sku && table.variant_sku !== options.variant_sku) return false
       if (!options.pricing_code) return true
       return table.option_code === options.pricing_code || table.code === options.pricing_code
     })
     let tables = exactTables
     if (!tables.length && options.pricing_code) {
-      tables = method.price_tables.filter((table) => table.code.startsWith(`${options.pricing_code}-`))
+      tables = method.price_tables.filter((table) => (!table.variant_sku || table.variant_sku === options.variant_sku) && table.code.startsWith(`${options.pricing_code}-`))
     }
     if (tables.some((table) => table.price_by_color)) {
       tables = tables.filter((table) => table.price_by_color && table.max_colours === colours)
@@ -523,6 +598,7 @@ export function decorationPrice(method: DecorationMethod | undefined, quantity: 
       ? tables[0]
       : (areaTables.length ? areaTables.sort((left, right) => (left.max_area_cm2 || Number.MAX_SAFE_INTEGER) - (right.max_area_cm2 || Number.MAX_SAFE_INTEGER)) : tables.filter((table) => !table.price_by_area))[0]
     if (!selectedTable) return { unit: 0, handling: 0, setup: 0, pending: true }
+    if (method.pricing_type === "aodaci" && method.colour_mode === "spot_colour" && !selectedTable.price_by_color && colours !== 1) return { unit: 0, handling: 0, setup: 0, pending: true }
   }
   const pricingType = selectedTable
     ? selectedTable.price_by_color ? "numberofcolours" : selectedTable.price_by_area ? "arearange" : ""

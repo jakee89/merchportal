@@ -2,7 +2,7 @@ import { createHash, createHmac } from "node:crypto"
 import type { MedusaContainer } from "@medusajs/framework/types"
 import { MERCHPORTAL_MODULE } from "."
 import { categoryHierarchy, fieldValue, normalizedFieldName, productAttributes, productSpecifications, supplierCategory } from "./catalog-rules"
-import { normalizeDecorationOptions, type DecorationMethod } from "./decoration"
+import { normalizeAodaciDecorationOptions, normalizeDecorationOptions, type DecorationMethod } from "./decoration"
 import { supplierImageToken } from "./media"
 import { interruptibleSupplierRead } from "./sync"
 
@@ -113,10 +113,19 @@ function imageUrls(object: unknown, supplierCode?: string, output = new Set<stri
     if (entry.type !== "document") {
       for (const [key, candidate] of Object.entries(entry)) {
         const normalized = key.replace(/[^a-z0-9]/giu, "").toLowerCase()
-        const isProductImage = /^(mainimage|optionalimage\d*|image|imageurl|urlhighress|picture|itempicturefront)$/u.test(normalized)
+        const isProductImage = /^(mainimage|optionalimage\d*|image|imageurl|urlhighress|picture|itempicturefront)$/u.test(normalized) || (supplierCode === "aodaci" && /^(product(main|front|back|details\d+|context\d+|view\d+)image|productskuallimageslist)$/u.test(normalized))
         const isAssetUrl = normalized === "url" && typeof candidate === "string" && /\.(avif|gif|jpe?g|png|webp)(?:$|\?)/iu.test(candidate)
-        if ((!isProductImage && !isAssetUrl) || typeof candidate !== "string") continue
-        const resolved = supplierCode === "stricker" && isProductImage ? strickerProductImage(candidate) : candidate
+        if ((!isProductImage && !isAssetUrl) || (typeof candidate !== "string" && !Array.isArray(candidate))) continue
+        if (Array.isArray(candidate) && supplierCode === "aodaci") {
+          candidate.forEach((item) => imageUrls(typeof item === "string" ? { productMainImage: item } : item, supplierCode, output))
+          continue
+        }
+        if (typeof candidate !== "string") continue
+        if (supplierCode === "aodaci" && /^(productallimageslist|productskuallimageslist)$/u.test(normalized)) {
+          candidate.split(/[,;|]/u).map((item) => item.trim()).filter(Boolean).forEach((item) => imageUrls({ productMainImage: item }, supplierCode, output))
+          continue
+        }
+        const resolved = supplierCode === "stricker" && isProductImage ? strickerProductImage(candidate) : supplierCode === "aodaci" && isProductImage && !/^https:\/\//iu.test(candidate) ? `https://cdn.aodaci.com/resources/img/${candidate.replace(/^\/+/, "")}` : candidate
         if (resolved && /^https:\/\//iu.test(resolved)) {
           try {
             const url = new URL(resolved)
@@ -149,6 +158,14 @@ function downloadUrls(object: unknown, output = new Map<string, string>()): Arra
     }
     for (const [name, candidate] of Object.entries(entry)) {
       const key = normalizedFieldName(name)
+      if (key === "printingtemplates" && Array.isArray(candidate)) {
+        for (const template of candidate) {
+          const url = typeof template === "string" ? template : template && typeof template === "object" ? value(template as ObjectValue, ["url", "filePath", "link"]) : undefined
+          if (!url) continue
+          const token = supplierImageToken(url)
+          if (token) output.set(`/portal/media/${token}`, "Printing template")
+        }
+      }
       if (typeof candidate === "string" && /^https:\/\//iu.test(candidate) && /(document|download|datasheet|productsheet|specification|template|certificate|instruction|manual|pdf)/iu.test(key)) {
         const token = supplierImageToken(candidate)
         if (token) output.set(`/portal/media/${token}`, name.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " "))
@@ -165,7 +182,7 @@ export function opaqueSourceKey(supplierId: string, externalId: string) {
 }
 
 export function supplierMasterReference(supplierCode: string | undefined, payload: ObjectValue, fallback: string) {
-  const explicit = value(payload, ["product_reference", "productReference", "ProdReference", "master_id", "master_code", "product_code", "model", "parent_reference", "main_reference"])
+  const explicit = value(payload, ["productCode", "product_reference", "productReference", "ProdReference", "master_id", "master_code", "product_code", "model", "parent_reference", "main_reference"])
   const reference = explicit || value(payload, ["reference", "Reference", "sku", "optionalReference"]) || fallback
   if (supplierCode === "stricker") {
     return reference.replace(/^(\d{4,})-\d{3,}$/u, "$1")
@@ -182,7 +199,7 @@ export function catalogSummary(fullDescription?: string, suppliedSummary?: strin
 
 function recordKeys(item: any, supplierCode?: string) {
   const payload = (item.payload || {}) as ObjectValue
-  const sku = item.sku || fieldValue(payload, ["sku", "optional_reference", "optionalReference", "web_sku", "websku", "reference"])
+  const sku = item.sku || fieldValue(payload, ["productSKU", "sku", "optional_reference", "optionalReference", "web_sku", "websku", "reference"])
   const master = supplierMasterReference(supplierCode, payload, item.external_id)
   return { sku, master }
 }
@@ -197,6 +214,7 @@ function proxyImages(urls: string[]) {
 function supplierAssetUrl(value: string, supplierCode?: string) {
   const first = value.split(",")[0].trim()
   if (/^https:\/\//iu.test(first)) return first
+  if (supplierCode === "aodaci") return `https://cdn.aodaci.com/resources/printlines/${first.replace(/^\/+/, "")}`
   if (supplierCode !== "stricker") return value
   const clean = first.replace(/^\/+/, "")
   if (clean.startsWith("public/")) return `https://cdn.hideacontent.com/${clean}`
@@ -227,6 +245,21 @@ function matchingRecords(index: ReturnType<typeof indexedRecords>, supplierId: s
 }
 
 export function productPriceBreaks(items: any[]) {
+  if (items.some((item) => value(item.payload || item, ["productSKU"]))) {
+    const breaks = new Map<number, number>()
+    for (const item of items) {
+      const row = (item.payload || item) as ObjectValue
+      if (value(row, ["currency"])?.toUpperCase() !== "EUR") continue
+      for (let index = 1; index <= 6; index += 1) {
+        const quantity = directNumberValue(row, [`qtyScale${index}`])
+        const client = directNumberValue(row, [`priceClientQty${index}`])
+        const reseller = directNumberValue(row, [`priceResellerQty${index}`])
+        const cost = client && client > 0 ? client : reseller
+        if (quantity && quantity > 0 && cost && cost > 0) breaks.set(Math.floor(quantity), cost)
+      }
+    }
+    return [...breaks].map(([quantity, price_eur]) => ({ quantity, price_eur })).sort((a, b) => a.quantity - b.quantity)
+  }
   const breaks = new Map<number, number>()
   const visit = (value: unknown) => {
     if (Array.isArray(value)) return value.forEach(visit)
@@ -362,13 +395,13 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const attributes = productAttributes(group.records.map((item) => item.payload))
     const specifications = productSpecifications(group.records.map((item) => item.payload))
     const hierarchy = categoryHierarchy(group.records.map((item) => item.payload))
-    const groupSkus = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue)).map((row) => value(row, ["sku", "SKU", "optionalReference", "reference", "variant_id"])).filter(Boolean)
+    const groupSkus = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue)).map((row) => value(row, ["productSKU", "sku", "SKU", "optionalReference", "reference", "variant_id"])).filter(Boolean)
     const decorationPayloads = [...new Map([
       ...(decorationIndex.byMaster.get(`${group.supplier_id}:${group.master_id}`) || []),
       ...groupSkus.flatMap((sku) => decorationIndex.bySku.get(`${group.supplier_id}:${sku}`) || []),
     ].map((item: any) => [item.id || item.external_id, item.payload])).values()]
     const supplierDecorationPrices = decorationPricesBySupplier.get(group.supplier_id) || []
-    const decorationOptions = normalizeDecorationOptions([...group.records.map((item) => item.payload), ...decorationPayloads], attributes.print_methods, supplierDecorationPrices).map((method) => ({
+    const decorationOptions = (supplier?.code === "aodaci" ? normalizeAodaciDecorationOptions(decorationPayloads) : normalizeDecorationOptions([...group.records.map((item) => item.payload), ...decorationPayloads], attributes.print_methods, supplierDecorationPrices)).map((method) => ({
       ...method,
       positions: method.positions.map((position) => ({
         ...position,
@@ -378,19 +411,19 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
           url: proxyImages([supplierAssetUrl(image.url, supplier?.code)])[0],
         })).filter((image) => image.url),
       })),
-    })).filter((method) => method.positions.length && (method.price_breaks.length || method.price_ranges?.length || method.price_tables?.length))
+    })).filter((method) => method.positions.length && (supplier?.code === "aodaci" || method.price_breaks.length || method.price_ranges?.length || method.price_tables?.length))
     const rows = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue))
     const seen = new Set<string>()
     const seenSkus = new Set<string>()
     const variants = rows
       .map((row, index) => {
-        const sku = value(row, ["sku", "SKU", "optionalReference", "reference", "variant_id"]) || `${record.external_id}-${index + 1}`
-        const colorCode = value(row, ["color_code", "colour_code", "colorCode", "colourCode", "ColorCode", "Color1"]) || (supplier?.code === "midocean" && sku.includes("-") ? sku.split("-").at(-1) : undefined)
+        const sku = value(row, ["productSKU", "sku", "SKU", "optionalReference", "reference", "variant_id"]) || `${record.external_id}-${index + 1}`
+        const colorCode = value(row, ["productColourCode", "color_code", "colour_code", "colorCode", "colourCode", "ColorCode", "Color1"]) || (supplier?.code === "midocean" && sku.includes("-") ? sku.split("-").at(-1) : undefined)
         const suppliedHex = value(row, ["ColorHex1", "color_hex", "colour_hex"])
         const colorHex = suppliedHex && /^#?[0-9a-f]{6}$/iu.test(suppliedHex) ? `#${suppliedHex.replace(/^#/u, "")}` : undefined
-        const color = value(row, ["ColorDesc1", "ColorDescription", "color_description", "colour_description", "color_name", "colour_name", "color", "colour", "color_group"]) || colorCode || "Standard"
+        const color = value(row, ["productColour", "ColorDesc1", "ColorDescription", "color_description", "colour_description", "color_name", "colour_name", "color", "colour", "color_group"]) || colorCode || "Standard"
         const colorGroup = value(row, ["color_group", "colour_group", "color_family", "colour_family"]) || color
-        let size = value(row, ["size_description", "size", "combined_sizes", "capacity", "format", "dimension"]) || "Standard"
+        let size = value(row, ["productSize", "size_description", "size", "combined_sizes", "capacity", "format", "dimension"]) || "Standard"
         const combination = `${color}:${size}`
         if (seen.has(combination)) size = sku
         seen.add(`${color}:${size}`)
@@ -412,9 +445,9 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
           color_hex: colorHex,
           color_group: colorGroup,
           size,
-          ean: value(row, ["ean", "ean13", "barcode", "gtin"]),
-          pantone: value(row, ["pantone", "pms", "pms_color", "pms_colour"]),
-          dimensions: value(row, ["combined_sizes", "dimensions", "size_description"]),
+          ean: value(row, ["productEANCode", "ean", "ean13", "barcode", "gtin"]),
+          pantone: value(row, ["productColourPMS", "pantone", "pms", "pms_color", "pms_colour"]),
+          dimensions: value(row, ["productCombinedSizeCM", "combined_sizes", "dimensions", "size_description"]),
           images: proxyImages(variantImages),
           price_eur: priceBreaks[0]?.price_eur,
           price_breaks: priceBreaks,
@@ -429,8 +462,8 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
       })
     const sourceKey = opaqueSourceKey(group.supplier_id, group.master_id)
     const productImages = [...proxyImages(imageUrls(group.records.map((item) => item.payload), supplier?.code)), ...variants.flatMap((variant) => variant.images)].filter((url, index, all) => all.indexOf(url) === index)
-    const description = value(payload, ["long_description", "longDescription", "seo_description", "seodescription", "description", "Description"])
-    const suppliedTitle = value(payload, ["product_name", "Name", "name", "seo_name", "seoname", "description", "Description"])
+    const description = value(payload, ["productFullDesc", "long_description", "longDescription", "seo_description", "seodescription", "description", "Description"])
+    const suppliedTitle = value(payload, ["productName", "productLongName", "product_name", "Name", "name", "seo_name", "seoname", "description", "Description"])
     const title = suppliedTitle?.replace(/^\d{4,}\s*[.:-]\s*/u, "").trim() || suppliedTitle || "Merchandise product"
     normalized.push({
       source_key: sourceKey,
@@ -438,7 +471,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
       supplier_name: supplier?.display_name || "Unknown supplier",
       title,
       description,
-      short_description: catalogSummary(description, value(payload, ["short_description", "shortDescription", "summary"])),
+      short_description: catalogSummary(description, value(payload, ["productShortDesc", "short_description", "shortDescription", "summary"])),
       category: originalCategory,
       supplier_category: originalCategory,
       category_mapping_id: undefined,

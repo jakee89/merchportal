@@ -49,21 +49,21 @@ export function fieldValues(object: unknown, keys: string[], output = new Set<st
 }
 
 export function supplierCategory(payload: unknown) {
-  return fieldValue(payload, ["sub_type_description", "sub_type", "category_level3", "category", "category_name", "product_class", "product_family", "family", "type_description", "type"]) || "Uncategorized"
+  return fieldValue(payload, ["productSubcategoryDesc", "sub_type_description", "sub_type", "category_level3", "category", "category_name", "productCategoryDesc", "product_class", "product_family", "family", "type_description", "type"]) || "Uncategorized"
 }
 
 export function categoryHierarchy(payload: unknown) {
   return [
-    fieldValue(payload, ["category_level1", "type_description", "type"]),
-    fieldValue(payload, ["category_level2", "sub_type_description", "sub_type", "subcategory"]),
+    fieldValue(payload, ["productCategoryDesc", "category_level1", "type_description", "type"]),
+    fieldValue(payload, ["productSubcategoryDesc", "category_level2", "sub_type_description", "sub_type", "subcategory"]),
     fieldValue(payload, ["category_level3", "category", "category_name"]),
   ].filter((item, index, all): item is string => Boolean(item) && all.indexOf(item) === index)
 }
 
 export function productSpecifications(payload: unknown) {
   const fields: Array<[string, string[]]> = [
-    ["Material", ["material_description", "materials", "material", "composition"]],
-    ["Dimensions", ["combined_sizes", "product_dimensions", "dimensions"]],
+    ["Material", ["productMaterial", "material_description", "materials", "material", "composition"]],
+    ["Dimensions", ["productCombinedSizeCM", "combined_sizes", "product_dimensions", "dimensions"]],
     ["Width", ["width_mm", "product_width", "width"]],
     ["Height", ["height_mm", "product_height", "height"]],
     ["Length", ["length_mm", "product_length", "length"]],
@@ -73,7 +73,7 @@ export function productSpecifications(payload: unknown) {
     ["Gross weight", ["gross_weight"]],
     ["Country of origin", ["country_of_origin", "origin_country"]],
     ["Tariff code", ["taric_code", "tariff_code", "customs_code", "commodity_code"]],
-    ["EAN", ["ean", "ean13", "barcode", "gtin"]],
+    ["EAN", ["productEANCode", "ean", "ean13", "barcode", "gtin"]],
     ["Units per carton", ["units_per_carton", "carton_quantity", "master_carton_quantity"]],
     ["Inner carton", ["inner_carton_quantity", "inner_quantity"]],
     ["Carton dimensions", ["carton_dimensions", "master_carton_dimensions"]],
@@ -98,7 +98,7 @@ export function productAttributes(payload: unknown) {
         .filter(Boolean)
     : []
   const sustainabilityText = fieldValue(payload, ["sustainable", "sustainability", "sustainability_certificate", "eco", "eco_friendly", "recycled", "material", "composition"]) || ""
-  const materials = fieldValues(payload, ["material", "materials", "material_description", "composition"])
+  const materials = fieldValues(payload, ["productMaterial", "material", "materials", "material_description", "composition"])
     .filter((item) => !/^(true|false|yes|no)$/i.test(item))
     .slice(0, 20)
   const keywords = fieldValues(payload, ["keywords", "product_keywords", "tags", "features", "properties"]).slice(0, 40)
@@ -107,9 +107,9 @@ export function productAttributes(payload: unknown) {
     print_methods: [...new Set(printMethods)].slice(0, 20),
     materials,
     brand: fieldValue(payload, ["brand", "brand_name"]),
-    country_of_origin: fieldValue(payload, ["country_of_origin", "countryoforigin", "origin_country"]),
-    dimensions: fieldValue(payload, ["dimensions", "combined_sizes", "combinedsizes", "product_dimensions"]),
-    weight: fieldValue(payload, ["weight", "gross_weight", "net_weight", "product_weight"]),
+    country_of_origin: fieldValue(payload, ["productOriginCountry", "country_of_origin", "countryoforigin", "origin_country"]),
+    dimensions: fieldValue(payload, ["productCombinedSizeCM", "dimensions", "combined_sizes", "combinedsizes", "product_dimensions"]),
+    weight: fieldValue(payload, ["productWeightKG", "weight", "gross_weight", "net_weight", "product_weight"]),
     keywords,
     sustainable: /true|yes|eco|recycl|organic|sustainab|bamboo|cork/i.test(`${sustainabilityText} ${materials.join(" ")}`),
   }

@@ -20,8 +20,8 @@ export async function POST(
     res.status(400).json({ message: "Choose catalog, price, or stock" })
     return
   }
-  const code = req.params.code as "stricker" | "midocean"
-  if (!["stricker", "midocean"].includes(code)) {
+  const code = req.params.code as "stricker" | "midocean" | "aodaci"
+  if (!["stricker", "midocean", "aodaci"].includes(code)) {
     res.status(400).json({ message: "Choose a supported supplier" })
     return
   }

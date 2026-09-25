@@ -7,8 +7,8 @@ import { useRouter } from "next/navigation"
 import { previewPortalConfiguration, savePortalConfiguration, uploadPortalArtwork } from "../actions"
 
 type PriceBreak = { quantity: number; unit_price_eur: number; next_colour_price_eur?: number }
-type PriceTable = { code: string; option_code?: string; max_colours?: number; max_area_cm2?: number; max_stitches?: number; price_by_color: boolean; price_by_area: boolean; price_by_stitches?: boolean; price_breaks: PriceBreak[] }
-type SizeOption = { id: string; label: string; width_mm: number; height_mm: number; pricing_code?: string }
+type PriceTable = { code: string; option_code?: string; variant_sku?: string; max_colours?: number; max_area_cm2?: number; max_stitches?: number; price_by_color: boolean; price_by_area: boolean; price_by_stitches?: boolean; price_breaks: PriceBreak[] }
+type SizeOption = { id: string; label: string; width_mm: number; height_mm: number; pricing_code?: string; variant_sku?: string }
 type Position = {
   id: string
   name: string
@@ -17,7 +17,7 @@ type Position = {
   max_colours?: number
   handling_price_eur?: number
   image_url?: string
-  images?: Array<{ variant_color?: string; url: string }>
+  images?: Array<{ variant_color?: string; variant_sku?: string; url: string }>
   size_options?: SizeOption[]
 }
 type Method = {
@@ -108,14 +108,15 @@ export default function Configurator({ productId, productName, productImages, ba
   const [activeImage, setActiveImage] = useState(gallery[0] || "")
   useEffect(() => setActiveImage(gallery[0] || ""), [gallery])
 
-  const positions = useMemo(() => methods.flatMap((method) => method.positions).reduce<Position[]>((all, candidate) => {
+  const availableToVariant = (position: Position) => !position.size_options?.some((size) => size.variant_sku) || position.size_options.some((size) => size.variant_sku === variant?.sku)
+  const positions = useMemo(() => methods.flatMap((method) => method.positions).filter(availableToVariant).reduce<Position[]>((all, candidate) => {
     const current = all.find((item) => item.id === candidate.id)
     if (!current) return [...all, { ...candidate }]
     current.image_url ||= candidate.image_url
     current.images = [...(current.images || []), ...(candidate.images || [])].filter((item, index, list) => list.findIndex((other) => other.url === item.url && other.variant_color === item.variant_color) === index)
     current.size_options = [...(current.size_options || []), ...(candidate.size_options || [])].filter((item, index, list) => list.findIndex((other) => other.id === item.id) === index)
     return all
-  }, []), [methods])
+  }, []), [methods, variant?.sku])
   const methodChoices = useMemo(() => {
     const grouped = new Map<string, { name: string; methods: Method[] }>()
     for (const method of methods) {
@@ -130,19 +131,19 @@ export default function Configurator({ productId, productName, productImages, ba
   const productUnitPrice = [...productBreaks].filter((item) => item.quantity <= quantity).sort((a, b) => b.quantity - a.quantity)[0]?.price_eur ?? (productBreaks.length ? undefined : variant?.price_eur)
   const displayedBasePrice = verified ? verified.base_unit_price : productUnitPrice
 
-  const compatibleMethods = (positionId: string) => methods.filter((method) => method.positions.some((position) => position.id === positionId))
-  const compatibleChoices = (positionId: string) => methodChoices.filter((choice) => choice.methods.some((method) => method.positions.some((position) => position.id === positionId)))
+  const compatibleMethods = (positionId: string) => methods.filter((method) => method.positions.some((position) => position.id === positionId && availableToVariant(position)))
+  const compatibleChoices = (positionId: string) => methodChoices.filter((choice) => choice.methods.some((method) => method.positions.some((position) => position.id === positionId && availableToVariant(position))))
   const choiceForMethod = (methodId: string) => methodChoices.find((choice) => choice.methods.some((method) => method.id === methodId))
   const sizeChoices = (line: Line) => {
     const method = methods.find((item) => item.id === line.methodId)
-    const sizes = method?.positions.find((position) => position.id === line.positionId)?.size_options || []
+    const sizes = method?.positions.find((position) => position.id === line.positionId)?.size_options?.filter((item) => !item.variant_sku || item.variant_sku === variant?.sku) || []
     return orderedSizes(sizes.filter((size, index) => sizes.findIndex((other) => other.width_mm === size.width_mm && other.height_mm === size.height_mm && other.pricing_code === size.pricing_code) === index)).map((size) => ({ ...size, methodId: line.methodId }))
   }
   const selectedPosition = (line: Line) => methods.find((item) => item.id === line.methodId)?.positions.find((item) => item.id === line.positionId) || positions.find((item) => item.id === line.positionId)
   const positionImage = (position?: Position) => {
     const colourKeys = [variant?.color, variant?.color_code, variant?.sku?.split("-").at(-1)].filter(Boolean).map((value) => value!.trim().toLowerCase())
-    const exact = position?.images?.find((image) => image.variant_color && colourKeys.includes(image.variant_color.trim().toLowerCase()))
-    const generic = position?.images?.find((image) => !image.variant_color)
+    const exact = position?.images?.find((image) => image.variant_sku === variant?.sku) || position?.images?.find((image) => image.variant_color && colourKeys.includes(image.variant_color.trim().toLowerCase()))
+    const generic = position?.images?.find((image) => !image.variant_color && !image.variant_sku)
     return mediaUrl(backend, exact?.url || generic?.url || (!position?.images?.length ? position?.image_url : undefined))
   }
   const updateLine = (key: number, update: Partial<Line>) => setLines((items) => items.map((item) => item.key === key ? { ...item, ...update } : item))
@@ -150,15 +151,15 @@ export default function Configurator({ productId, productName, productImages, ba
   const choosePosition = (line: Line, positionId: string) => {
     const method = compatibleMethods(positionId)[0]
     const position = method?.positions.find((item) => item.id === positionId) || positions.find((item) => item.id === positionId)
-    const size = orderedSizes(position?.size_options || [])[0]
+    const size = orderedSizes(position?.size_options?.filter((item) => !item.variant_sku || item.variant_sku === variant?.sku) || [])[0]
     updateLine(line.key, { positionId, methodId: method?.id || "", sizeId: size?.id || "", pricingCode: size?.pricing_code || method?.id || "", colours: 1, stitches: firstStitchTier(method), width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
   }
   const chooseMethod = (line: Line, choiceKey: string) => {
-    const method = methodChoices.find((item) => item.key === choiceKey)?.methods.find((item) => item.positions.some((position) => position.id === line.positionId))
+    const method = methodChoices.find((item) => item.key === choiceKey)?.methods.find((item) => item.positions.some((position) => position.id === line.positionId && availableToVariant(position)))
     if (!method) return
     const methodId = method.id
     const position = method.positions.find((item) => item.id === line.positionId)
-    const size = orderedSizes(position?.size_options || [])[0]
+    const size = orderedSizes(position?.size_options?.filter((item) => !item.variant_sku || item.variant_sku === variant?.sku) || [])[0]
     updateLine(line.key, { methodId, sizeId: size?.id || "", pricingCode: size?.pricing_code || methodId, colours: 1, stitches: firstStitchTier(method), width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
   }
   const chooseSize = (line: Line, size: SizeOption & { methodId: string }) => updateLine(line.key, { methodId: size.methodId, sizeId: size.id, pricingCode: size.pricing_code || size.id, colours: 1, stitches: firstStitchTier(methods.find((item) => item.id === size.methodId)), width: String(size.width_mm), height: String(size.height_mm) })
@@ -221,8 +222,8 @@ export default function Configurator({ productId, productName, productImages, ba
       <div className={styles.productBuyPanel}>
         <h2>Choose colour and option</h2>
         <p className={styles.selectedColour}>{variants.length} options · Selected: <strong>{variant?.color || "—"}</strong>{variant?.size && variant.size !== "Standard" ? ` · ${variant.size}` : ""}</p>
-        <div className={styles.variantChoices} role="group" aria-label="Available colours and variants">{variants.map((item) => <button type="button" key={item.id} className={item.id === variant?.id ? styles.activeVariantChoice : ""} aria-pressed={item.id === variant?.id} title={`${item.color}${item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}`} onClick={() => { setVariantId(item.id); window.dispatchEvent(new CustomEvent("merchportal:variant-colour", { detail: item })) }}><span className={styles.variantChoiceImage}>{item.color_hex ? <span className={styles.variantColour} style={{ backgroundColor: item.color_hex }} /> : <SafeImage src={mediaUrl(backend, item.images?.[0])} alt="" />}</span><span><strong>{item.color}</strong>{item.size && item.size !== "Standard" && <small>{item.size}</small>}</span></button>)}</div>
-        {variants.length > 12 && <label className={styles.variantSelectFallback}>Find an option<select value={variant?.id || ""} onChange={(event) => setVariantId(event.target.value)}>{variants.map((item) => <option key={item.id} value={item.id}>{item.color}{item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}{item.sku ? ` · ${item.sku}` : ""}</option>)}</select></label>}
+        <div className={styles.variantChoices} role="group" aria-label="Available colours and variants">{variants.map((item) => <button type="button" key={item.id} className={item.id === variant?.id ? styles.activeVariantChoice : ""} aria-pressed={item.id === variant?.id} title={`${item.color}${item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}`} onClick={() => { setVariantId(item.id); setLines([]); window.dispatchEvent(new CustomEvent("merchportal:variant-colour", { detail: item })) }}><span className={styles.variantChoiceImage}>{item.color_hex ? <span className={styles.variantColour} style={{ backgroundColor: item.color_hex }} /> : <SafeImage src={mediaUrl(backend, item.images?.[0])} alt="" />}</span><span><strong>{item.color}</strong>{item.size && item.size !== "Standard" && <small>{item.size}</small>}</span></button>)}</div>
+        {variants.length > 12 && <label className={styles.variantSelectFallback}>Find an option<select value={variant?.id || ""} onChange={(event) => { setVariantId(event.target.value); setLines([]) }}>{variants.map((item) => <option key={item.id} value={item.id}>{item.color}{item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}{item.sku ? ` · ${item.sku}` : ""}</option>)}</select></label>}
         <dl className={styles.variantFacts}><div><dt>SKU</dt><dd>{variant?.sku || "—"}</dd></div>{variant?.ean && <div><dt>EAN</dt><dd>{variant.ean}</dd></div>}{variant?.pantone && <div><dt>Pantone</dt><dd>{variant.pantone}</dd></div>}{variant?.dimensions && <div><dt>Dimensions</dt><dd>{variant.dimensions}</dd></div>}</dl>
         <h3>Plain product price <small>excl. VAT</small></h3>{productBreaks.some((item) => item.price_eur > 0) ? <table className={styles.priceTable}><thead><tr><th>Quantity</th><th>Unit price</th></tr></thead><tbody>{productBreaks.filter((item) => item.price_eur > 0).map((item) => <tr key={item.quantity}><td>{item.quantity}+</td><td>€{printUnitPrice(item.price_eur)}</td></tr>)}</tbody></table> : <p>Price on request</p>}
         <div className={styles.stockPanel}><strong>{variant?.stock_quantity === undefined ? "Availability on request" : `${variant.stock_quantity.toLocaleString()} available now`}</strong>{variant?.future_stock?.map((item) => <span key={`${item.date}-${item.quantity}`}>{item.quantity.toLocaleString()} incoming — {new Date(item.date).toLocaleDateString()}</span>)}</div>

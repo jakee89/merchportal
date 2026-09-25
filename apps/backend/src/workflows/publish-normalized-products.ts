@@ -135,7 +135,7 @@ async function persistProductSources(container: any, normalized: NormalizedProdu
   }
 }
 
-export async function refreshPublishedSupplierProducts(container: any, supplierCode?: "stricker" | "midocean", normalizedProducts?: NormalizedProduct[], onProgress?: (percent: number, message: string) => Promise<void>, checkCancelled?: () => Promise<void>, sourceKeys?: string[], refreshKind: "catalog" | "price" | "stock" = "catalog") {
+export async function refreshPublishedSupplierProducts(container: any, supplierCode?: "stricker" | "midocean" | "aodaci", normalizedProducts?: NormalizedProduct[], onProgress?: (percent: number, message: string) => Promise<void>, checkCancelled?: () => Promise<void>, sourceKeys?: string[], refreshKind: "catalog" | "price" | "stock" = "catalog") {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const markup = await resolveMarkup(service)
@@ -509,7 +509,7 @@ export async function publishNormalizedProductBatch(container: any, pending: Nor
   }
 }
 
-export async function autoPublishSupplierCatalog(container: any, supplierCode: "stricker" | "midocean", onProgress?: (published: number, total: number) => Promise<void>, onIssue?: (message: string) => Promise<void>, onPreparing?: (completed: number, total: number) => Promise<void>, sourceKeys?: string[]) {
+export async function autoPublishSupplierCatalog(container: any, supplierCode: "stricker" | "midocean" | "aodaci", onProgress?: (published: number, total: number) => Promise<void>, onIssue?: (message: string) => Promise<void>, onPreparing?: (completed: number, total: number) => Promise<void>, sourceKeys?: string[]) {
   const normalized = await normalizeSupplierCatalog(container, { supplier_code: supplierCode, source_keys: sourceKeys, take: Number.MAX_SAFE_INTEGER, onProgress: onPreparing })
   const pending = normalized.filter((product) => !product.published && product.variants.length)
   let created = 0

@@ -14,12 +14,16 @@ const suppliers = {
     display_name: "midocean",
     credential_env_var: "MIDOCEAN_API_KEY",
   },
+  aodaci: {
+    display_name: "AODACi",
+    credential_env_var: "AODACI_ACCESS_KEY",
+  },
 } as const
 
 type SupplierCode = keyof typeof suppliers
 type RecordObject = Record<string, unknown>
 type RawRecordType = "product" | "price" | "stock" | "decoration" | "decoration_price"
-const NORMALIZER_VERSION = "2026-09-12.3"
+const NORMALIZER_VERSION = "2026-09-25.1"
 
 export class ImportCancelledError extends Error {
   constructor() {
@@ -133,13 +137,15 @@ function recordIdentity(
   type?: RawRecordType,
 ) {
   const value = (record && typeof record === "object" ? record : {}) as RecordObject
-  const sku = objectValue(value, ["sku", "SKU", "Sku", "optionalReference", "reference"])
-  const masterId = objectValue(value, ["master_id", "master_code", "product_code", "model", "ProductReference", "ProdReference", "Reference"])
-  const serviceCode = objectValue(value, ["service_code", "serviceCode", "technique_id", "techniqueId", "TableFullCode", "TableCode"])
-  const positionCode = objectValue(value, ["position_id", "positionId", "location_id", "locationId", "location_code", "locationCode"]) ||
+  const sku = objectValue(value, ["sku", "SKU", "Sku", "productSKU", "optionalReference", "reference"])
+  const masterId = objectValue(value, ["master_id", "master_code", "product_code", "productCode", "model", "ProductReference", "ProdReference", "Reference"])
+  const serviceCode = objectValue(value, ["service_code", "serviceCode", "printCode", "technique_id", "techniqueId", "TableFullCode", "TableCode"])
+  const positionCode = objectValue(value, ["position_id", "positionId", "location_id", "locationId", "location_code", "locationCode", "productPrintLocationCode"]) ||
     [objectValue(value, ["Component"]), objectValue(value, ["Location"])].filter(Boolean).join("|")
   const tableOption = objectValue(value, ["TableCodeOption", "table_code_option"])
-  const decorationId = [masterId, serviceCode, positionCode, tableOption].filter(Boolean).join(":")
+  const printSize = objectValue(value, ["printTechniqueSizeCode", "printTechniqueSizeMM"]) || [objectValue(value, ["printTechniqueWidthMM"]), objectValue(value, ["printTechniqueHeightMM"])].filter(Boolean).join("x")
+  const printColours = objectValue(value, ["printTechniqueColor"])
+  const decorationId = [masterId, sku, serviceCode, positionCode, tableOption, printSize, printColours].filter(Boolean).join(":")
   const externalId = type === "decoration" || type === "decoration_price"
     ? decorationId || objectValue(value, ["variant_id", "id", "ID"])
     : masterId ?? objectValue(value, ["variant_id", "id", "ID", "TableFullCode", "TableCode", "service_code"])
@@ -150,7 +156,7 @@ function recordIdentity(
 }
 
 function preferSkuIdentity(supplierCode: SupplierCode, type: RawRecordType) {
-  return type === "price" || type === "stock" || (supplierCode === "stricker" && type === "product") || (supplierCode === "midocean" && type === "decoration")
+  return type === "price" || type === "stock" || (supplierCode === "stricker" && type === "product") || (supplierCode === "aodaci" && type === "product") || (supplierCode === "midocean" && type === "decoration")
 }
 
 export function deduplicateSupplierRecords(
@@ -315,6 +321,7 @@ export async function runSupplierSync(
       },
     })
     let records: unknown[] = []
+    let productPriceRecords: unknown[] = []
     let decorationRecords: unknown[] = []
     let decorationPriceRecords: unknown[] = []
     try {
@@ -323,7 +330,8 @@ export async function runSupplierSync(
         : kind === "price"
           ? await adapter.fetchPrices(fetchContext("prices"))
           : await adapter.fetchStock(fetchContext("stock"))
-      if (kind === "catalog") {
+      if (kind === "catalog" && supplierCode === "aodaci") productPriceRecords = await adapter.fetchPrices(fetchContext("product prices"))
+      if (kind === "catalog" || (kind === "price" && supplierCode === "aodaci")) {
         decorationRecords = await (adapter.fetchDecorations?.(fetchContext("print options")) || [])
         decorationPriceRecords = await (adapter.fetchDecorationPrices?.(fetchContext("print prices")) || [])
       }
@@ -338,7 +346,7 @@ export async function runSupplierSync(
     const changedRecords: Array<{ type: RawRecordType; externalId: string; sku?: string; payload: RecordObject }> = []
     let sharedDecorationChanged = false
 
-    const totalRecords = records.length + decorationRecords.length + decorationPriceRecords.length
+    const totalRecords = records.length + productPriceRecords.length + decorationRecords.length + decorationPriceRecords.length
     let processed = 0
     await updateImportJobActivity(service, job.id, {
       phase: "importing",
@@ -422,7 +430,7 @@ export async function runSupplierSync(
         const checksum = createHash("sha256").update(`${NORMALIZER_VERSION}:${JSON.stringify(record)}`).digest("hex")
         const existing = existingById.get(externalId)
         if (!existing || existing.checksum !== checksum) {
-          if (type === "decoration" || type === "decoration_price") sharedDecorationChanged = true
+          if ((type === "decoration" || type === "decoration_price") && supplierCode !== "aodaci") sharedDecorationChanged = true
           else changedRecords.push({ type, externalId, sku, payload: record as RecordObject })
         }
 
@@ -461,7 +469,7 @@ export async function runSupplierSync(
       await flush()
       const stale = uniqueItems.length ? existingRecords.filter((item: any) => !incomingIds.has(item.external_id)) : []
       for (const record of stale) {
-        if (type === "decoration" || type === "decoration_price") sharedDecorationChanged = true
+        if ((type === "decoration" || type === "decoration_price") && supplierCode !== "aodaci") sharedDecorationChanged = true
         else changedRecords.push({ type, externalId: record.external_id, sku: record.sku, payload: record.payload || {} })
       }
       const staleIds = stale.map((item: any) => item.id)
@@ -470,6 +478,8 @@ export async function runSupplierSync(
       }
     }
     await persistRecords(records, recordType)
+    await stopIfImportCancelled(service, job.id)
+    if (productPriceRecords.length) await persistRecords(productPriceRecords, "price")
     await stopIfImportCancelled(service, job.id)
     await persistRecords(decorationRecords, "decoration")
     await stopIfImportCancelled(service, job.id)

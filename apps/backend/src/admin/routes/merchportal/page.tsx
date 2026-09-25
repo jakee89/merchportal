@@ -3,7 +3,7 @@ import { Button, Container, Heading, Input, Text, toast } from "@medusajs/ui"
 import { useCallback, useEffect, useState } from "react"
 
 type Supplier = {
-  code: "stricker" | "midocean"
+  code: "stricker" | "midocean" | "aodaci"
   display_name: string
   configured: boolean
   due: { catalog: boolean; price: boolean; stock: boolean }

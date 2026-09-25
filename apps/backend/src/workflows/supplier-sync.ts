@@ -6,7 +6,7 @@ import { MERCHPORTAL_MODULE } from "../modules/merchportal"
 import { opaqueSourceKey, supplierMasterReference } from "../modules/merchportal/normalization"
 
 type Input = {
-  supplier_code: "stricker" | "midocean"
+  supplier_code: "stricker" | "midocean" | "aodaci"
   kind: SyncKind
   trigger: "manual" | "scheduled"
   dry_run?: boolean

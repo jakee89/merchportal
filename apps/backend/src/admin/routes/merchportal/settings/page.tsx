@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 
 type Tier = { min_quantity: number; max_quantity: number | null; markup_percentage: number }
 type Rule = { scope_key: string; organization_id?: string; markup_percentage: number; quantity_tiers?: Tier[] | null }
-type Supplier = { code: "stricker" | "midocean"; display_name: string; configured: boolean }
+type Supplier = { code: "stricker" | "midocean" | "aodaci"; display_name: string; configured: boolean }
 type Organization = { id: string; name: string }
 type Email = { host: string; port: number; username: string; from_email: string; notification_email: string; password_configured: boolean; verified: boolean }
 

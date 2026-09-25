@@ -3,7 +3,7 @@ import type { SyncKind } from "../modules/merchportal/adapters"
 import { supplierSyncWorkflow } from "../workflows/supplier-sync"
 
 type SupplierSyncRequested = {
-  supplier_code: "stricker" | "midocean"
+  supplier_code: "stricker" | "midocean" | "aodaci"
   kind: SyncKind
   trigger: "manual"
   dry_run?: boolean

@@ -13,9 +13,9 @@ export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaRes
     return
   }
 
-  const code = req.params.code as "stricker" | "midocean"
+  const code = req.params.code as "stricker" | "midocean" | "aodaci"
   const apiKey = typeof req.body?.api_key === "string" ? req.body.api_key.trim() : ""
-  if (!["stricker", "midocean"].includes(code) || !apiKey || apiKey.length > 4096) {
+  if (!["stricker", "midocean", "aodaci"].includes(code) || !apiKey || apiKey.length > 4096) {
     res.status(400).json({ message: "Choose a supported supplier and provide a valid API key" })
     return
   }

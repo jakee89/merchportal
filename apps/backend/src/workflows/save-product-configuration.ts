@@ -77,7 +77,7 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
     if (!position) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose an available print position")
     if (usedPositions.has(position.id)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Each print position can only be selected once")
     usedPositions.add(position.id)
-    const validationError = validateDecorationChoice(method, position, line)
+    const validationError = validateDecorationChoice(method, position, line, variant.sku)
     if (validationError) throw new MedusaError(MedusaError.Types.INVALID_DATA, validationError)
     return { line, method, position }
   })
@@ -89,7 +89,7 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
     const basePricePending = knownBaseUnitPrice === undefined || !Number.isFinite(knownBaseUnitPrice) || knownBaseUnitPrice <= 0
     const baseUnitPrice = basePricePending ? 0 : (knownBaseUnitPrice ?? 0)
     const decorationLines = validatedLines.map(({ line, method, position }) => {
-      const price = decorationPrice(method, quantity, { colours: line.print_colours, stitches: line.print_stitches, width_mm: line.print_width_mm, height_mm: line.print_height_mm, color_code: indexedVariant?.color_code, pricing_code: line.pricing_code, handling_price_eur: position.handling_price_eur })
+      const price = decorationPrice(method, quantity, { colours: line.print_colours, stitches: line.print_stitches, width_mm: line.print_width_mm, height_mm: line.print_height_mm, color_code: indexedVariant?.color_code, pricing_code: line.pricing_code, handling_price_eur: position.handling_price_eur, variant_sku: variant.sku })
       return { ...line, method_name: method.name, position_name: position.name, unit_price_eur: price.pending ? null : markedUpUnitPrice(price.unit + price.handling, markup), setup_price_eur: price.pending ? null : sellingPrice(price.setup, markup), price_pending: price.pending }
     })
     const brandingUnitPrice = decorationLines.reduce((sum, line) => sum + (line.unit_price_eur || 0), 0)
