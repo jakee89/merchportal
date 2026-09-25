@@ -1,4 +1,5 @@
 import { MedusaError } from "@medusajs/framework/utils"
+import type { QuoteDetails } from "../modules/merchportal/quote-details"
 
 function ids(quote: any): string[] {
   return Array.isArray(quote?.item_ids) ? quote.item_ids.filter((id: unknown): id is string => typeof id === "string") : []
@@ -23,6 +24,8 @@ export async function quoteWithItems(service: any, quote: any) {
       product_id: item.product_id,
       product_name: document.name || "Product",
       sku: variant?.sku,
+      variant_size: variant?.size,
+      variant_dimensions: variant?.dimensions,
       image_url: variant?.images?.[0] || document.images?.[0] || document.image_url,
       color: item.color,
       quantity: item.quantity,
@@ -35,14 +38,18 @@ export async function quoteWithItems(service: any, quote: any) {
           position_name: line.position_name,
           position_image_url: guide?.url || (!position?.images?.length ? position?.image_url : undefined),
           print_colours: line.print_colours,
+          print_stitches: line.print_stitches,
           print_width_mm: line.print_width_mm,
           print_height_mm: line.print_height_mm,
+          max_width_mm: position?.max_width_mm,
+          max_height_mm: position?.max_height_mm,
           unit_price_eur: line.price_pending ? null : line.unit_price_eur,
           setup_price_eur: line.price_pending ? null : line.setup_price_eur,
           price_pending: Boolean(line.price_pending),
         }
       }) : [],
       artwork_filename: item.artwork_filename,
+      artwork_url: item.artwork_file_id ? `/portal/account/quotes/artwork/${encodeURIComponent(item.id)}` : null,
       base_unit_price: item.base_unit_price > 0 ? item.base_unit_price : null,
       estimated_total: item.branding_price_pending ? null : item.estimated_total,
       quote_required: Boolean(item.branding_price_pending),
@@ -53,6 +60,7 @@ export async function quoteWithItems(service: any, quote: any) {
     organization_id: quote.organization_id,
     status: quote.status,
     customer_note: quote.customer_note,
+    contact_details: quote.contact_details || null,
     staff_note: quote.staff_note,
     estimated_total: items.length && items.every((item) => !item.quote_required) ? Math.round(items.reduce((sum, item) => sum + Number(item.estimated_total || 0), 0) * 100) / 100 : null,
     final_total: quote.final_total,
@@ -87,12 +95,12 @@ export async function removeConfigurationFromCart(service: any, organizationId: 
   return service.updateQuoteRequests({ id: cart.id, item_ids: ids(cart).filter((id) => id !== configurationId) })
 }
 
-export async function submitQuoteCart(service: any, organizationId: string, note: string) {
+export async function submitQuoteCart(service: any, organizationId: string, note: string, details: QuoteDetails) {
   const cart = (await service.listQuoteRequests({ organization_id: organizationId, status: "cart" }, { take: 1 }))[0]
   if (!cart || !ids(cart).length) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Add at least one product before requesting a quote")
   const summary = await quoteWithItems(service, cart)
   if (summary.items.length !== ids(cart).length) throw new MedusaError(MedusaError.Types.INVALID_DATA, "One or more cart items are unavailable. Remove them and retry")
-  return service.updateQuoteRequests({ id: cart.id, status: "submitted", customer_note: note || null, estimated_total: summary.estimated_total, submitted_at: new Date() })
+  return service.updateQuoteRequests({ id: cart.id, status: "submitted", customer_note: note || null, contact_details: details, estimated_total: summary.estimated_total, submitted_at: new Date() })
 }
 
 export async function finalizeQuote(service: any, quoteId: string, actorId: string, finalTotal: number, note: string) {

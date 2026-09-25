@@ -196,12 +196,12 @@ export default function Configurator({ productId, productName, productImages, ba
     setBusy(true)
     setMessage("")
     try {
-      let uploaded: { id: string; filename: string } | undefined
+      let uploaded: { id: string; filename: string; proof: string } | undefined
       if (artwork) {
         const result = await uploadPortalArtwork({ filename: artwork.name, mime_type: artwork.type, content: await fileContent(artwork) })
         uploaded = result.file
       }
-      const result = await savePortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations, artwork_file_id: uploaded?.id, artwork_filename: uploaded?.filename })
+      const result = await savePortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations, artwork_file_id: uploaded?.id, artwork_filename: uploaded?.filename, artwork_proof: uploaded?.proof })
       setMessage(result.configuration.branding_price_pending ? "Added to cart · Quote required for one or more prices." : `Added to cart · Estimated total €${result.configuration.estimated_total?.toFixed(2)}.`)
       router.refresh()
     } catch (error) {

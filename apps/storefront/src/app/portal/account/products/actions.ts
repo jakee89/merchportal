@@ -9,7 +9,7 @@ export async function uploadPortalArtwork(input: {
   content: string
 }) {
   try {
-    return await sdk.client.fetch<{ file: { id: string; filename: string } }>(
+    return await sdk.client.fetch<{ file: { id: string; filename: string; proof: string } }>(
       "/portal-api/artwork",
       {
         method: "POST",

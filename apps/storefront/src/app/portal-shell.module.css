@@ -433,6 +433,8 @@
   font-size: 15px;
   padding: 11px;
 }
+.checkboxLabel { align-items: center; display: flex !important; flex-direction: row; gap: 10px !important; }
+.checkboxLabel input { height: 18px; width: 18px; }
 .formRow {
   display: grid;
   gap: 10px;
@@ -1070,6 +1072,12 @@
 .quotePanel h2 { font-size: 20px; }
 .quotePanel label { display: grid; font-size: 13px; font-weight: 700; gap: 7px; }
 .quotePanel textarea { border: 1px solid #ccd8e5; border-radius: 8px; min-height: 90px; padding: 10px; }
+.quotePanel input { border: 1px solid #ccd8e5; border-radius: 8px; min-width: 0; padding: 10px; width: 100%; }
+.quoteBusiness { background: #f6f9fc; border: 1px solid #e0e9f2; border-radius: 12px; display: grid; gap: 16px; padding: 18px; }
+.quoteBusiness h3, .quoteBusiness h4 { color: #1b324e; font-size: 16px; margin: 0; }
+.quoteBusiness h4 { font-size: 14px; }
+.quoteDetailsGrid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 10px; }
+.artworkLink { color: #075fbf; display: inline-block; font-size: 12px; font-weight: 700; margin-top: 8px; overflow-wrap: anywhere; }
 .quoteItem { align-items: start; border-top: 1px solid #e9eef4; display: flex; gap: 15px; justify-content: space-between; padding: 15px 0; }
 .quoteProductImage { background: #f4f8fb; border-radius: 10px; display: block; flex: 0 0 86px; overflow: hidden; }
 .quoteProductImage .productImage, .quoteProductImage .productVisual { height: 86px; object-fit: contain; width: 86px; }
@@ -1174,6 +1182,7 @@
   .catalogGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .productHero { grid-template-columns: 1fr; }
   .quoteLayout { grid-template-columns: 1fr; }
+  .quoteDetailsGrid { grid-template-columns: 1fr; }
   .relatedGrid { grid-template-columns: repeat(2, 1fr); }
   .catalogLayout { grid-template-columns: 1fr; }
   .mobileFilterButton {

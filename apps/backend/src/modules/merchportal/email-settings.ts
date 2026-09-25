@@ -74,7 +74,7 @@ export async function markEmailSettingsVerified(service: any) {
   if (setting) await service.updatePortalSettings({ id: setting.id, value: { ...setting.value, verified: true } })
 }
 
-export async function sendPortalEmail(service: any, recipient: string, subject: string, message: string, test = false) {
+export async function sendPortalEmail(service: any, recipient: string, subject: string, message: string, test = false, html?: string) {
   const settings = await loadEmailSettings(service)
   if (!settings?.encrypted_password || (!test && !settings.verified)) return false
   const transport = nodemailer.createTransport({
@@ -87,6 +87,6 @@ export async function sendPortalEmail(service: any, recipient: string, subject: 
     greetingTimeout: 12_000,
     socketTimeout: 20_000,
   })
-  await transport.sendMail({ from: settings.from_email, to: recipient, subject, text: message })
+  await transport.sendMail({ from: settings.from_email, to: recipient, subject, text: message, html })
   return true
 }

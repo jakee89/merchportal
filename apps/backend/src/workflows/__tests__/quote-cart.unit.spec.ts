@@ -1,7 +1,8 @@
 import { addConfigurationToCart, finalizeQuote, quoteWithItems, removeConfigurationFromCart, submitQuoteCart } from "../quote-cart"
 
 describe("quote cart", () => {
-  const configuration = { id: "config-1", product_id: "product-1", variant_id: "variant-1", color: "Blue", quantity: 100, estimated_total: 250, branding_price_pending: false, decoration_lines: [{ method_name: "Pad Printing", position_name: "Front", branding_method: "private-code", print_position: "front" }] }
+  const details = { contact_name: "Jane Doe", contact_email: "jane@example.com", phone: "+356 2123 4567", company_name: "Example Ltd", vat_number: "MT12345678", billing_address: { line1: "1 Main St", line2: "", city: "Valletta", postal_code: "VLT 1000", country_code: "mt" }, delivery_address: { line1: "2 Dock Rd", line2: "", city: "Marsa", postal_code: "MRS 1000", country_code: "mt" } }
+  const configuration = { id: "config-1", product_id: "product-1", variant_id: "variant-1", color: "Blue", quantity: 100, estimated_total: 250, branding_price_pending: false, artwork_file_id: "file-1", artwork_filename: "logo.svg", decoration_lines: [{ method_name: "Pad Printing", position_name: "Front", branding_method: "private-code", print_position: "front" }] }
 
   function service() {
     let cart: any
@@ -30,9 +31,10 @@ describe("quote cart", () => {
     const summary = await quoteWithItems(store, cart)
     expect(summary.estimated_total).toBe(250)
     expect(summary.items[0].decorations).toEqual([expect.objectContaining({ method_name: "Pad Printing", position_name: "Front", price_pending: false })])
-    const submitted = await submitQuoteCart(store, "company-1", "Please deliver in October")
+    const submitted = await submitQuoteCart(store, "company-1", "Please deliver in October", details)
     expect(submitted.status).toBe("submitted")
     expect(submitted.estimated_total).toBe(250)
+    expect(submitted.contact_details).toEqual(details)
   })
 
   it("uses the selected variant and matching print guide in the cart", async () => {
@@ -42,13 +44,14 @@ describe("quote cart", () => {
     const summary = await quoteWithItems(store, cart)
     expect(summary.items[0].image_url).toBe("/media/blue")
     expect(summary.items[0].decorations[0].position_image_url).toBe("/media/guide-blue")
+    expect(summary.items[0].artwork_url).toBe("/portal/account/quotes/artwork/config-1")
   })
 
   it("allows staff to set the final total only after submission", async () => {
     const store = service()
     await addConfigurationToCart(store, "company-1", "buyer-1", "config-1")
     await expect(finalizeQuote(store, "quote-1", "staff-1", 300, "Approved")).rejects.toThrow("Only submitted quotes")
-    await submitQuoteCart(store, "company-1", "")
+    await submitQuoteCart(store, "company-1", "", details)
     const final = await finalizeQuote(store, "quote-1", "staff-1", 300, "Approved")
     expect(final.final_total).toBe(300)
     expect(final.status).toBe("quoted")

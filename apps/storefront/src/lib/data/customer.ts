@@ -94,6 +94,8 @@ export async function signup(
     first_name: formData.get("first_name") as string,
     last_name: formData.get("last_name") as string,
     phone: formData.get("phone") as string,
+    company_name: String(formData.get("portal_company_name") || ""),
+    business_details: formData.get("portal_business_details") ? JSON.parse(String(formData.get("portal_business_details"))) as Record<string, unknown> : undefined,
   }
 
   try {
@@ -202,6 +204,8 @@ async function completeLogin(
           first_name: pending?.first_name,
           last_name: pending?.last_name,
           phone: pending?.phone,
+          company_name: pending?.company_name,
+          metadata: pending?.business_details ? { merchportal_business: pending.business_details } : undefined,
         },
         {},
         { authorization: `Bearer ${token}` }

@@ -1,8 +1,17 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { Button, Container, Heading, Input, Text, toast } from "@medusajs/ui"
+import { Container, Heading, Text, toast } from "@medusajs/ui"
 import { useEffect, useState } from "react"
 
-type Quote = { id: string; organization_name: string; status: string; customer_note?: string; staff_note?: string; estimated_total: number | null; final_total?: number | null; submitted_at?: string; items: Array<{ id: string; product_name: string; color: string; quantity: number; estimated_total: number | null; quote_required: boolean; decorations: Array<{ method_name: string; position_name: string }> }> }
+type Address = { line1: string; line2?: string; city: string; postal_code: string; country_code: string }
+type Quote = { id: string; organization_name: string; status: string; customer_note?: string; submitted_at?: string; contact_details?: { contact_name: string; contact_email: string; phone: string; company_name: string; vat_number: string; billing_address: Address; delivery_address: Address }; items: Array<{ id: string; product_name: string; sku?: string; color: string; variant_size?: string; variant_dimensions?: string; image_url?: string; quantity: number; artwork_filename?: string; artwork_url?: string; decorations: Array<{ method_name: string; position_name: string; position_image_url?: string; print_width_mm?: number; print_height_mm?: number; max_width_mm?: number; max_height_mm?: number; print_colours?: number; print_stitches?: number }> }> }
+
+function mediaUrl(value?: string) {
+  return value && /^\/media\/[A-Za-z0-9_.-]+$/.test(value) ? value : undefined
+}
+
+function address(value?: Address) {
+  return value ? [value.line1, value.line2, value.city, value.postal_code, value.country_code?.toUpperCase()].filter(Boolean).join(", ") : "Not supplied"
+}
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, { ...init, credentials: "include", headers: { "Content-Type": "application/json", ...(init?.headers || {}) } })
@@ -15,25 +24,14 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
 const QuotesPage = () => {
   const [quotes, setQuotes] = useState<Quote[]>([])
-  const [prices, setPrices] = useState<Record<string, string>>({})
-  const [notes, setNotes] = useState<Record<string, string>>({})
-  const [busy, setBusy] = useState("")
   const refresh = () => api<{ quotes: Quote[] }>("/admin/merchportal/quotes").then((result) => setQuotes(result.quotes))
   useEffect(() => { refresh().catch((error) => toast.error(error.message)) }, [])
-  const respond = async (quote: Quote) => {
-    setBusy(quote.id)
-    try {
-      await api(`/admin/merchportal/quotes/${quote.id}`, { method: "POST", body: JSON.stringify({ final_total: Number(prices[quote.id] ?? quote.final_total), note: notes[quote.id] ?? quote.staff_note ?? "" }) })
-      toast.success("Final quote saved for the client")
-      await refresh()
-    } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
-  }
-  return <div className="flex flex-col gap-y-3"><Container><Heading>Client quote requests</Heading><Text className="text-ui-fg-subtle">Review configured products and send a final EUR price. No order is placed automatically.</Text></Container>
+  return <div className="flex flex-col gap-y-3"><Container><Heading>Client quote requests</Heading><Text className="text-ui-fg-subtle">Full B2B contact, product, decoration and artwork details. Artwork downloads require a staff login.</Text></Container>
     {quotes.length ? quotes.map((quote) => <Container key={quote.id}>
-      <div className="flex items-start justify-between gap-4"><div><Heading level="h2">{quote.organization_name}</Heading><Text size="small" className="text-ui-fg-subtle">{quote.status} · {quote.submitted_at ? new Date(quote.submitted_at).toLocaleString() : ""} · {quote.items.length} products</Text></div><Text weight="plus">{quote.final_total !== null && quote.final_total !== undefined ? `Final €${quote.final_total.toFixed(2)}` : quote.estimated_total === null ? "Quote required" : `Estimate €${quote.estimated_total.toFixed(2)}`}</Text></div>
-      {quote.customer_note && <Text className="mt-3">Client note: {quote.customer_note}</Text>}
-      <div className="mt-3 flex flex-col gap-y-2">{quote.items.map((item) => <div className="rounded border p-3" key={item.id}><Text weight="plus">{item.product_name} · {item.color} · {item.quantity} units</Text><Text size="small">{item.quote_required || item.estimated_total === null ? "Supplier price unavailable — price manually" : `Estimate €${item.estimated_total.toFixed(2)}`}</Text>{item.decorations.map((line, index) => <Text size="small" key={index}>{line.method_name} · {line.position_name}</Text>)}</div>)}</div>
-      <div className="mt-4 grid gap-2"><label className="text-sm">Final total in EUR<Input type="number" min="0" step="0.01" value={prices[quote.id] ?? (quote.final_total === null || quote.final_total === undefined ? "" : String(quote.final_total))} onChange={(event) => setPrices((current) => ({ ...current, [quote.id]: event.target.value }))} /></label><label className="text-sm">Message to client<textarea className="w-full rounded border p-2" maxLength={2000} value={notes[quote.id] ?? quote.staff_note ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [quote.id]: event.target.value }))} /></label><Button isLoading={busy === quote.id} disabled={!String(prices[quote.id] ?? quote.final_total ?? "").trim()} onClick={() => respond(quote)}>Send final quote</Button></div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><Heading level="h2">{quote.contact_details?.company_name || quote.organization_name}</Heading><Text size="small" className="text-ui-fg-subtle">Request {quote.id} · {quote.submitted_at ? new Date(quote.submitted_at).toLocaleString() : ""} · {quote.items.length} products</Text></div><span className="rounded-full bg-ui-bg-interactive px-3 py-1 text-sm text-ui-fg-on-color">{quote.status}</span></div>
+      <div className="mt-4 grid gap-3 rounded-lg bg-ui-bg-subtle p-4 md:grid-cols-2"><div><Text weight="plus">Contact</Text><Text>{quote.contact_details?.contact_name || "Not supplied"}</Text><Text>{quote.contact_details?.contact_email || "Not supplied"}</Text><Text>{quote.contact_details?.phone || "Not supplied"}</Text><Text>VAT: {quote.contact_details?.vat_number || "Not supplied"}</Text></div><div><Text weight="plus">Billing address</Text><Text>{address(quote.contact_details?.billing_address)}</Text><Text weight="plus" className="mt-2">Delivery address</Text><Text>{address(quote.contact_details?.delivery_address)}</Text></div></div>
+      {quote.customer_note && <div className="mt-3 rounded border p-3"><Text weight="plus">Client note</Text><Text>{quote.customer_note}</Text></div>}
+      <div className="mt-4 flex flex-col gap-3">{quote.items.map((item) => <article className="rounded-lg border p-4" key={item.id}><div className="flex flex-wrap gap-4">{mediaUrl(item.image_url) && <img src={mediaUrl(item.image_url)} alt={item.product_name} className="h-28 w-28 rounded border bg-white object-contain" />}<div><Text weight="plus" className="text-lg">{item.product_name}</Text><Text>{item.color}{item.variant_size ? ` · ${item.variant_size}` : ""} · {item.quantity.toLocaleString()} units</Text><Text size="small" className="text-ui-fg-subtle">SKU {item.sku || "—"}{item.variant_dimensions ? ` · ${item.variant_dimensions}` : ""}</Text></div></div><div className="mt-3 grid gap-2 md:grid-cols-2">{item.decorations.map((line, index) => <div className="flex gap-3 rounded border bg-ui-bg-subtle p-3" key={index}>{mediaUrl(line.position_image_url) && <img src={mediaUrl(line.position_image_url)} alt={`${line.position_name} print area`} className="h-20 w-20 rounded border bg-white object-contain" />}<div><Text weight="plus">{line.method_name}</Text><Text size="small">{line.position_name}</Text><Text size="small" className="text-ui-fg-subtle">{line.print_width_mm && line.print_height_mm ? `${line.print_width_mm} × ${line.print_height_mm} mm` : line.max_width_mm && line.max_height_mm ? `Maximum ${line.max_width_mm} × ${line.max_height_mm} mm` : "Print size to confirm"}{line.print_colours ? ` · ${line.print_colours} colours` : ""}{line.print_stitches ? ` · ${line.print_stitches} stitches` : ""}</Text></div></div>)}</div><div className="mt-3">{item.artwork_url ? <a className="text-ui-fg-interactive text-sm font-medium" href={`/admin/merchportal/artwork/${encodeURIComponent(item.id)}`}>Download artwork · {item.artwork_filename || "file"} ↓</a> : <Text size="small" className="text-ui-fg-subtle">No artwork attached</Text>}</div></article>)}</div>
     </Container>) : <Container><Text>No quote requests yet.</Text></Container>}
   </div>
 }

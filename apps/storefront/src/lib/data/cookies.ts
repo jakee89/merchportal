@@ -81,6 +81,8 @@ export type PendingCustomer = {
   first_name?: string
   last_name?: string
   phone?: string
+  company_name?: string
+  business_details?: Record<string, unknown>
 }
 
 // During the email verification flow the customer record isn't created until

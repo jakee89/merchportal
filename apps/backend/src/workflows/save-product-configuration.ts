@@ -5,6 +5,7 @@ import { markedUpUnitPrice, sellingPrice } from "../modules/merchportal/catalog-
 import { decorationPrice, validateDecorationChoice, type DecorationMethod } from "../modules/merchportal/decoration"
 import { markupForQuantity, resolveMarkupRule } from "./manage-pricing-rules"
 import { addConfigurationToCart } from "./quote-cart"
+import { verifyArtwork } from "../modules/merchportal/artwork-proof"
 
 type DecorationInput = {
   branding_method: string
@@ -33,6 +34,7 @@ type Input = {
   decorations?: DecorationInput[]
   artwork_file_id?: string
   artwork_filename?: string
+  artwork_proof?: string
 }
 
 const saveConfigurationStep = createStep("save-configuration", async (input: Input, { container }) => {
@@ -41,6 +43,7 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
   if (!memberships.length) throw new MedusaError(MedusaError.Types.UNAUTHORIZED, "Active company membership required")
   if (!input.preview_only && memberships[0].role === "client_viewer") throw new MedusaError(MedusaError.Types.UNAUTHORIZED, "Your account can view products but cannot add items to a quote")
   if (!Number.isInteger(input.quantity) || input.quantity < 1 || input.quantity > 100000) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Quantity must be between 1 and 100,000")
+  if (!input.preview_only && (input.artwork_file_id || input.artwork_filename || input.artwork_proof)) verifyArtwork(input.artwork_proof, input.artwork_file_id, input.artwork_filename, input.actor_id, memberships[0].organization_id)
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const { data: products } = await query.graph({ entity: "product", fields: ["id", "variants.id", "variants.sku", "variants.prices.amount", "variants.prices.currency_code"], filters: { id: input.product_id } })
   const variant = products[0]?.variants?.find((item: any) => item.id === input.variant_id) as any

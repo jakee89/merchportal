@@ -156,6 +156,7 @@ type Body = {
   print_height_mm?: number
   artwork_file_id?: string
   artwork_filename?: string
+  artwork_proof?: string
   decorations?: Array<{
     branding_method: string
     print_position: string
@@ -186,6 +187,7 @@ export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaRes
       print_height_mm: req.body.print_height_mm,
       artwork_file_id: req.body.artwork_file_id,
       artwork_filename: req.body.artwork_filename,
+      artwork_proof: req.body.artwork_proof,
       decorations: req.body.decorations,
       preview_only: Boolean(req.body.preview_only),
     },
