@@ -8,15 +8,19 @@ export async function uploadPortalArtwork(input: {
   mime_type: string
   content: string
 }) {
-  return sdk.client.fetch<{ file: { id: string; filename: string } }>(
-    "/portal-api/artwork",
-    {
-      method: "POST",
-      headers: await getAuthHeaders(),
-      body: input,
-      cache: "no-store",
-    },
-  )
+  try {
+    return await sdk.client.fetch<{ file: { id: string; filename: string } }>(
+      "/portal-api/artwork",
+      {
+        method: "POST",
+        headers: await getAuthHeaders(),
+        body: input,
+        cache: "no-store",
+      },
+    )
+  } catch {
+    throw new Error("Artwork could not be uploaded. Use a PDF, PNG, JPG or SVG under 10 MB, then try again.")
+  }
 }
 
 export async function savePortalConfiguration(

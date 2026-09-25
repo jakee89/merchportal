@@ -119,6 +119,6 @@ export function sellingPrice(cost: number, markupPercentage: number) {
   return Math.round(cost * (1 + markupPercentage / 100) * 100) / 100
 }
 
-export function markedUpPrintUnitPrice(cost: number, markupPercentage: number) {
+export function markedUpUnitPrice(cost: number, markupPercentage: number) {
   return Math.round(cost * (1 + markupPercentage / 100) * 1_000_000) / 1_000_000
 }

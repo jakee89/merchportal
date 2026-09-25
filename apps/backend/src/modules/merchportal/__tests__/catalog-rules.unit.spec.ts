@@ -1,4 +1,4 @@
-import { categoryHierarchy, markedUpPrintUnitPrice, productAttributes, productSpecifications, sellingPrice, supplierCategory } from "../catalog-rules"
+import { categoryHierarchy, markedUpUnitPrice, productAttributes, productSpecifications, sellingPrice, supplierCategory } from "../catalog-rules"
 
 describe("catalog rules", () => {
   it("reads the supplier's original category", () => {
@@ -24,9 +24,11 @@ describe("catalog rules", () => {
   })
 
   it("preserves fractional-cent print pricing until the quantity total", () => {
-    const unit = markedUpPrintUnitPrice(0.589, 30)
+    const unit = markedUpUnitPrice(0.589, 30)
     expect(unit).toBe(0.7657)
     expect(Math.round(unit * 1000 * 100) / 100).toBe(765.7)
+    expect(markedUpUnitPrice(0.552, 30)).toBe(0.7176)
+    expect(Math.round((markedUpUnitPrice(0.552, 30) + 1.1726 * 2) * 250 * 100) / 100).toBe(765.7)
   })
 
   it("retains Stricker category hierarchy and specifications", () => {

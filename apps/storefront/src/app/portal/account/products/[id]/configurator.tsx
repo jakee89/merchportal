@@ -223,7 +223,7 @@ export default function Configurator({ productId, productName, productImages, ba
         <div className={styles.variantChoices} role="group" aria-label="Available colours and variants">{variants.map((item) => <button type="button" key={item.id} className={item.id === variant?.id ? styles.activeVariantChoice : ""} aria-pressed={item.id === variant?.id} title={`${item.color}${item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}`} onClick={() => { setVariantId(item.id); window.dispatchEvent(new CustomEvent("merchportal:variant-colour", { detail: item })) }}><span className={styles.variantChoiceImage}>{item.color_hex ? <span className={styles.variantColour} style={{ backgroundColor: item.color_hex }} /> : <SafeImage src={mediaUrl(backend, item.images?.[0])} alt="" />}</span><span><strong>{item.color}</strong>{item.size && item.size !== "Standard" && <small>{item.size}</small>}</span></button>)}</div>
         {variants.length > 12 && <label className={styles.variantSelectFallback}>Find an option<select value={variant?.id || ""} onChange={(event) => setVariantId(event.target.value)}>{variants.map((item) => <option key={item.id} value={item.id}>{item.color}{item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}{item.sku ? ` · ${item.sku}` : ""}</option>)}</select></label>}
         <dl className={styles.variantFacts}><div><dt>SKU</dt><dd>{variant?.sku || "—"}</dd></div>{variant?.ean && <div><dt>EAN</dt><dd>{variant.ean}</dd></div>}{variant?.pantone && <div><dt>Pantone</dt><dd>{variant.pantone}</dd></div>}{variant?.dimensions && <div><dt>Dimensions</dt><dd>{variant.dimensions}</dd></div>}</dl>
-        <h3>Plain product price <small>excl. VAT</small></h3>{productBreaks.some((item) => item.price_eur > 0) ? <table className={styles.priceTable}><thead><tr><th>Quantity</th><th>Unit price</th></tr></thead><tbody>{productBreaks.filter((item) => item.price_eur > 0).map((item) => <tr key={item.quantity}><td>{item.quantity}+</td><td>€{item.price_eur.toFixed(2)}</td></tr>)}</tbody></table> : <p>Price on request</p>}
+        <h3>Plain product price <small>excl. VAT</small></h3>{productBreaks.some((item) => item.price_eur > 0) ? <table className={styles.priceTable}><thead><tr><th>Quantity</th><th>Unit price</th></tr></thead><tbody>{productBreaks.filter((item) => item.price_eur > 0).map((item) => <tr key={item.quantity}><td>{item.quantity}+</td><td>€{printUnitPrice(item.price_eur)}</td></tr>)}</tbody></table> : <p>Price on request</p>}
         <div className={styles.stockPanel}><strong>{variant?.stock_quantity === undefined ? "Availability on request" : `${variant.stock_quantity.toLocaleString()} available now`}</strong>{variant?.future_stock?.map((item) => <span key={`${item.date}-${item.quantity}`}>{item.quantity.toLocaleString()} incoming — {new Date(item.date).toLocaleDateString()}</span>)}</div>
       </div>
     </section>
@@ -253,7 +253,7 @@ export default function Configurator({ productId, productName, productImages, ba
       </div>
       <aside className={styles.priceSummary}>
         <h2>Estimate for {quantity.toLocaleString()} units</h2>
-        <div><span>Plain product</span><strong>{displayedBasePrice === undefined || displayedBasePrice === null || !Number.isFinite(displayedBasePrice) || displayedBasePrice <= 0 ? "Quote required" : `€${displayedBasePrice.toFixed(2)} × ${quantity} = €${(displayedBasePrice * quantity).toFixed(2)}`}</strong></div>
+        <div><span>Plain product</span><strong>{displayedBasePrice === undefined || displayedBasePrice === null || !Number.isFinite(displayedBasePrice) || displayedBasePrice <= 0 ? "Quote required" : `€${printUnitPrice(displayedBasePrice)} × ${quantity} = €${(displayedBasePrice * quantity).toFixed(2)}`}</strong></div>
         {pricedLines.map(({ line, method }, index) => {
           const price = verified?.decoration_lines[index]
           return <div key={line.key}><span>{method?.name || `Print ${index + 1}`}</span><strong>{!price || price.price_pending || price.unit_price_eur === null ? "Quote required" : `€${printUnitPrice(price.unit_price_eur)} × ${quantity}${price.setup_price_eur ? ` + €${price.setup_price_eur.toFixed(2)} setup` : ""} = €${(price.unit_price_eur * quantity + (price.setup_price_eur || 0)).toFixed(2)}`}</strong></div>
@@ -268,7 +268,7 @@ export default function Configurator({ productId, productName, productImages, ba
         {verified?.estimated_total !== null && verified?.estimated_total !== undefined && <div><span>Per unit incl. setup · excl. VAT</span><strong>€{(verified.estimated_total / quantity).toFixed(2)}</strong></div>}
         <p className={styles.helper}>Final price confirmed by staff.</p>
         <button className={styles.primary} type="button" disabled={busy || !variant || verificationStatus === "error"} onClick={save}>{busy ? "Adding…" : "Add to quote cart"}</button>
-        {message && <p className={styles.configMessage} aria-live="polite">{message} <Link href="/portal/account/quotes">Review cart →</Link></p>}
+        {message && <p className={styles.configMessage} aria-live="polite">{message} {message.startsWith("Added to cart") && <Link href="/portal/account/quotes">Review cart →</Link>}</p>}
       </aside>
     </section>
   </>

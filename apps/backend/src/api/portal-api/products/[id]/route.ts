@@ -1,7 +1,7 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { ContainerRegistrationKeys, MedusaError, ProductStatus } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../../../../modules/merchportal"
-import { sellingPrice } from "../../../../modules/merchportal/catalog-rules"
+import { markedUpUnitPrice, sellingPrice } from "../../../../modules/merchportal/catalog-rules"
 import { resolveMarkup } from "../../../../workflows/manage-pricing-rules"
 import { saveProductConfigurationWorkflow } from "../../../../workflows/save-product-configuration"
 
@@ -47,9 +47,9 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         dimensions: indexedVariant?.dimensions,
         images: Array.isArray(indexedVariant?.images) ? indexedVariant.images : [],
         stock_quantity: Number.isFinite(indexedVariant?.stock_quantity) ? indexedVariant.stock_quantity : variant.inventory_quantity,
-        price_eur: Number.isFinite(cost) ? sellingPrice(cost, markup) : nativePrice,
+        price_eur: Number.isFinite(cost) ? markedUpUnitPrice(cost, markup) : nativePrice,
         price_breaks: Array.isArray(indexedVariant?.price_breaks)
-          ? indexedVariant.price_breaks.map((price: any) => ({ quantity: price.quantity, price_eur: sellingPrice(Number(price.price_eur), markup) }))
+          ? indexedVariant.price_breaks.map((price: any) => ({ quantity: price.quantity, price_eur: markedUpUnitPrice(Number(price.price_eur), markup) }))
           : [],
         future_stock: Array.isArray(indexedVariant?.future_stock) ? indexedVariant.future_stock : [],
         color_code: indexedVariant?.color_code,
