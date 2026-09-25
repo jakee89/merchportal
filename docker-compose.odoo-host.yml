@@ -19,6 +19,8 @@ services:
       S3_ENDPOINT: http://minio:8333
       NODE_OPTIONS: --max-old-space-size=1536
     mem_limit: 2g
+    cpus: 1.25
+    cpu_shares: 256
 
   postgres:
     mem_limit: 384m

@@ -3,7 +3,7 @@ import { ContainerRegistrationKeys, ProductStatus } from "@medusajs/framework/ut
 import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
 import { sellingPrice } from "../../../modules/merchportal/catalog-rules"
 import { resolveMarkup } from "../../../workflows/manage-pricing-rules"
-import { portalCatalogCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
+import { cachePortalCatalogResponse, portalCatalogCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
 import { catalogFacets, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 
 function queryText(value: unknown) {
@@ -38,9 +38,10 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
 
   const [markup, completedJobs] = await Promise.all([
     resolveMarkup(service, membership[0].organization_id),
-    service.listImportJobs({ status: "completed" }, { take: 1, order: { completed_at: "DESC" } }),
+    service.listImportJobs({ status: "completed" }, { take: 100, order: { completed_at: "DESC" } }),
   ])
-  const cacheKey = `${markup}:${completedJobs[0]?.id || "initial"}`
+  const latestChange = completedJobs.find((job: any) => job.log?.catalog_refreshed === true || (job.log?.catalog_refreshed === undefined && (job.created_count > 0 || job.updated_count > 0)))
+  const cacheKey = `${markup}:${latestChange?.id || "initial"}`
   removeExpiredPortalCatalogCacheEntries()
   const cached = portalCatalogCache.get(cacheKey)
   let safeProducts: any[]
@@ -153,7 +154,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     }
 
     portalCatalogCache.set(cacheKey, {
-      expires: Date.now() + 60_000,
+      expires: Date.now() + 10 * 60_000,
       products: safeProducts,
     })
   }
@@ -170,6 +171,9 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     inStock: req.query.in_stock === "true",
     sustainable: req.query.sustainable === "true",
   }
+  const responseKey = `${cacheKey}:${JSON.stringify(req.query)}`
+  const cachedResponse = portalCatalogResponseCache.get(responseKey)
+  if (cachedResponse && cachedResponse.expires > Date.now()) return res.json(cachedResponse.response)
   const facets = catalogFacets(safeProducts, filters)
   const filtered = safeProducts.filter((product) => matchesCatalogFilters(product, filters))
   const sort = queryText(req.query.sort)
@@ -201,12 +205,14 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     }).slice(0, 12)
     return { ...product, color_options: options }
   })
-  res.json({
+  const response = {
     products,
     facets,
     total: filtered.length,
     page,
     page_size: pageSize,
     page_count: pageCount,
-  })
+  }
+  cachePortalCatalogResponse(responseKey, response)
+  res.json(response)
 }

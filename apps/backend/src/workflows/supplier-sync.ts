@@ -3,6 +3,7 @@ import { ImportCancelledError, runSupplierSync, stopIfImportCancelled, updateImp
 import type { SyncKind } from "../modules/merchportal/adapters"
 import { autoPublishSupplierCatalog, refreshPublishedSupplierProducts } from "./publish-normalized-products"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
+import { opaqueSourceKey, supplierMasterReference } from "../modules/merchportal/normalization"
 
 type Input = {
   supplier_code: "stricker" | "midocean"
@@ -37,9 +38,31 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
   }
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   try {
+    const changedRecords = ((job as any).changed_records || []) as Array<{ type: string; externalId: string; sku?: string; payload: Record<string, any> }>
+    const sharedDecorationChanged = Boolean((job as any).shared_decoration_changed)
+    const suppliers = await service.listSuppliers({ code: input.supplier_code }, { take: 1 })
+    const supplierId = suppliers[0]?.id
+    const recentJobs = supplierId ? await service.listImportJobs({ supplier_id: supplierId, kind: input.kind }, { take: 5, order: { created_at: "DESC" } }) : []
+    const previousJob = recentJobs.find((item: { id: string }) => item.id !== job.id)
+    const retryAfterFailure = previousJob?.status === "failed" || previousJob?.status === "cancelled"
+    const affectedKeys = new Set<string>()
+    const changedSkus = new Set(changedRecords.filter((record) => record.type === "stock" || record.type === "price").map((record) => record.sku).filter((sku): sku is string => Boolean(sku)))
+    for (const record of changedRecords) {
+      const master = supplierMasterReference(input.supplier_code, record.payload, record.externalId)
+      if (supplierId && master) affectedKeys.add(opaqueSourceKey(supplierId, master))
+    }
+    if (changedSkus.size && supplierId) {
+      const sources = await service.listPublishedProductSources({ supplier_id: supplierId }, { take: 50000 })
+      for (const source of sources) {
+        if ((source.catalog_document?.variants || []).some((variant: { sku?: string }) => variant.sku && changedSkus.has(variant.sku))) affectedKeys.add(source.source_key)
+      }
+    }
+    const needsFullRefresh = retryAfterFailure || (input.kind === "catalog" && sharedDecorationChanged)
+    const sourceKeys = needsFullRefresh ? undefined : [...affectedKeys]
+    const hasChanges = changedRecords.length > 0 || sharedDecorationChanged || retryAfterFailure
     let publication: Awaited<ReturnType<typeof autoPublishSupplierCatalog>> | undefined
     const livePublicationErrors: string[] = []
-    if (input.kind === "catalog" && !input.dry_run) {
+    if (input.kind === "catalog" && !input.dry_run && hasChanges) {
       await updateImportJobActivity(service, job.id, {
         phase: "normalizing",
         current_message: "Preparing products for the Malta catalog",
@@ -73,9 +96,9 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
           progress_percent: 60 + Math.floor((completed / Math.max(1, total)) * 8),
           current_message: `Preparing parent products (${completed.toLocaleString()} of ${total.toLocaleString()})`,
         })
-      })
+      }, sourceKeys)
     }
-    const catalog = input.dry_run
+    const catalog = input.dry_run || !hasChanges || (sourceKeys?.length === 0)
       ? { updated_products: 0, updated_prices: 0, updated_stock: 0 }
       : await (async () => {
         await stopIfImportCancelled(service, job.id)
@@ -91,7 +114,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
             current_message: message,
             progress_percent: percent,
           })
-        }, () => stopIfImportCancelled(service, job.id).then(() => undefined))
+        }, () => stopIfImportCancelled(service, job.id).then(() => undefined), sourceKeys, input.kind)
       })()
     await updateImportJobActivity(service, job.id, {
       status: "completed",
@@ -104,6 +127,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
       log: {
         message: "Supplier update completed",
         dry_run: Boolean(input.dry_run),
+        catalog_refreshed: !input.dry_run && hasChanges && (sourceKeys === undefined || sourceKeys.length > 0),
         published_count: publication?.created || 0,
         catalog_total: publication?.total || catalog.updated_products,
         publication_errors: publication?.errors || [],

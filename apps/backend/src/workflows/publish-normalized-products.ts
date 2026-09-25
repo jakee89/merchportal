@@ -47,7 +47,9 @@ async function persistProductSources(container: any, normalized: NormalizedProdu
   const suppliers = await service.listSuppliers({})
   const supplierByCode = new Map<string, any>(suppliers.map((supplier: any) => [supplier.code, supplier]))
   const nativeByKey = new Map<string, any>(nativeProducts.map((product: any) => [product.external_id, product]))
-  const existingSources = await listAllPublishedProductSources(service, {}, async (count) => { await onProgress?.(98, `Loading saved catalog entries (${count.toLocaleString()})`) }, checkCancelled)
+  const existingSources = normalized.length
+    ? await listAllPublishedProductSources(service, { source_key: normalized.map((product) => product.source_key) }, async (count) => { await onProgress?.(98, `Loading saved catalog entries (${count.toLocaleString()})`) }, checkCancelled)
+    : []
   const existingByKey = new Map<string, any>(existingSources.map((source: any) => [source.source_key, source]))
   const creates: any[] = []
   const updates: any[] = []
@@ -133,12 +135,12 @@ async function persistProductSources(container: any, normalized: NormalizedProdu
   }
 }
 
-export async function refreshPublishedSupplierProducts(container: any, supplierCode?: "stricker" | "midocean", normalizedProducts?: NormalizedProduct[], onProgress?: (percent: number, message: string) => Promise<void>, checkCancelled?: () => Promise<void>) {
+export async function refreshPublishedSupplierProducts(container: any, supplierCode?: "stricker" | "midocean", normalizedProducts?: NormalizedProduct[], onProgress?: (percent: number, message: string) => Promise<void>, checkCancelled?: () => Promise<void>, sourceKeys?: string[], refreshKind: "catalog" | "price" | "stock" = "catalog") {
   const query = container.resolve(ContainerRegistrationKeys.QUERY)
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const markup = await resolveMarkup(service)
   await onProgress?.(92, "Finding published supplier products")
-  let selectedSourceKeys = normalizedProducts?.map((product) => product.source_key)
+  let selectedSourceKeys = sourceKeys || normalizedProducts?.map((product) => product.source_key)
   if (!selectedSourceKeys && supplierCode) {
     const suppliers = await service.listSuppliers({ code: supplierCode }, { take: 1 })
     const sources = suppliers.length ? await listAllPublishedProductSources(service, { supplier_id: suppliers[0].id }, async (count) => { await onProgress?.(92, `Finding published supplier products (${count.toLocaleString()})`) }, checkCancelled) : []
@@ -156,7 +158,7 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     for (const [index, sourceKeys] of batches(selectedSourceKeys, pageSize).entries()) {
       const { data: batch } = await interruptibleSupplierRead<{ data: any[] }>(() => query.graph({
         entity: "product",
-        fields: ["id", "external_id", "variants.id", "variants.sku"],
+        fields: ["id", "external_id", "variants.id", "variants.sku", "variants.prices.amount", "variants.prices.currency_code"],
         filters: { status: ProductStatus.PUBLISHED, external_id: sourceKeys },
         pagination: { take: pageSize },
       }), "Loading published products", checkCancelled)
@@ -167,7 +169,7 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     for (let skip = 0; ; skip += pageSize) {
       const { data: batch } = await interruptibleSupplierRead<{ data: any[] }>(() => query.graph({
         entity: "product",
-        fields: ["id", "external_id", "variants.id", "variants.sku"],
+        fields: ["id", "external_id", "variants.id", "variants.sku", "variants.prices.amount", "variants.prices.currency_code"],
         filters: { status: ProductStatus.PUBLISHED },
         pagination: { take: pageSize, skip },
       }), "Loading published products", checkCancelled)
@@ -215,7 +217,7 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     }
   }
 
-  const missingVariants = selected.flatMap((product) => {
+  const missingVariants = refreshKind !== "catalog" ? [] : selected.flatMap((product) => {
     const nativeProduct = nativeProductByKey.get(product.source_key)
     if (!nativeProduct) return []
     return product.variants
@@ -249,7 +251,7 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     for (const group of batches(published.map((product: any) => product.id), 250)) {
       const { data: refreshedProducts } = await interruptibleSupplierRead<{ data: any[] }>(() => query.graph({
         entity: "product",
-        fields: ["id", "external_id", "variants.id", "variants.sku"],
+        fields: ["id", "external_id", "variants.id", "variants.sku", "variants.prices.amount", "variants.prices.currency_code"],
         filters: { id: group },
       }), "Reloading new product options", checkCancelled)
       for (const product of refreshedProducts) {
@@ -262,17 +264,19 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     await onProgress?.(94, `Added ${missingVariants.length.toLocaleString()} new product options`)
   }
 
-  const variantUpdates = selected.flatMap((product) =>
+  const variantUpdates = refreshKind === "stock" ? [] : selected.flatMap((product) =>
     product.variants.flatMap((variant) => {
       const existing = variantBySku.get(variant.sku)
       if (!existing || variant.price_eur === undefined) return []
+      const amount = sellingPrice(variant.price_eur, markup)
+      if (existing.prices?.some((price: any) => price.currency_code === "eur" && Number(price.amount) === amount)) return []
       return [
         {
           id: existing.id,
           prices: [
             {
               currency_code: "eur",
-              amount: sellingPrice(variant.price_eur, markup),
+              amount,
             },
           ],
         },
@@ -291,7 +295,7 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     await onProgress?.(96, `Updated ${variantUpdates.length.toLocaleString()} client prices`)
   }
 
-  const stockBySku = new Map(selected.flatMap((product) => product.variants.flatMap((variant) => (variant.stock_quantity === undefined ? [] : [[variant.sku, variant.stock_quantity] as const]))))
+  const stockBySku = new Map(refreshKind === "price" ? [] : selected.flatMap((product) => product.variants.flatMap((variant) => (variant.stock_quantity === undefined ? [] : [[variant.sku, variant.stock_quantity] as const]))))
   const skus = [...stockBySku.keys()].filter((sku) => variantBySku.has(sku))
   if (!skus.length) {
     await persistProductSources(container, selected, [...nativeProductByKey.values()], onProgress, checkCancelled)
@@ -306,7 +310,7 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
   for (const [index, group] of batches(skus, 250).entries()) {
     const { data: batch } = await interruptibleSupplierRead<{ data: any[] }>(() => query.graph({
       entity: "inventory_item",
-      fields: ["id", "sku", "location_levels.id", "location_levels.location_id"],
+      fields: ["id", "sku", "location_levels.id", "location_levels.location_id", "location_levels.stocked_quantity"],
       filters: { sku: group },
     }), "Loading inventory records", checkCancelled)
     inventoryItems.push(...batch)
@@ -318,7 +322,7 @@ export async function refreshPublishedSupplierProducts(container: any, supplierC
     const quantity = Math.max(0, Math.floor(stockBySku.get(item.sku) || 0))
     const level = item.location_levels?.find((candidate: any) => candidate.location_id === locations[0].id)
     if (level) {
-      updates.push({
+      if (Number(level.stocked_quantity) !== quantity) updates.push({
         id: level.id,
         inventory_item_id: item.id,
         location_id: locations[0].id,
@@ -505,8 +509,8 @@ export async function publishNormalizedProductBatch(container: any, pending: Nor
   }
 }
 
-export async function autoPublishSupplierCatalog(container: any, supplierCode: "stricker" | "midocean", onProgress?: (published: number, total: number) => Promise<void>, onIssue?: (message: string) => Promise<void>, onPreparing?: (completed: number, total: number) => Promise<void>) {
-  const normalized = await normalizeSupplierCatalog(container, { supplier_code: supplierCode, take: Number.MAX_SAFE_INTEGER, onProgress: onPreparing })
+export async function autoPublishSupplierCatalog(container: any, supplierCode: "stricker" | "midocean", onProgress?: (published: number, total: number) => Promise<void>, onIssue?: (message: string) => Promise<void>, onPreparing?: (completed: number, total: number) => Promise<void>, sourceKeys?: string[]) {
+  const normalized = await normalizeSupplierCatalog(container, { supplier_code: supplierCode, source_keys: sourceKeys, take: Number.MAX_SAFE_INTEGER, onProgress: onPreparing })
   const pending = normalized.filter((product) => !product.published && product.variants.length)
   let created = 0
   let consecutiveErrors = 0

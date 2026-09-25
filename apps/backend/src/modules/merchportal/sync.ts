@@ -335,6 +335,8 @@ export async function runSupplierSync(
     let created = 0
     let updated = 0
     let skipped = 0
+    const changedRecords: Array<{ type: RawRecordType; externalId: string; sku?: string; payload: RecordObject }> = []
+    let sharedDecorationChanged = false
 
     const totalRecords = records.length + decorationRecords.length + decorationPriceRecords.length
     let processed = 0
@@ -380,12 +382,6 @@ export async function runSupplierSync(
               created -= 1
               if (existing[0].checksum === record.checksum) {
                 skipped += 1
-                await service.updateRawSupplierRecords({
-                  id: existing[0].id,
-                  import_job_id: job.id,
-                  source_image_urls: record.source_image_urls,
-                  last_seen_at: now,
-                })
               } else {
                 updated += 1
                 await service.updateRawSupplierRecords({
@@ -425,6 +421,10 @@ export async function runSupplierSync(
         )
         const checksum = createHash("sha256").update(`${NORMALIZER_VERSION}:${JSON.stringify(record)}`).digest("hex")
         const existing = existingById.get(externalId)
+        if (!existing || existing.checksum !== checksum) {
+          if (type === "decoration" || type === "decoration_price") sharedDecorationChanged = true
+          else changedRecords.push({ type, externalId, sku, payload: record as RecordObject })
+        }
 
         if (!existing) {
           creates.push({
@@ -452,22 +452,19 @@ export async function runSupplierSync(
           })
           updated += 1
         } else {
-          updates.push({
-            id: existing.id,
-            import_job_id: job.id,
-            source_image_urls: imageUrls(record),
-            last_seen_at: now,
-          })
           skipped += 1
         }
         processed += 1
         if (creates.length + updates.length >= 250) await flush()
       }
       processed += items.length - uniqueItems.length
-      if (creates.length || updates.length) await flush()
-      const staleIds = uniqueItems.length
-        ? existingRecords.filter((item: any) => !incomingIds.has(item.external_id)).map((item: any) => item.id)
-        : []
+      await flush()
+      const stale = uniqueItems.length ? existingRecords.filter((item: any) => !incomingIds.has(item.external_id)) : []
+      for (const record of stale) {
+        if (type === "decoration" || type === "decoration_price") sharedDecorationChanged = true
+        else changedRecords.push({ type, externalId: record.external_id, sku: record.sku, payload: record.payload || {} })
+      }
+      const staleIds = stale.map((item: any) => item.id)
       for (let index = 0; index < staleIds.length; index += 500) {
         await service.deleteRawSupplierRecords(staleIds.slice(index, index + 500))
       }
@@ -502,7 +499,7 @@ export async function runSupplierSync(
         last_error: null,
       })
     }
-    return { ...(await service.retrieveImportJob(job.id)), already_running: false }
+    return { ...(await service.retrieveImportJob(job.id)), already_running: false, changed_records: changedRecords, shared_decoration_changed: sharedDecorationChanged }
   } catch (error) {
     const current = await service.retrieveImportJob(job.id)
     if (current.status === "cancelling") {

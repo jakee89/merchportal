@@ -159,7 +159,7 @@ function downloadUrls(object: unknown, output = new Map<string, string>()): Arra
   return [...output].map(([url, name]) => ({ name, url }))
 }
 
-function opaqueSourceKey(supplierId: string, externalId: string) {
+export function opaqueSourceKey(supplierId: string, externalId: string) {
   const secret = process.env.JWT_SECRET || process.env.COOKIE_SECRET || "merchportal"
   return `mp_${createHmac("sha256", secret).update(`${supplierId}:${externalId}`).digest("hex").slice(0, 32)}`
 }

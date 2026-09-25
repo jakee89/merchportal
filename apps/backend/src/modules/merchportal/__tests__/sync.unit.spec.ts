@@ -1,4 +1,9 @@
-import { deduplicateSupplierRecords, ImportCancelledError, interruptibleSupplierRead, reconcileStaleImportJobs } from "../sync"
+import { createHash } from "crypto"
+import { createSupplierAdapter } from "../adapters"
+import { deduplicateSupplierRecords, ImportCancelledError, interruptibleSupplierRead, reconcileStaleImportJobs, runSupplierSync } from "../sync"
+
+jest.mock("../adapters", () => ({ createSupplierAdapter: jest.fn() }))
+jest.mock("../supplier-credentials", () => ({ resolveSupplierCredential: jest.fn().mockReturnValue("test-key") }))
 
 describe("supplier sync record deduplication", () => {
   it("keeps every Stricker OptionalReference when the feed uses PascalCase fields", () => {
@@ -109,5 +114,30 @@ describe("supplier update interruption", () => {
     await reconcileStaleImportJobs(service)
     expect(service.updateImportJobs).toHaveBeenCalledWith(expect.objectContaining({ id: "running", status: "failed", phase: "failed" }))
     expect(service.updateImportJobs).toHaveBeenCalledWith(expect.objectContaining({ id: "cancelling", status: "cancelled", phase: "cancelled" }))
+  })
+})
+
+describe("unchanged supplier records", () => {
+  it("does not rewrite a raw row when its checksum matches", async () => {
+    const payload = { model: "MO2639", sku: "MO2639-03", qty: 12 }
+    const checksum = createHash("sha256").update(`2026-09-12.3:${JSON.stringify(payload)}`).digest("hex")
+    ;(createSupplierAdapter as jest.Mock).mockReturnValue({ fetchStock: jest.fn().mockResolvedValue([payload]) })
+    const job: Record<string, any> = { id: "job-1", status: "running", phase: "downloading", log: {} }
+    const service = {
+      listImportJobs: jest.fn().mockResolvedValue([]),
+      listSuppliers: jest.fn().mockResolvedValue([{ id: "supplier-1", code: "midocean", display_name: "midocean", configuration: {} }]),
+      createImportJobs: jest.fn().mockResolvedValue(job),
+      retrieveImportJob: jest.fn().mockImplementation(async () => job),
+      updateImportJobs: jest.fn().mockImplementation(async (update) => Object.assign(job, update)),
+      listRawSupplierRecords: jest.fn().mockResolvedValue([{ id: "raw-1", external_id: payload.sku, checksum, payload }]),
+      updateRawSupplierRecords: jest.fn(),
+      createRawSupplierRecords: jest.fn(),
+      updateSuppliers: jest.fn(),
+    }
+    const result = await runSupplierSync({ resolve: () => service } as any, "midocean", "stock", "manual")
+    expect(result.skipped_count).toBe(1)
+    expect(result.changed_records).toEqual([])
+    expect(service.updateRawSupplierRecords).not.toHaveBeenCalled()
+    expect(service.createRawSupplierRecords).not.toHaveBeenCalled()
   })
 })
