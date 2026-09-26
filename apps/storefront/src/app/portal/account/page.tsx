@@ -10,10 +10,10 @@ import QuoteCartLink from "./quote-cart-link"
 
 type PortalMe = { membership: { role: string } | null; organization: { name: string; primary_color: string } | null }
 type Facet = { value: string; count: number }
-type Facets = { categories: Facet[]; colors: Facet[]; materials: Facet[]; brands: Facet[]; lead_times: Facet[]; print_methods: Facet[]; availability: { in_stock: number; sustainable: number } }
+type Facets = { categories: Facet[]; colors: Facet[]; materials: Facet[]; brands: Facet[]; lead_times: Facet[]; print_methods: Facet[]; availability: { in_stock: number; out_of_stock: number; sustainable: number } }
 type Search = Record<string, string | string[] | undefined>
 type CatalogResponse = { products: CatalogProduct[]; facets: Facets; total: number; page: number; page_size: number; page_count: number }
-const filterKeys = ["category", "color", "material", "brand", "lead_time", "print_method", "min_price", "max_price", "in_stock", "sustainable"]
+const filterKeys = ["category", "color", "material", "brand", "lead_time", "print_method", "min_price", "max_price", "in_stock", "out_of_stock", "sustainable"]
 
 function values(input: string | string[] | undefined) {
   return (Array.isArray(input) ? input : input ? [input] : []).filter(Boolean)

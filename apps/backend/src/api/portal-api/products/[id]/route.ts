@@ -45,7 +45,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         sku: variant.sku,
         title: indexedVariant?.title || variant.title,
         color,
-        size: indexedVariant?.size,
+        size: supplier?.code === "makito" && indexedVariant?.size === "000" ? "Standard" : indexedVariant?.size,
         ean: indexedVariant?.ean,
         pantone: indexedVariant?.pantone,
         dimensions: indexedVariant?.dimensions,

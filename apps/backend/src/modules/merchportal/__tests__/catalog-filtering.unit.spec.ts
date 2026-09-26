@@ -33,6 +33,7 @@ const base: CatalogFilters = {
   leadTimes: [],
   printMethods: [],
   inStock: false,
+  outOfStock: false,
   sustainable: false,
 }
 
@@ -57,5 +58,12 @@ describe("client catalogue facets", () => {
     const filters = { ...base, colors: ["Black"], maxPrice: 9 }
     expect(products.filter((product) => matchesCatalogFilters(product, filters))).toHaveLength(0)
     expect(catalogFacets(products, filters).colors).toEqual(expect.arrayContaining([{ value: "Black", count: 0 }, { value: "Red", count: 1 }]))
+  })
+
+  it("filters zero-stock variants separately from unknown stock", () => {
+    const filters = { ...base, outOfStock: true }
+    expect(products.filter((product) => matchesCatalogFilters(product, filters)).map((product) => product.name)).toEqual(["Travel backpack", "City backpack"])
+    expect(catalogFacets(products, filters).availability.out_of_stock).toBe(2)
+    expect(catalogFacets(products, filters).availability.in_stock).toBe(2)
   })
 })

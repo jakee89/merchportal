@@ -72,6 +72,12 @@ describe("supplier catalog normalization", () => {
     ])
   })
 
+  it("reads numbered Stricker incoming stock dates and quantities", () => {
+    expect(futureStock([{ payload: { Sku: "81141-105", Quantity: 21563, NextDate1: "2026-11-06", NextQuantity1: 18000, NextDate2: "", NextQuantity2: null } }])).toEqual([
+      { date: "2026-11-06", quantity: 18000 },
+    ])
+  })
+
   it("joins Midocean print guides and prices by product code and variant SKU", async () => {
     const guide = "https://images.cdn.midocean.com/mo2639-front-khaki.png"
     const service = {

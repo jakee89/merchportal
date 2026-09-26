@@ -9,10 +9,11 @@ export type CatalogFilters = {
   minPrice?: number
   maxPrice?: number
   inStock: boolean
+  outOfStock: boolean
   sustainable: boolean
 }
 
-type FilterKey = "category" | "color" | "material" | "brand" | "lead_time" | "print_method" | "price" | "in_stock" | "sustainable"
+type FilterKey = "category" | "color" | "material" | "brand" | "lead_time" | "print_method" | "price" | "in_stock" | "out_of_stock" | "sustainable"
 
 export type CatalogEntry = {
   name: string
@@ -46,6 +47,7 @@ function variantMatches(variant: NonNullable<CatalogEntry["filter_variants"]>[nu
   if (excluded !== "price" && filters.minPrice !== undefined && (price === undefined || price < filters.minPrice)) return false
   if (excluded !== "price" && filters.maxPrice !== undefined && (price === undefined || price > filters.maxPrice)) return false
   if (excluded !== "in_stock" && filters.inStock && !((variant.stock_quantity ?? product.stock_quantity ?? 0) > 0)) return false
+  if (excluded !== "out_of_stock" && filters.outOfStock && (variant.stock_quantity ?? product.stock_quantity) !== 0) return false
   return true
 }
 
@@ -85,6 +87,8 @@ function facet(products: CatalogEntry[], values: (product: CatalogEntry) => stri
 
 export function catalogFacets(products: CatalogEntry[], filters: CatalogFilters) {
   const matching = (excluded: FilterKey) => products.filter((product) => matchesCatalogFilters(product, filters, excluded))
+  const availabilityFilters = { ...filters, inStock: false, outOfStock: false }
+  const availabilityProducts = products.filter((product) => matchesCatalogFilters(product, availabilityFilters))
   return {
     categories: facet(matching("category"), (product) => product.category_hierarchy || [product.category || ""], filters.categories),
     colors: facet(matching("color"), (product) => eligibleVariants(product, filters, "color").map((variant) => colorLabel(variant.color_group || variant.color || "")), filters.colors.map(colorLabel)),
@@ -93,7 +97,8 @@ export function catalogFacets(products: CatalogEntry[], filters: CatalogFilters)
     lead_times: facet(matching("lead_time"), (product) => [product.lead_time || ""], filters.leadTimes),
     print_methods: facet(matching("print_method"), (product) => product.print_methods || [], filters.printMethods),
     availability: {
-      in_stock: matching("in_stock").filter((product) => eligibleVariants(product, filters, "in_stock").some((variant) => (variant.stock_quantity ?? product.stock_quantity ?? 0) > 0)).length,
+      in_stock: availabilityProducts.filter((product) => eligibleVariants(product, availabilityFilters).some((variant) => (variant.stock_quantity ?? product.stock_quantity ?? 0) > 0)).length,
+      out_of_stock: availabilityProducts.filter((product) => eligibleVariants(product, availabilityFilters).some((variant) => (variant.stock_quantity ?? product.stock_quantity) === 0)).length,
       sustainable: matching("sustainable").filter((product) => product.sustainable).length,
     },
   }

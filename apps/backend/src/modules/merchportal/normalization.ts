@@ -327,6 +327,11 @@ export function futureStock(items: any[]) {
       const quantity = numberValue(payload, [`${prefix}_arrival_qty`, `${prefix}_arrival_quantity`, `${prefix}ArrivalQty`], true)
       if (date && quantity !== undefined && quantity > 0) arrivals.push({ date, quantity: Math.floor(quantity) })
     }
+    for (let index = 1; index <= 6; index += 1) {
+      const date = value(payload, [`NextDate${index}`])
+      const quantity = numberValue(payload, [`NextQuantity${index}`], true)
+      if (date && quantity !== undefined && quantity > 0) arrivals.push({ date, quantity: Math.floor(quantity) })
+    }
   }
   return arrivals.filter((item, index, all) => all.findIndex((other) => other.date === item.date && other.quantity === item.quantity) === index).sort((left, right) => left.date.localeCompare(right.date))
 }
@@ -448,6 +453,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         const color = value(row, ["productColour", "ColorDesc1", "ColorDescription", "color_description", "colour_description", "color_name", "colour_name", "color", "colour", "color_group", "variant_name"]) || colorCode || "Standard"
         const colorGroup = value(row, ["color_group", "colour_group", "color_family", "colour_family"]) || color
         let size = value(row, ["productSize", "size_description", "size", "combined_sizes", "capacity", "format", "dimension", "variant_size"]) || "Standard"
+        if (supplier?.code === "makito" && size === "000") size = "Standard"
         const combination = `${color}:${size}`
         if (seen.has(combination)) size = sku
         seen.add(`${color}:${size}`)

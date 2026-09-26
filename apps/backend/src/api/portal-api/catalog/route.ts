@@ -1,4 +1,5 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
+import { createHash } from "node:crypto"
 import { ContainerRegistrationKeys, ProductStatus } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
 import { sellingPrice } from "../../../modules/merchportal/catalog-rules"
@@ -6,6 +7,7 @@ import { markupForQuantity } from "../../../workflows/manage-pricing-rules"
 import { cachePortalCatalogResponse, portalCatalogCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
 import { catalogFacets, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 import { makitoDocumentCategories } from "../../../modules/merchportal/makito-categories"
+import { applyFacetMappings, facetMappingIndex } from "../../../modules/merchportal/facet-mappings"
 
 const catalogSourceFields = ["id", "product_id", "supplier_id", "catalog_preview", "cost_by_sku"]
 
@@ -39,16 +41,19 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     return res.status(403).json({ message: "Join a company before viewing the catalog" })
   }
 
-  const [rules, suppliers, completedJobs] = await Promise.all([
+  const [rules, suppliers, completedJobs, facetMappings] = await Promise.all([
     service.listPricingRules({ status: "active" }),
     service.listSuppliers({}),
     service.listImportJobs({ status: "completed" }, { take: 100, order: { completed_at: "DESC" } }),
+    service.listFacetMappings({}, { take: 5000 }),
   ])
+  const mappingIndex = facetMappingIndex(facetMappings)
   const rulesByScope = new Map<string, any>(rules.map((rule: any) => [rule.scope_key, rule]))
   const supplierCodes = new Map<string, string>(suppliers.map((supplier: any) => [supplier.id, supplier.code]))
   const ruleForSource = (source: any) => rulesByScope.get(`organization:${membership[0].organization_id}`) || rulesByScope.get(`supplier:${supplierCodes.get(source?.supplier_id)}`) || rulesByScope.get("global")
   const latestChange = completedJobs.find((job: any) => job.log?.catalog_refreshed === true || (job.log?.catalog_refreshed === undefined && (job.created_count > 0 || job.updated_count > 0)))
-  const cacheKey = `${JSON.stringify(rules.map((rule: any) => [rule.scope_key, rule.markup_percentage, rule.quantity_tiers]))}:${latestChange?.id || "initial"}`
+  const mappingRevision = createHash("sha256").update(JSON.stringify(facetMappings.map((item: any) => [item.id, item.target_value]).sort((a: string[], b: string[]) => a[0].localeCompare(b[0])))).digest("hex").slice(0, 12)
+  const cacheKey = `${JSON.stringify(rules.map((rule: any) => [rule.scope_key, rule.markup_percentage, rule.quantity_tiers]))}:${latestChange?.id || "initial"}:${mappingRevision}`
   removeExpiredPortalCatalogCacheEntries()
   const cached = portalCatalogCache.get(cacheKey)
   let safeProducts: any[]
@@ -76,6 +81,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         const prices = variants.map((variant: any) => variant.price_eur).filter(Number.isFinite)
         return {
           id: document.id,
+          supplier_id: source.supplier_id,
           supplier_code: supplierCodes.get(source.supplier_id),
           name: document.name,
           description: document.short_description || document.description,
@@ -143,6 +149,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         const stock = variants.map((variant: any) => Number(variant.stock_quantity)).filter(Number.isFinite)
         return {
           id: product.id,
+          supplier_id: source?.supplier_id,
           supplier_code: supplierCodes.get(source?.supplier_id),
           name: product.title,
           description: source?.catalog_document?.short_description || product.description,
@@ -166,6 +173,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
       })
     }
 
+    safeProducts = safeProducts.map((product) => product.supplier_id ? applyFacetMappings(product, product.supplier_id, mappingIndex) : product)
     portalCatalogCache.set(cacheKey, {
       expires: Date.now() + 10 * 60_000,
       products: safeProducts,
@@ -182,6 +190,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     minPrice: queryNumber(req.query.min_price),
     maxPrice: queryNumber(req.query.max_price),
     inStock: req.query.in_stock === "true",
+    outOfStock: req.query.out_of_stock === "true",
     sustainable: req.query.sustainable === "true",
   }
   const responseKey = `${cacheKey}:${JSON.stringify(req.query)}`
@@ -206,7 +215,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const pageSize = Math.max(12, Math.min(48, Math.floor(queryNumber(req.query.page_size) || 24)))
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const page = Math.max(1, Math.min(pageCount, Math.floor(queryNumber(req.query.page) || 1)))
-  const products = filtered.slice((page - 1) * pageSize, page * pageSize).map(({ filter_variants, color_options, ...product }) => {
+  const products = filtered.slice((page - 1) * pageSize, page * pageSize).map(({ filter_variants, color_options, supplier_id, ...product }) => {
     const eligibleSkus = new Set(matchingCatalogVariants({ ...product, filter_variants }, filters).map((variant) => variant.sku))
     const score = (option: any) => Number(eligibleSkus.has(option.sku)) * 2 + Number(filters.colors.some((color) => colorLabel(option.name).toLowerCase() === colorLabel(color).toLowerCase()))
     const seenColors = new Set<string>()
