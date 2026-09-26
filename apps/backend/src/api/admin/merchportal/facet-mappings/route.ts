@@ -1,7 +1,7 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { MedusaError } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../../../../modules/merchportal"
-import { facetMappingOptions, removeFacetMappings, saveFacetMappings, type FacetType } from "../../../../modules/merchportal/facet-mappings"
+import { facetMappingOptions, facetTypes, removeFacetMappings, saveFacetMappings, type FacetType } from "../../../../modules/merchportal/facet-mappings"
 import { clearPortalCatalogCache } from "../../../../modules/merchportal/catalog-cache"
 import { requireStaff } from "../auth"
 
@@ -16,7 +16,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
 export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaResponse) {
   await requireStaff(req)
   const input = req.body
-  if (!input || !["color", "material"].includes(input.facet_type) || !Array.isArray(input.sources) || input.sources.some((item) => typeof item?.supplier_id !== "string" || typeof item?.source_value !== "string") || typeof input.target_value !== "string") {
+  if (!input || !facetTypes.includes(input.facet_type) || !Array.isArray(input.sources) || input.sources.some((item) => typeof item?.supplier_id !== "string" || typeof item?.source_value !== "string") || typeof input.target_value !== "string") {
     throw new MedusaError(MedusaError.Types.INVALID_DATA, "Invalid filter mapping")
   }
   const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
@@ -30,7 +30,7 @@ export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaRes
 export async function DELETE(req: AuthenticatedMedusaRequest<Body>, res: MedusaResponse) {
   await requireStaff(req)
   const input = req.body
-  if (!input || !["color", "material"].includes(input.facet_type) || !Array.isArray(input.sources) || input.sources.some((item) => typeof item?.supplier_id !== "string" || typeof item?.source_value !== "string")) {
+  if (!input || !facetTypes.includes(input.facet_type) || !Array.isArray(input.sources) || input.sources.some((item) => typeof item?.supplier_id !== "string" || typeof item?.source_value !== "string")) {
     throw new MedusaError(MedusaError.Types.INVALID_DATA, "Invalid filter mapping")
   }
   const service = req.scope.resolve(MERCHPORTAL_MODULE) as any

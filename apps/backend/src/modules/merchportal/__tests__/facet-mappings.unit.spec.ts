@@ -1,4 +1,4 @@
-import { applyFacetMappings, facetMappingIndex, saveFacetMappings } from "../facet-mappings"
+import { applyFacetMappings, facetMappingIndex, facetMappingOptions, saveFacetMappings } from "../facet-mappings"
 
 describe("supplier filter mappings", () => {
   it("maps colours and materials per supplier without changing source variants", () => {
@@ -25,5 +25,32 @@ describe("supplier filter mappings", () => {
     ] })
     expect(service.createFacetMappings).toHaveBeenCalledTimes(2)
     expect(service.createFacetMappings).toHaveBeenCalledWith(expect.objectContaining({ supplier_id: "makito", target_value: "Navy Blue" }))
+  })
+
+  it("maps categories and print technologies without changing source records", () => {
+    const mappings = facetMappingIndex([
+      { supplier_id: "makito", facet_type: "category", source_value: "Backpacks", target_value: "Bags" },
+      { supplier_id: "makito", facet_type: "print_method", source_value: "SILK-SCREEN PRINT", target_value: "Screen printing" },
+    ])
+    const product = { category: "Backpacks", category_hierarchy: ["Bags", "Backpacks"], print_methods: ["SILK-SCREEN PRINT", "Screen printing"] }
+    expect(applyFacetMappings(product, "makito", mappings)).toMatchObject({ category: "Bags", category_hierarchy: ["Bags"], print_methods: ["Screen printing"] })
+    expect(product.print_methods).toEqual(["SILK-SCREEN PRINT", "Screen printing"])
+  })
+
+  it("lists Makito category levels and print methods as mappable options", async () => {
+    const service = {
+      listSuppliers: jest.fn().mockResolvedValue([{ id: "makito", code: "makito", display_name: "Makito" }]),
+      listPublishedProductSources: jest.fn().mockResolvedValue([{ supplier_id: "makito", catalog_preview: {
+        category_paths: ["Production > PRODUCTS > Backpacks > Travel Bags"],
+        print_methods: ["SILK-SCREEN PRINT"],
+      } }]),
+      listFacetMappings: jest.fn().mockResolvedValue([]),
+    }
+    const options = await facetMappingOptions(service)
+    expect(options).toEqual(expect.arrayContaining([
+      expect.objectContaining({ facet_type: "category", source_value: "Backpacks" }),
+      expect.objectContaining({ facet_type: "print_method", source_value: "SILK-SCREEN PRINT" }),
+    ]))
+    expect(options.some((option) => option.source_value === "PRODUCTS")).toBe(false)
   })
 })
