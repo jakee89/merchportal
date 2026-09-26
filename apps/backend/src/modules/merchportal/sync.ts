@@ -18,6 +18,10 @@ const suppliers = {
     display_name: "AODACi",
     credential_env_var: "AODACI_ACCESS_KEY",
   },
+  makito: {
+    display_name: "Makito",
+    credential_env_var: "MAKITO_CREDENTIALS",
+  },
 } as const
 
 type SupplierCode = keyof typeof suppliers
@@ -137,8 +141,8 @@ function recordIdentity(
   type?: RawRecordType,
 ) {
   const value = (record && typeof record === "object" ? record : {}) as RecordObject
-  const sku = objectValue(value, ["sku", "SKU", "Sku", "productSKU", "optionalReference", "reference"])
-  const masterId = objectValue(value, ["master_id", "master_code", "product_code", "productCode", "model", "ProductReference", "ProdReference", "Reference"])
+  const sku = objectValue(value, ["sku", "SKU", "Sku", "productSKU", "optionalReference", "reference", "material", "variant_reference"])
+  const masterId = objectValue(value, ["master_id", "master_code", "product_code", "productCode", "model", "ProductReference", "ProdReference", "Reference", "ref"])
   const serviceCode = objectValue(value, ["service_code", "serviceCode", "printCode", "technique_id", "techniqueId", "TableFullCode", "TableCode"])
   const positionCode = objectValue(value, ["position_id", "positionId", "location_id", "locationId", "location_code", "locationCode", "productPrintLocationCode"]) ||
     [objectValue(value, ["Component"]), objectValue(value, ["Location"])].filter(Boolean).join("|")
@@ -186,7 +190,7 @@ function imageUrls(value: unknown, output = new Set<string>()): string[] {
       if (typeof child === "string" && /^https:\/\//i.test(child) && /(image|picture|photo|url|asset)/i.test(key)) {
         try {
           const assetUrl = new URL(child)
-          if (["cdn.hideacontent.com", "cdn1.midocean.com"].includes(assetUrl.hostname) && (/\.(avif|gif|jpe?g|png|webp)(?:$|\?)/i.test(assetUrl.href) || assetUrl.pathname.toLowerCase().includes("/image/"))) {
+          if (["cdn.hideacontent.com", "cdn1.midocean.com", "apis.makito.es"].includes(assetUrl.hostname) && (/\.(avif|gif|jpe?g|png|webp)(?:$|\?)/i.test(assetUrl.href) || assetUrl.pathname.toLowerCase().includes("/image/"))) {
             output.add(child)
           }
         } catch {}
@@ -330,8 +334,8 @@ export async function runSupplierSync(
         : kind === "price"
           ? await adapter.fetchPrices(fetchContext("prices"))
           : await adapter.fetchStock(fetchContext("stock"))
-      if (kind === "catalog" && supplierCode === "aodaci") productPriceRecords = await adapter.fetchPrices(fetchContext("product prices"))
-      if (kind === "catalog" || (kind === "price" && supplierCode === "aodaci")) {
+      if (kind === "catalog" && (supplierCode === "aodaci" || supplierCode === "makito")) productPriceRecords = await adapter.fetchPrices(fetchContext("product prices"))
+      if (kind === "catalog" || (kind === "price" && (supplierCode === "aodaci" || supplierCode === "makito"))) {
         decorationRecords = await (adapter.fetchDecorations?.(fetchContext("print options")) || [])
         decorationPriceRecords = await (adapter.fetchDecorationPrices?.(fetchContext("print prices")) || [])
       }
@@ -443,7 +447,7 @@ export async function runSupplierSync(
             sku,
             checksum,
             payload: record,
-            source_image_urls: imageUrls(record),
+            source_image_urls: supplierCode === "makito" ? [] : imageUrls(record),
             first_seen_at: now,
             last_seen_at: now,
           })
@@ -455,7 +459,7 @@ export async function runSupplierSync(
             sku,
             checksum,
             payload: record,
-            source_image_urls: imageUrls(record),
+            source_image_urls: supplierCode === "makito" ? [] : imageUrls(record),
             last_seen_at: now,
           })
           updated += 1
@@ -481,9 +485,11 @@ export async function runSupplierSync(
     await stopIfImportCancelled(service, job.id)
     if (productPriceRecords.length) await persistRecords(productPriceRecords, "price")
     await stopIfImportCancelled(service, job.id)
-    await persistRecords(decorationRecords, "decoration")
-    await stopIfImportCancelled(service, job.id)
-    await persistRecords(decorationPriceRecords, "decoration_price")
+    if (kind === "catalog" || (kind === "price" && (supplierCode === "aodaci" || supplierCode === "makito"))) {
+      await persistRecords(decorationRecords, "decoration")
+      await stopIfImportCancelled(service, job.id)
+      await persistRecords(decorationPriceRecords, "decoration_price")
+    }
     await stopIfImportCancelled(service, job.id)
 
     await updateImportJobActivity(service, job.id, {

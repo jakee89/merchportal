@@ -4,7 +4,7 @@ import { encryptSupplierCredential } from "../../../../../../modules/merchportal
 import { ensureSuppliers } from "../../../../../../modules/merchportal/sync"
 import { requireStaff } from "../../../auth"
 
-type Body = { api_key?: string }
+type Body = { api_key?: string; client_id?: string; client_secret?: string }
 
 export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaResponse) {
   const staff = await requireStaff(req)
@@ -13,9 +13,11 @@ export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaRes
     return
   }
 
-  const code = req.params.code as "stricker" | "midocean" | "aodaci"
-  const apiKey = typeof req.body?.api_key === "string" ? req.body.api_key.trim() : ""
-  if (!["stricker", "midocean", "aodaci"].includes(code) || !apiKey || apiKey.length > 4096) {
+  const code = req.params.code as "stricker" | "midocean" | "aodaci" | "makito"
+  const clientId = typeof req.body?.client_id === "string" ? req.body.client_id.trim() : ""
+  const clientSecret = typeof req.body?.client_secret === "string" ? req.body.client_secret.trim() : ""
+  const apiKey = code === "makito" ? JSON.stringify({ clientId, clientSecret }) : typeof req.body?.api_key === "string" ? req.body.api_key.trim() : ""
+  if (!["stricker", "midocean", "aodaci", "makito"].includes(code) || !apiKey || apiKey.length > 4096 || (code === "makito" && (!clientId || !clientSecret || clientId.length > 256 || clientSecret.length > 256))) {
     res.status(400).json({ message: "Choose a supported supplier and provide a valid API key" })
     return
   }

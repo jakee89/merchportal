@@ -7,7 +7,7 @@ export async function GET(
   const { token } = await params
   try {
     const upstream = await fetch(`${backend}/media/${encodeURIComponent(token)}`, {
-      cache: "force-cache",
+      cache: "no-store",
     })
     const contentType = upstream.headers.get("content-type") || ""
     if (!upstream.ok || !upstream.body || !(contentType.startsWith("image/") || contentType.startsWith("application/pdf"))) {
@@ -16,6 +16,7 @@ export async function GET(
     return new Response(upstream.body, {
       headers: {
         "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+        "CDN-Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
         "Content-Type": contentType,
         "X-Content-Type-Options": "nosniff",
         ...(contentType.startsWith("application/pdf") ? { "Content-Disposition": "inline; filename=\"supplier-document.pdf\"" } : {}),

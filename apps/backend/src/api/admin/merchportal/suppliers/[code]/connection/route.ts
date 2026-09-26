@@ -10,8 +10,8 @@ import { requireStaff } from "../../../auth"
 export async function POST(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   await requireStaff(req)
   try {
-    const code = req.params.code as "stricker" | "midocean" | "aodaci"
-    if (!["stricker", "midocean", "aodaci"].includes(code)) {
+    const code = req.params.code as "stricker" | "midocean" | "aodaci" | "makito"
+    if (!["stricker", "midocean", "aodaci", "makito"].includes(code)) {
       res.status(400).json({ message: "Choose a supported supplier" })
       return
     }

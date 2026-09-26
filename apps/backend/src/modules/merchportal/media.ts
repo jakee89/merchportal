@@ -11,6 +11,7 @@ const allowedHosts = new Set([
   "cdn1.midocean.com",
   "cdn.aodaci.com",
   "content.aodaci.com",
+  "apis.makito.es",
 ])
 
 function isAllowedHost(hostname: string) {
@@ -25,7 +26,7 @@ function secret() {
 export function isAllowedSupplierImage(value: string) {
   try {
     const url = new URL(value)
-    return url.protocol === "https:" && isAllowedHost(url.hostname)
+    return url.protocol === "https:" && isAllowedHost(url.hostname) && (url.hostname !== "apis.makito.es" || /^\/(?:catalog|print-config)\/assets\//u.test(url.pathname))
   } catch {
     return false
   }

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 
 type Tier = { min_quantity: number; max_quantity: number | null; markup_percentage: number }
 type Rule = { scope_key: string; organization_id?: string; markup_percentage: number; quantity_tiers?: Tier[] | null }
-type Supplier = { code: "stricker" | "midocean" | "aodaci"; display_name: string; configured: boolean }
+type Supplier = { code: "stricker" | "midocean" | "aodaci" | "makito"; display_name: string; configured: boolean }
 type Organization = { id: string; name: string }
 type Email = { host: string; port: number; username: string; from_email: string; notification_email: string; password_configured: boolean; verified: boolean }
 
@@ -22,6 +22,7 @@ const SettingsPage = () => {
   const [organizations, setOrganizations] = useState<Organization[]>([])
   const [rules, setRules] = useState<Rule[]>([])
   const [supplierKeys, setSupplierKeys] = useState<Record<string, string>>({})
+  const [makitoId, setMakitoId] = useState("")
   const [supplierMarkups, setSupplierMarkups] = useState<Record<string, string>>({})
   const [tiers, setTiers] = useState<Record<string, Tier[]>>({})
   const [globalMarkup, setGlobalMarkup] = useState("30")
@@ -54,10 +55,11 @@ const SettingsPage = () => {
     if (!apiKey) return
     setBusy(`key-${code}`)
     try {
-      await api(`/admin/merchportal/suppliers/${code}/credential`, { method: "POST", body: JSON.stringify({ api_key: apiKey }) })
+      await api(`/admin/merchportal/suppliers/${code}/credential`, { method: "POST", body: JSON.stringify(code === "makito" ? { client_id: makitoId.trim(), client_secret: apiKey } : { api_key: apiKey }) })
       setSupplierKeys((current) => ({ ...current, [code]: "" }))
+      if (code === "makito") setMakitoId("")
       await refresh()
-      toast.success("API key saved")
+      toast.success("Supplier credentials saved")
     } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
   }
 
@@ -112,8 +114,8 @@ const SettingsPage = () => {
         const code = supplier.code
         const rows = tiers[code] || []
         return <div key={code} className="rounded border p-4">
-          <div className="mb-3 flex items-center justify-between"><div><Text weight="plus">{supplier.display_name}</Text><Text size="small" className="text-ui-fg-subtle">{supplier.configured ? "API key configured" : "API key not configured"}</Text></div><Button variant="secondary" size="small" onClick={() => testConnection(code)} isLoading={busy === `test-${code}`}>Test connection</Button></div>
-          <div className="mb-4 flex flex-wrap gap-2"><Input type="password" autoComplete="off" aria-label={`${supplier.display_name} API key`} placeholder={supplier.configured ? "Replace API key" : "Supplier API key"} value={supplierKeys[code] || ""} onChange={(event) => setSupplierKeys((current) => ({ ...current, [code]: event.target.value }))} /><Button variant="secondary" disabled={!supplierKeys[code]?.trim()} isLoading={busy === `key-${code}`} onClick={() => saveKey(code)}>Save key</Button></div>
+          <div className="mb-3 flex items-center justify-between"><div><Text weight="plus">{supplier.display_name}</Text><Text size="small" className="text-ui-fg-subtle">{supplier.configured ? "Credentials configured" : "Credentials not configured"}</Text></div><Button variant="secondary" size="small" onClick={() => testConnection(code)} isLoading={busy === `test-${code}`}>Test connection</Button></div>
+          <div className="mb-4 flex flex-wrap gap-2">{code === "makito" && <Input autoComplete="off" aria-label="Makito Client ID" placeholder="Makito Client ID" value={makitoId} onChange={(event) => setMakitoId(event.target.value)} />}<Input type="password" autoComplete="off" aria-label={code === "makito" ? "Makito Client Secret" : `${supplier.display_name} API key`} placeholder={code === "makito" ? "Makito Client Secret" : supplier.configured ? "Replace API key" : "Supplier API key"} value={supplierKeys[code] || ""} onChange={(event) => setSupplierKeys((current) => ({ ...current, [code]: event.target.value }))} /><Button variant="secondary" disabled={!supplierKeys[code]?.trim() || (code === "makito" && !makitoId.trim())} isLoading={busy === `key-${code}`} onClick={() => saveKey(code)}>Save {code === "makito" ? "credentials" : "key"}</Button></div>
           <label className="mb-3 flex max-w-xs flex-col gap-1 text-sm">Fallback markup %<Input type="number" min="0" max="1000" value={supplierMarkups[code] || ""} onChange={(event) => setSupplierMarkups((current) => ({ ...current, [code]: event.target.value }))} /></label>
           <Text weight="plus">Quantity tiers</Text>
           <div className="mt-2 flex flex-col gap-2">{rows.map((tier, index) => <div key={`${code}-${index}`} className="flex flex-wrap items-end gap-2 rounded bg-ui-bg-subtle p-2">

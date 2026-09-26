@@ -13,7 +13,7 @@ type ActionInput = {
 
 export async function ensureCategoryMappings(
   container: MedusaContainer,
-  supplierCode?: "stricker" | "midocean" | "aodaci"
+  supplierCode?: "stricker" | "midocean" | "aodaci" | "makito"
 ) {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const query = container.resolve(ContainerRegistrationKeys.QUERY)

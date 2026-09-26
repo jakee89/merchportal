@@ -32,6 +32,9 @@ export type DecorationMethod = {
     price_breaks: DecorationPriceBreak[]
   }>
   setup_price_eur?: number
+  additional_setup_price_eur?: number
+  minimum_price_eur?: number
+  minimum_quantity?: number
   handling_price_breaks?: DecorationPriceBreak[]
   pricing_type?: string
   next_colour_cost_indicator?: boolean
@@ -43,6 +46,7 @@ type DecorationPriceBreak = {
   quantity: number
   unit_price_eur: number
   next_colour_price_eur?: number
+  unit_type?: "UNIT" | "CM2"
 }
 
 type DecorationPriceTable = {
@@ -68,6 +72,65 @@ type PricingIndex = {
 }
 
 const pricingCache = new WeakMap<object, PricingIndex>()
+
+export function normalizeMakitoDecorationOptions(payloads: unknown[], pricePayloads: unknown[]): DecorationMethod[] {
+  const prices = new Map(pricePayloads.filter((item): item is AnyObject => Boolean(item) && typeof item === "object").map((item) => [String(item.id), item]))
+  const methods = new Map<string, DecorationMethod>()
+  for (const payload of payloads) {
+    if (!payload || typeof payload !== "object") continue
+    const product = payload as AnyObject
+    const positions = new Map((Array.isArray(product.position_lookup) ? product.position_lookup : []).map((item: AnyObject) => [String(item.id), item]))
+    const techniques = new Map((Array.isArray(product.technique_lookup) ? product.technique_lookup : []).map((item: AnyObject) => [String(item.id), item]))
+    for (const area of Array.isArray(product.areas) ? product.areas : []) {
+      const width = number(area.width)
+      const height = number(area.height)
+      if (!width || !height || width <= 0 || height <= 0) continue
+      const positionId = `${area.id}:${area.position}`
+      const name = String((positions.get(String(area.position)) as AnyObject | undefined)?.description || area.id)
+      for (const match of String(area.techniques || "").matchAll(/(\d{5,})\((\d+)\)/gu)) {
+        const id = match[1]
+        const technique = (techniques.get(id) || {}) as AnyObject
+        const price = prices.get(id)
+        const pricing = price?.prices || {}
+        const tierRows = Array.isArray(pricing.tiers) ? pricing.tiers : Array.isArray(pricing.items) ? pricing.items : []
+        const breaks = tierRows.flatMap((tier: AnyObject) => {
+          const quantity = number(tier.threshold)
+          const unitPrice = number(tier.price)
+          const type = String(tier.type).toUpperCase()
+          return quantity && quantity > 0 && unitPrice !== undefined && unitPrice >= 0 && (type === "UNIT" || type === "CM2")
+            ? [{ quantity, unit_price_eur: unitPrice, next_colour_price_eur: number(tier.additionalPrice), unit_type: type as "UNIT" | "CM2" }]
+            : []
+        }).sort((a: DecorationPriceBreak, b: DecorationPriceBreak) => a.quantity - b.quantity)
+        const method = methods.get(id) || {
+          id,
+          name: String(technique.description || price?.code || id),
+          positions: [],
+          price_breaks: breaks,
+          pricing_type: "makito",
+          colour_mode: String(technique.fullColor).toLowerCase() === "true" ? "full_colour" : "spot_colour",
+          setup_price_eur: number(pricing.setupFee ?? pricing.setupPrice),
+          additional_setup_price_eur: number(pricing.additionalSetupFee ?? pricing.additionalSetupPrice),
+          minimum_price_eur: number(pricing.minPrice),
+          minimum_quantity: number(pricing.minQuantity),
+        } as DecorationMethod
+        if (!method.positions.some((item) => item.id === positionId)) {
+          const maxColours = Math.min(number(match[2]) || 1, number(technique.maximumColors) || Number.MAX_SAFE_INTEGER)
+          method.positions.push({
+            id: positionId,
+            name,
+            max_width_mm: width * 10,
+            max_height_mm: height * 10,
+            max_colours: method.colour_mode === "spot_colour" ? maxColours : undefined,
+            image_url: typeof area.image === "string" ? area.image : undefined,
+            size_options: [{ id: `${positionId}:${id}`, label: `${width.toFixed(1)} × ${height.toFixed(1)} cm`, width_mm: width * 10, height_mm: height * 10 }],
+          })
+        }
+        methods.set(id, method)
+      }
+    }
+  }
+  return [...methods.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
 
 export function normalizeAodaciDecorationOptions(payloads: unknown[]): DecorationMethod[] {
   const methods = new Map<string, DecorationMethod>()
@@ -572,6 +635,14 @@ export function decorationPrice(method: DecorationMethod | undefined, quantity: 
   if (!method) return { unit: 0, handling: 0, setup: 0, pending: false }
   const colours = Math.max(1, Math.floor(options.colours || 1))
   const areaCm2 = options.width_mm && options.height_mm ? (options.width_mm * options.height_mm) / 100 : undefined
+  if (method.pricing_type === "makito") {
+    const tier = [...method.price_breaks].filter((item) => item.quantity <= quantity).sort((a, b) => b.quantity - a.quantity)[0]
+    if (!tier || (method.minimum_quantity && quantity < method.minimum_quantity) || (tier.unit_type === "CM2" && !areaCm2) || (colours > 1 && tier.next_colour_price_eur === undefined)) return { unit: 0, handling: 0, setup: 0, pending: true }
+    const areaFactor = tier.unit_type === "CM2" ? areaCm2! : 1
+    const unit = (tier.unit_price_eur + (tier.next_colour_price_eur || 0) * (colours - 1)) * areaFactor
+    const setup = (method.setup_price_eur || 0) + (method.additional_setup_price_eur || 0) * (colours - 1)
+    return { unit: Math.round((method.minimum_price_eur ? Math.max(unit, method.minimum_price_eur / quantity) : unit) * 1_000_000) / 1_000_000, handling: 0, setup, pending: false }
+  }
   let selectedTable: DecorationPriceTable | undefined
   if (method.price_tables?.length) {
     const exactTables = method.price_tables.filter((table) => {

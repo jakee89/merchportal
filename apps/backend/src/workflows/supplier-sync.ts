@@ -6,7 +6,7 @@ import { MERCHPORTAL_MODULE } from "../modules/merchportal"
 import { opaqueSourceKey, supplierMasterReference } from "../modules/merchportal/normalization"
 
 type Input = {
-  supplier_code: "stricker" | "midocean" | "aodaci"
+  supplier_code: "stricker" | "midocean" | "aodaci" | "makito"
   kind: SyncKind
   trigger: "manual" | "scheduled"
   dry_run?: boolean
@@ -54,7 +54,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
     if (changedSkus.size && supplierId) {
       const sources = await service.listPublishedProductSources({ supplier_id: supplierId }, { take: 50000, select: ["source_key", "catalog_document"] })
       for (const source of sources) {
-        if ((source.catalog_document?.variants || []).some((variant: { sku?: string }) => variant.sku && changedSkus.has(variant.sku))) affectedKeys.add(source.source_key)
+        if ((source.catalog_document?.variants || []).some((variant: { sku?: string; stock_reference?: string }) => (variant.sku && changedSkus.has(variant.sku)) || (variant.stock_reference && changedSkus.has(variant.stock_reference)))) affectedKeys.add(source.source_key)
       }
     }
     const needsFullRefresh = retryAfterFailure || (input.kind === "catalog" && sharedDecorationChanged)

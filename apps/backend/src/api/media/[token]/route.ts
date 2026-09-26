@@ -1,15 +1,32 @@
 import type { MedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { Readable } from "node:stream"
 import { supplierImageUrl, supplierMediaType } from "../../../modules/merchportal/media"
+import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
+import { resolveSupplierCredential } from "../../../modules/merchportal/supplier-credentials"
+import { makitoToken } from "../../../modules/merchportal/adapters/makito"
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const url = supplierImageUrl(req.params.token)
   if (!url) return res.status(404).json({ message: "Media not found" })
   try {
-    const upstream = await fetch(url, {
-      headers: { Accept: "image/avif,image/webp,image/png,image/jpeg,image/*,application/pdf" },
+    const headers: Record<string, string> = { Accept: "image/avif,image/webp,image/png,image/jpeg,image/*,application/pdf" }
+    let makitoCredential: string | undefined
+    if (new URL(url).hostname === "apis.makito.es") {
+      const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
+      const [supplier] = await service.listSuppliers({ code: "makito" }, { take: 1 })
+      makitoCredential = resolveSupplierCredential("makito", supplier?.configuration)
+      if (!makitoCredential) return res.status(404).json({ message: "Media not found" })
+      headers.Authorization = `Bearer ${await makitoToken(makitoCredential)}`
+    }
+    const request = () => fetch(url, {
+      headers,
       signal: AbortSignal.timeout(20_000),
     })
+    let upstream = await request()
+    if (upstream.status === 401 && makitoCredential) {
+      headers.Authorization = `Bearer ${await makitoToken(makitoCredential, undefined, true)}`
+      upstream = await request()
+    }
     let contentType = upstream.headers.get("content-type") || ""
     if (!upstream.ok || !upstream.body) {
       return res.status(404).json({ message: "Media not found" })

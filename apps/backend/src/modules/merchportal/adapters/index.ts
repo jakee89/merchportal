@@ -1,10 +1,16 @@
 import { MedusaError } from "@medusajs/framework/utils"
 import { MidoceanAdapter } from "./midocean"
 import { AodaciAdapter } from "./aodaci"
+import { MakitoAdapter } from "./makito"
 import { StrickerAdapter } from "./stricker"
 import { SupplierAdapter } from "./types"
 
 export function createSupplierAdapter(code: string, credential?: string): SupplierAdapter {
+  if (code === "makito") {
+    const key = credential || process.env.MAKITO_CREDENTIALS
+    if (!key) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Makito credentials are not configured")
+    return new MakitoAdapter(key)
+  }
   if (code === "aodaci") {
     const key = credential || process.env.AODACI_ACCESS_KEY
     if (!key) throw new MedusaError(MedusaError.Types.INVALID_DATA, "AODACI_ACCESS_KEY is not configured")

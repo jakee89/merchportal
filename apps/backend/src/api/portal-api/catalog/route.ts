@@ -74,6 +74,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         const prices = variants.map((variant: any) => variant.price_eur).filter(Number.isFinite)
         return {
           id: document.id,
+          supplier_code: supplierCodes.get(source.supplier_id),
           name: document.name,
           description: document.short_description || document.description,
           sku: variants[0]?.sku,
@@ -139,6 +140,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         const stock = variants.map((variant: any) => Number(variant.stock_quantity)).filter(Number.isFinite)
         return {
           id: product.id,
+          supplier_code: supplierCodes.get(source?.supplier_id),
           name: product.title,
           description: source?.catalog_document?.short_description || product.description,
           sku: variants[0]?.sku,
