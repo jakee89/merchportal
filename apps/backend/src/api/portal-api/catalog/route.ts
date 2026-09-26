@@ -6,6 +6,8 @@ import { markupForQuantity } from "../../../workflows/manage-pricing-rules"
 import { cachePortalCatalogResponse, portalCatalogCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
 import { catalogFacets, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 
+const catalogSourceFields = ["id", "product_id", "supplier_id", "catalog_document", "cost_by_sku"]
+
 function queryText(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
 }
@@ -52,7 +54,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   if (cached && cached.expires > Date.now()) {
     safeProducts = cached.products
   } else {
-    const indexedSources = await service.listPublishedProductSources({}, { take: 50000 })
+    const indexedSources = await service.listPublishedProductSources({}, { take: 50000, select: catalogSourceFields })
     const indexed = indexedSources.filter((source: any) => source.catalog_document)
     if (indexed.length && indexed.length === indexedSources.length) {
       safeProducts = indexed.map((source: any) => {

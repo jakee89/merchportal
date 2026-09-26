@@ -328,7 +328,7 @@ async function listAllPublishedSources(service: any, filters: Record<string, unk
   const sources: any[] = []
   const take = onPage ? 2000 : 5000
   for (let skip = 0; ; skip += take) {
-    const batch = await interruptibleSupplierRead<any[]>(() => service.listPublishedProductSources(filters, { take, skip }), "Loading published supplier links", checkCancelled)
+    const batch = await interruptibleSupplierRead<any[]>(() => service.listPublishedProductSources(filters, { take, skip, select: ["source_key"] }), "Loading published supplier links", checkCancelled)
     sources.push(...batch)
     await onPage?.(sources.length)
     if (batch.length < take) return sources
@@ -436,9 +436,12 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         const priceBreaks = productPriceBreaks(priceMatches.length ? priceMatches : [row])
         const stocksFound = stockMatches.map((item) => numberValue(item.payload, ["qty", "stock", "quantity", "available", "free_stock"], true)).filter((item): item is number => item !== undefined)
         const suppliedVariantImage = supplier?.code === "stricker" ? value(row, ["OptionalImage1", "optional_image_1"]) : undefined
-        const preferredImage = suppliedVariantImage ? strickerProductImage(suppliedVariantImage) : supplier?.code === "stricker" && colorCode
-          ? strickerProductImage(`${group.master_id}_${colorCode}.jpg`)
+        const aodaciPreferredImage = supplier?.code === "aodaci"
+          ? imageUrls({ productFrontImage: value(row, ["productFrontImage"]), productMainImage: value(row, ["productMainImage"]) }, "aodaci")[0]
           : undefined
+        const preferredImage = aodaciPreferredImage || (suppliedVariantImage ? strickerProductImage(suppliedVariantImage) : supplier?.code === "stricker" && colorCode
+          ? strickerProductImage(`${group.master_id}_${colorCode}.jpg`)
+          : undefined)
         const variantImages = [preferredImage, ...imageUrls(row, supplier?.code)].filter((image, imageIndex, all): image is string => Boolean(image) && all.indexOf(image) === imageIndex)
         return {
           source_id: value(row, ["variant_id", "id", "ID"]) || sku,
@@ -465,7 +468,10 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         return true
       })
     const sourceKey = opaqueSourceKey(group.supplier_id, group.master_id)
-    const productImages = [...proxyImages(imageUrls(group.records.map((item) => item.payload), supplier?.code)), ...variants.flatMap((variant) => variant.images)].filter((url, index, all) => all.indexOf(url) === index)
+    const productImageCandidates = supplier?.code === "aodaci"
+      ? [...variants.flatMap((variant) => variant.images), ...proxyImages(imageUrls(group.records.map((item) => item.payload), supplier?.code))]
+      : [...proxyImages(imageUrls(group.records.map((item) => item.payload), supplier?.code)), ...variants.flatMap((variant) => variant.images)]
+    const productImages = productImageCandidates.filter((url, index, all) => all.indexOf(url) === index)
     const description = value(payload, ["productFullDesc", "long_description", "longDescription", "seo_description", "seodescription", "description", "Description"])
     const suppliedTitle = value(payload, ["productName", "productLongName", "product_name", "Name", "name", "seo_name", "seoname", "description", "Description"])
     const title = suppliedTitle?.replace(/^\d{4,}\s*[.:-]\s*/u, "").trim() || suppliedTitle || "Merchandise product"

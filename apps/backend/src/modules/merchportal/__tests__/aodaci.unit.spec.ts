@@ -36,6 +36,7 @@ describe("AODACi supplier", () => {
       const products = await new AodaciAdapter("secret").fetchProducts()
       expect(products).toHaveLength(2)
       expect(String(fetchMock.mock.calls[1][0])).toContain("page=1")
+      expect(String(fetchMock.mock.calls[1][0])).toContain("culture=en-EN")
       expect(String(fetchMock.mock.calls[2][0])).toContain("page=2")
       expect(fetchMock.mock.calls[1][1].headers.Authorization).toBe("Bearer token-1")
     } finally {
@@ -52,7 +53,7 @@ describe("AODACi supplier", () => {
 
   it("keeps colour-specific variants, print guides, sizes and prices", async () => {
     const products = [
-      { productCode: "AAP001", productSKU: "AAP001_103", productName: "Bag", productColour: "Black", productColourCode: "103", productMainImage: "AAP001_103.jpg" },
+      { productCode: "AAP001", productSKU: "AAP001_103", productName: "Bag", productColour: "Black", productColourCode: "103", productMainImage: "AAP001_103.jpg", productFrontImage: "AAP001_103-front.jpg", productViewImage1: "AAP001_103-A.jpg" },
       { productCode: "AAP001", productSKU: "AAP001_104", productName: "Bag", productColour: "Blue", productColourCode: "104", productMainImage: "AAP001_104.jpg" },
     ]
     const printRows = [print("AAP001_103"), print("AAP001_103", 2), print("AAP001_104")]
@@ -67,11 +68,14 @@ describe("AODACi supplier", () => {
     }
     const [product] = await normalizeSupplierCatalog({ resolve: () => service } as any, { supplier_code: "aodaci", take: 10 })
     expect(product.variants).toHaveLength(2)
-    expect(product.variants[0].images[0]).toBe(`/media/${supplierImageToken("https://cdn.aodaci.com/resources/img/AAP001_103.jpg")}`)
+    expect(product.variants[0].images[0]).toBe(`/media/${supplierImageToken("https://cdn.aodaci.com/resources/img/AAP001_103-front.jpg")}`)
     expect(product.variants[1].images[0]).toBe(`/media/${supplierImageToken("https://cdn.aodaci.com/resources/img/AAP001_104.jpg")}`)
+    expect(product.images[0]).toBe(product.variants[0].images[0])
     expect(product.variants[0].price_breaks[0]).toEqual({ quantity: 25, price_eur: 2 })
     const method = product.decoration_options[0]
     const position = method.positions[0]
+    expect(method.name).toBe("Textile Printing")
+    expect(position.name).toBe("Front")
     expect(position.images?.[0].url).toBe(`/media/${supplierImageToken("https://cdn.aodaci.com/resources/printlines/AAP001_103_FRONT_TXP.jpg")}`)
     const size = position.size_options?.find((item) => item.variant_sku === "AAP001_103")!
     expect(validateDecorationChoice(method, position, { pricing_code: size.pricing_code, print_width_mm: 100, print_height_mm: 80 }, "AAP001_104")).toBeTruthy()
@@ -97,5 +101,6 @@ describe("AODACi supplier", () => {
       expect.objectContaining({ record_type: "decoration", sku: ["AAP001_103"] }),
       expect.anything(),
     )
+    expect(service.listPublishedProductSources).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ select: ["source_key"] }))
   })
 })

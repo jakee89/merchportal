@@ -107,7 +107,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           : [],
       }))
     : []
-  const relatedSources = await service.listPublishedProductSources({}, { take: 200, order: { updated_at: "DESC" } })
+  const relatedSources = await service.listPublishedProductSources({}, { take: 200, select: ["product_id", "catalog_document", "cost_by_sku"], order: { updated_at: "DESC" } })
   const related = relatedSources
     .filter((item: any) => item.product_id !== product.id && item.catalog_document?.category === catalogDocument.category)
     .slice(0, 6)

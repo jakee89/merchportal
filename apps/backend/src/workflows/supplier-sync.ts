@@ -52,7 +52,7 @@ const syncSupplierStep = createStep("sync-supplier", async (input: Input, { cont
       if (supplierId && master) affectedKeys.add(opaqueSourceKey(supplierId, master))
     }
     if (changedSkus.size && supplierId) {
-      const sources = await service.listPublishedProductSources({ supplier_id: supplierId }, { take: 50000 })
+      const sources = await service.listPublishedProductSources({ supplier_id: supplierId }, { take: 50000, select: ["source_key", "catalog_document"] })
       for (const source of sources) {
         if ((source.catalog_document?.variants || []).some((variant: { sku?: string }) => variant.sku && changedSkus.has(variant.sku))) affectedKeys.add(source.source_key)
       }

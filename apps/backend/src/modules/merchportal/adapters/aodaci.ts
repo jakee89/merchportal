@@ -26,7 +26,7 @@ export class AodaciAdapter implements SupplierAdapter {
 
   private async page(path: string, page: number, context?: SupplierFetchContext) {
     const url = new URL(`/api/v1/products${path ? `/${path}` : ""}`, BASE_URL)
-    url.search = new URLSearchParams({ culture: "en", page: String(page), pageSize: "500" }).toString()
+    url.search = new URLSearchParams({ culture: "en-EN", page: String(page), pageSize: "500" }).toString()
     const request = async () => fetch(url, {
       headers: { Accept: "application/json", Authorization: `Bearer ${await this.authenticate(context)}` },
       signal: context?.signal ? AbortSignal.any([context.signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000),
