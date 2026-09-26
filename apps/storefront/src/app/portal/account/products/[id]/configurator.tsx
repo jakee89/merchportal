@@ -159,7 +159,7 @@ export default function Configurator({ productId, productName, productImages, ba
     const method = compatibleMethods(positionId)[0]
     const position = method?.positions.find((item) => item.id === positionId) || positions.find((item) => item.id === positionId)
     const size = orderedSizes(position?.size_options?.filter((item) => !item.variant_sku || item.variant_sku === variant?.sku) || [])[0]
-    updateLine(line.key, { positionId, methodId: method?.id || "", sizeId: size?.id || "", pricingCode: size?.pricing_code || method?.id || "", colours: 1, stitches: firstStitchTier(method), width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
+    updateLine(line.key, { positionId, methodId: method?.id || "", sizeId: size?.id || "", pricingCode: size?.pricing_code || size?.id || method?.id || "", colours: 1, stitches: firstStitchTier(method), width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
   }
   const chooseMethod = (line: Line, choiceKey: string) => {
     const method = methodChoices.find((item) => item.key === choiceKey)?.methods.find((item) => item.positions.some((position) => position.id === line.positionId && availableToVariant(position)))
@@ -167,7 +167,7 @@ export default function Configurator({ productId, productName, productImages, ba
     const methodId = method.id
     const position = method.positions.find((item) => item.id === line.positionId)
     const size = orderedSizes(position?.size_options?.filter((item) => !item.variant_sku || item.variant_sku === variant?.sku) || [])[0]
-    updateLine(line.key, { methodId, sizeId: size?.id || "", pricingCode: size?.pricing_code || methodId, colours: 1, stitches: firstStitchTier(method), width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
+    updateLine(line.key, { methodId, sizeId: size?.id || "", pricingCode: size?.pricing_code || size?.id || methodId, colours: 1, stitches: firstStitchTier(method), width: String(size?.width_mm || position?.max_width_mm || ""), height: String(size?.height_mm || position?.max_height_mm || "") })
   }
   const chooseSize = (line: Line, size: SizeOption & { methodId: string }) => updateLine(line.key, { methodId: size.methodId, sizeId: size.id, pricingCode: size.pricing_code || size.id, colours: 1, stitches: firstStitchTier(methods.find((item) => item.id === size.methodId)), width: String(size.width_mm), height: String(size.height_mm) })
 
