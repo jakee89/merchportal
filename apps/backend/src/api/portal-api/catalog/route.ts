@@ -6,7 +6,7 @@ import { markupForQuantity } from "../../../workflows/manage-pricing-rules"
 import { cachePortalCatalogResponse, portalCatalogCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
 import { catalogFacets, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 
-const catalogSourceFields = ["id", "product_id", "supplier_id", "catalog_document", "cost_by_sku"]
+const catalogSourceFields = ["id", "product_id", "supplier_id", "catalog_preview", "cost_by_sku"]
 
 function queryText(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
@@ -55,17 +55,17 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     safeProducts = cached.products
   } else {
     const indexedSources = await service.listPublishedProductSources({}, { take: 50000, select: catalogSourceFields })
-    const indexed = indexedSources.filter((source: any) => source.catalog_document)
+    const indexed = indexedSources.filter((source: any) => source.catalog_preview)
     if (indexed.length && indexed.length === indexedSources.length) {
       safeProducts = indexed.map((source: any) => {
-        const document = source.catalog_document as any
+        const document = source.catalog_preview as any
         const costs = (source.cost_by_sku || {}) as Record<string, number>
         const rule = ruleForSource(source)
         const variants = (document.variants || []).map((variant: any) => {
-          const cost = Number(costs[variant.sku])
+          const cost = variant.sku && costs[variant.sku] !== undefined ? Number(costs[variant.sku]) : undefined
           return {
             ...variant,
-            price_eur: Number.isFinite(cost) ? sellingPrice(cost, markupForQuantity(rule)) : undefined,
+            price_eur: cost !== undefined && Number.isFinite(cost) ? sellingPrice(cost, markupForQuantity(rule)) : undefined,
             price_breaks: Array.isArray(variant.price_breaks)
               ? variant.price_breaks.map((price: any) => ({ quantity: price.quantity, price_eur: sellingPrice(Number(price.price_eur), markupForQuantity(rule, Number(price.quantity))) }))
               : [],

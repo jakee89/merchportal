@@ -20,15 +20,15 @@ function values(input: string | string[] | undefined) {
 }
 
 export default async function AccountPage({ searchParams }: { searchParams: Promise<Search> }) {
-  const customer = await retrieveCustomer()
+  const [customer, headers, search] = await Promise.all([retrieveCustomer(), getAuthHeaders(), searchParams])
   if (!customer) redirect("/portal/login")
-  const headers = await getAuthHeaders()
-  const me = await sdk.client.fetch<PortalMe>("/portal-api/me", { headers, cache: "no-store" })
-  if (!me.organization) redirect("/portal/login")
-  const search = await searchParams
   const query = new URLSearchParams()
   for (const key of [...filterKeys, "q", "sort", "page"]) values(search[key]).forEach((value) => query.append(key, value))
-  const catalog = await sdk.client.fetch<CatalogResponse>(`/portal-api/catalog?${query}`, { headers, cache: "no-store" })
+  const [me, catalog] = await Promise.all([
+    sdk.client.fetch<PortalMe>("/portal-api/me", { headers, cache: "no-store" }),
+    sdk.client.fetch<CatalogResponse>(`/portal-api/catalog?${query}`, { headers, cache: "no-store" }),
+  ])
+  if (!me.organization) redirect("/portal/login")
   const selected = Object.fromEntries([...filterKeys, "q", "sort"].map((key) => [key, values(search[key])]))
   const active = filterKeys.flatMap((key) => selected[key]).filter(Boolean)
   const hrefWithout = (key: string, value: string) => {

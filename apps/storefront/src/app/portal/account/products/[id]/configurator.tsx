@@ -100,6 +100,13 @@ export default function Configurator({ productId, productName, productImages, ba
   const [artwork, setArtwork] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
+  const [expandedGuide, setExpandedGuide] = useState<{ url: string; name: string } | null>(null)
+  useEffect(() => {
+    if (!expandedGuide) return
+    const close = (event: KeyboardEvent) => { if (event.key === "Escape") setExpandedGuide(null) }
+    window.addEventListener("keydown", close)
+    return () => window.removeEventListener("keydown", close)
+  }, [expandedGuide])
   const [verified, setVerified] = useState<{ base_unit_price: number | null; estimated_total: number | null; branding_price_pending: boolean; decoration_lines: Array<{ unit_price_eur: number | null; setup_price_eur: number | null; price_pending: boolean }>; quantity_prices: Array<{ quantity: number; estimated_total: number | null; unit_price_eur: number | null }> }>()
   const [verificationStatus, setVerificationStatus] = useState<"checking" | "ready" | "error">("checking")
   const [verificationError, setVerificationError] = useState("")
@@ -113,7 +120,7 @@ export default function Configurator({ productId, productName, productImages, ba
     const current = all.find((item) => item.id === candidate.id)
     if (!current) return [...all, { ...candidate }]
     current.image_url ||= candidate.image_url
-    current.images = [...(current.images || []), ...(candidate.images || [])].filter((item, index, list) => list.findIndex((other) => other.url === item.url && other.variant_color === item.variant_color) === index)
+    current.images = [...(current.images || []), ...(candidate.images || [])].filter((item, index, list) => list.findIndex((other) => other.url === item.url && other.variant_color === item.variant_color && other.variant_sku === item.variant_sku) === index)
     current.size_options = [...(current.size_options || []), ...(candidate.size_options || [])].filter((item, index, list) => list.findIndex((other) => other.id === item.id) === index)
     return all
   }, []), [methods, variant?.sku])
@@ -239,8 +246,9 @@ export default function Configurator({ productId, productName, productImages, ba
           return <div className={styles.printLine} key={line.key}>
             <div className={styles.printLineHeading}><strong>Print position {index + 1}</strong><button type="button" onClick={() => setLines((items) => items.filter((item) => item.key !== line.key))}>Remove</button></div>
             <div className={styles.positionCards}>{positions.filter((item) => item.id === line.positionId || !lines.some((other) => other.key !== line.key && other.positionId === item.id)).map((item) => {
-              const guide = positionImage(item)
-              return <button type="button" key={item.id} className={item.id === line.positionId ? styles.activePositionCard : ""} aria-pressed={item.id === line.positionId} onClick={() => choosePosition(line, item.id)}><SafeImage src={guide || mediaUrl(backend, variant?.images?.[0])} fallbackSrc={mediaUrl(backend, variant?.images?.[0])} alt={guide ? `${item.name} print area` : `${variant?.color || "Product"} photo`} />{!guide && <small>Product photo · print guide unavailable</small>}<strong>{item.name}</strong>{item.max_width_mm && item.max_height_mm && <span>W {item.max_width_mm} × H {item.max_height_mm} mm</span>}</button>
+              const methodPosition = (methods.find((method) => method.id === line.methodId)?.positions.find((position) => position.id === item.id) || compatibleMethods(item.id)[0]?.positions.find((position) => position.id === item.id))
+              const guide = positionImage(methodPosition)
+              return <div className={styles.positionCardWrap} key={item.id}><button type="button" className={item.id === line.positionId ? styles.activePositionCard : ""} aria-pressed={item.id === line.positionId} onClick={() => choosePosition(line, item.id)}><SafeImage src={guide} alt={`${item.name} print area`} />{!guide && <small>Print guide unavailable</small>}<strong>{item.name}</strong>{item.max_width_mm && item.max_height_mm && <span>W {item.max_width_mm} × H {item.max_height_mm} mm</span>}</button>{guide && <button type="button" className={styles.enlargeGuide} aria-label={`Enlarge ${item.name} print guide`} title="Enlarge print guide" onClick={() => setExpandedGuide({ url: guide, name: item.name })}>⤢</button>}</div>
             })}</div>
             {line.positionId && <label>Technique<select value={choiceForMethod(line.methodId)?.key || ""} onChange={(event) => chooseMethod(line, event.target.value)}>{compatible.map((item) => <option value={item.key} key={item.key}>{item.name}</option>)}</select></label>}
             {method && <label>Colour mode<input value={colourMode(method)} readOnly /></label>}
@@ -251,6 +259,7 @@ export default function Configurator({ productId, productName, productImages, ba
             {method && <p className={styles.linePrice}>{verificationStatus === "checking" ? "Checking supplier price…" : !price || price.price_pending || price.unit_price_eur === null ? "Quote required" : `€${printUnitPrice(price.unit_price_eur)} each${price.setup_price_eur ? ` + €${price.setup_price_eur.toFixed(2)} setup` : ""}`}</p>}
           </div>
         })}{lines.length < positions.length && <button className={styles.addPrint} type="button" onClick={() => setLines((items) => [...items, { key: Date.now(), positionId: "", methodId: "", sizeId: "", pricingCode: "", colours: 1, stitches: 0, width: "", height: "" }])}>+ Add print position</button>}</> : <p className={styles.notice}>No customisation information is available for this product.</p>}
+        {expandedGuide && <div className={styles.guideOverlay} role="presentation" onClick={() => setExpandedGuide(null)}><div className={styles.guideDialog} role="dialog" aria-modal="true" aria-label={`${expandedGuide.name} print guide`} onClick={(event) => event.stopPropagation()}><button type="button" aria-label="Close enlarged print guide" onClick={() => setExpandedGuide(null)}>×</button><SafeImage src={expandedGuide.url} alt={`${expandedGuide.name} print area`} /><strong>{expandedGuide.name}</strong></div></div>}
         <label>Artwork files (optional, up to 5)<input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.svg,application/pdf,image/png,image/jpeg,image/svg+xml" onChange={(event) => setArtwork(Array.from(event.target.files || []))} /></label><p className={styles.helper}>PDF, SVG, PNG or JPG · maximum 10 MB per file. {artwork.length ? `${artwork.length} file${artwork.length === 1 ? "" : "s"} selected: ${artwork.map((file) => file.name).join(", ")}` : "Choose all files for this product together."}</p>
       </div>
       <aside className={styles.priceSummary}>

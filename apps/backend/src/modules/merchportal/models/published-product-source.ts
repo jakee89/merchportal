@@ -13,6 +13,7 @@ const PublishedProductSource = model
     decoration_options: model.json().nullable(),
     attributes: model.json().nullable(),
     catalog_document: model.json().nullable(),
+    catalog_preview: model.json().nullable(),
   })
   .indexes([{ on: ["source_key"], unique: true }, { on: ["product_id"], unique: true }, { on: ["supplier_id"] }])
 

@@ -1003,7 +1003,8 @@
   grid-column: 1 / -1;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
 }
-.positionCards button {
+.positionCardWrap { position: relative; }
+.positionCards .positionCardWrap > button:first-child {
   background: #fff;
   border: 2px solid #dfe7ef;
   border-radius: 11px;
@@ -1012,11 +1013,17 @@
   min-height: 150px;
   padding: 10px;
   text-align: left;
+  width: 100%;
 }
-.positionCards button.activePositionCard { border-color: #0875eb; box-shadow: 0 0 0 2px #d9ecff; }
+.positionCards .positionCardWrap > button.activePositionCard { border-color: #0875eb; box-shadow: 0 0 0 2px #d9ecff; }
+.positionCards .enlargeGuide { align-items: center; background: #fff; border: 1px solid #ccd9e7; border-radius: 7px; display: flex; font-size: 21px; height: 30px; justify-content: center; position: absolute; right: 9px; top: 9px; width: 30px; z-index: 1; }
 .positionCards img { height: 100px; object-fit: contain; width: 100%; }
 .positionCards strong { color: #1c2e44; font-size: 13px; }
 .positionCards span { color: #718095; font-size: 11px; }
+.guideOverlay { align-items: center; background: rgb(12 25 41 / 75%); display: flex; inset: 0; justify-content: center; padding: 24px; position: fixed; z-index: 100; }
+.guideDialog { background: #fff; border-radius: 14px; display: grid; gap: 12px; max-height: 90vh; max-width: min(90vw, 900px); padding: 20px; position: relative; }
+.guideDialog > button { background: #fff; border: 1px solid #ccd9e7; border-radius: 8px; font-size: 25px; justify-self: end; width: 38px; }
+.guideDialog img { max-height: 72vh; max-width: 100%; object-fit: contain; }
 .imageUnavailable {
   align-items: center;
   background: #eef4f7;

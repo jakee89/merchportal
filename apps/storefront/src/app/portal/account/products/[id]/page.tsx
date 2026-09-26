@@ -24,11 +24,10 @@ function mediaUrl(backend: string, value?: string) {
 }
 
 export default async function ProductPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sku?: string }> }) {
-  if (!(await retrieveCustomer())) redirect("/portal/login")
-  const { id } = await params
-  const { sku } = await searchParams
+  const [customer, headers, { id }, { sku }] = await Promise.all([retrieveCustomer(), getAuthHeaders(), params, searchParams])
+  if (!customer) redirect("/portal/login")
   let product: Product
-  try { product = (await sdk.client.fetch<{ product: Product }>(`/portal-api/products/${id}`, { headers: await getAuthHeaders(), cache: "no-store" })).product } catch { notFound() }
+  try { product = (await sdk.client.fetch<{ product: Product }>(`/portal-api/products/${id}`, { headers, cache: "no-store" })).product } catch { notFound() }
   const backend = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
   return <div className={styles.page}>
     <header className={styles.topbar}><Link href="/portal/account" className={styles.brand}><span className={styles.mark}>M</span>MerchPortal</Link><div className={styles.headerActions}><Link className={styles.secondary} href="/portal/account">Back to catalogue</Link><QuoteCartLink /></div></header>

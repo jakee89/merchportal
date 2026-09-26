@@ -4,6 +4,7 @@ import { createInventoryLevelsWorkflow, createProductCategoriesWorkflow, createP
 import { normalizeSupplierCatalog, normalizedProductHandle, type NormalizedProduct } from "../modules/merchportal/normalization"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
 import { sellingPrice } from "../modules/merchportal/catalog-rules"
+import { catalogPreview } from "../modules/merchportal/catalog-preview"
 import { resolveMarkup } from "./manage-pricing-rules"
 import { interruptibleSupplierRead } from "../modules/merchportal/sync"
 
@@ -114,10 +115,11 @@ async function persistProductSources(container: any, normalized: NormalizedProdu
       },
     }
     const existing = existingByKey.get(product.source_key)
+    const catalog_preview = catalogPreview(data.catalog_document)
     if (existing) {
-      updates.push({ id: existing.id, ...data })
+      updates.push({ id: existing.id, ...data, catalog_preview })
     } else {
-      creates.push(data)
+      creates.push({ ...data, catalog_preview })
     }
   }
   let saved = 0

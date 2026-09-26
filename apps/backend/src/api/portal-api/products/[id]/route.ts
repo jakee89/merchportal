@@ -107,12 +107,12 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           : [],
       }))
     : []
-  const relatedSources = await service.listPublishedProductSources({}, { take: 200, select: ["product_id", "catalog_document", "cost_by_sku"], order: { updated_at: "DESC" } })
+  const relatedSources = await service.listPublishedProductSources({ supplier_id: source.supplier_id }, { take: 200, select: ["product_id", "catalog_preview", "cost_by_sku"], order: { updated_at: "DESC" } })
   const related = relatedSources
-    .filter((item: any) => item.product_id !== product.id && item.catalog_document?.category === catalogDocument.category)
+    .filter((item: any) => item.product_id !== product.id && item.catalog_preview?.category === catalogDocument.category)
     .slice(0, 6)
     .map((item: any) => {
-      const document = item.catalog_document || {}
+      const document = item.catalog_preview || {}
       const costs = Object.values(item.cost_by_sku || {}).map(Number).filter(Number.isFinite)
       return {
         id: item.product_id,
