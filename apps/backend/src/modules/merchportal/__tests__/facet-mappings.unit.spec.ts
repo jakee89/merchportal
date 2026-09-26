@@ -53,4 +53,13 @@ describe("supplier filter mappings", () => {
     ]))
     expect(options.some((option) => option.source_value === "PRODUCTS")).toBe(false)
   })
+
+  it("keeps saved maps visible even when their supplier value has no current products", async () => {
+    const options = await facetMappingOptions({
+      listSuppliers: async () => [{ id: "makito", code: "makito", display_name: "Makito" }],
+      listPublishedProductSources: async () => [],
+      listFacetMappings: async () => [{ supplier_id: "makito", facet_type: "color", source_value: "Azul", target_value: "Blue" }],
+    })
+    expect(options).toContainEqual(expect.objectContaining({ source_value: "Azul", target_value: "Blue", count: 0 }))
+  })
 })

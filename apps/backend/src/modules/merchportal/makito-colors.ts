@@ -1,5 +1,6 @@
 type MakitoVariant = { variant_colorcode?: string; variant_name?: string; variant_size?: string; color?: string }
 type MakitoProductRecord = { supplier_id: string; payload?: { name?: string; variants?: MakitoVariant[] } }
+const sizeSuffix = /\s+(\d{1,3}(?:[-/]\d{1,3})?|[2-6]?XL|XXXL|XXL|XXS|XL|XS|S|M|L)$/iu
 
 export function makitoVariantLabel(variant: MakitoVariant, productName: string) {
   const name = String(variant.variant_name || "").trim()
@@ -12,17 +13,28 @@ export function makitoVariantLabel(variant: MakitoVariant, productName: string) 
   return label && label.length <= 80 && !/^\d+$/u.test(label) ? label : undefined
 }
 
+export function makitoVariantSizeLabel(variant: MakitoVariant, productName: string, colorGroup: string) {
+  const code = String(variant.variant_size || "").trim()
+  if (!code || code === "000") return
+  if (!/^\d+$/u.test(code)) return code
+  const label = makitoVariantLabel(variant, productName)
+  if (!label) return
+  if (label.toLocaleLowerCase().startsWith(`${colorGroup.toLocaleLowerCase()} `)) return label.slice(colorGroup.length).trim()
+  return label.match(sizeSuffix)?.[1]
+}
+
 export function makitoColorLabels(records: MakitoProductRecord[]) {
   const counts = new Map<string, Map<string, number>>()
   for (const record of records) {
     const name = String(record.payload?.name || "")
     for (const variant of record.payload?.variants || []) {
       const code = String(variant.variant_colorcode || "").trim()
-      const label = makitoVariantLabel(variant, name)
+      const original = makitoVariantLabel(variant, name)
+      const label = original && String(variant.variant_size || "") !== "000" ? original.replace(sizeSuffix, "").trim() : original
       if (!code || !label) continue
       const key = `${record.supplier_id}:${code}`
       const labels = counts.get(key) || new Map<string, number>()
-      labels.set(label, (labels.get(label) || 0) + 1)
+      labels.set(label, (labels.get(label) || 0) + (String(variant.variant_size || "") === "000" ? 10 : 1))
       counts.set(key, labels)
     }
   }

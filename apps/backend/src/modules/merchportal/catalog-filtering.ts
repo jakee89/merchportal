@@ -2,6 +2,7 @@ export type CatalogFilters = {
   search: string
   categories: string[]
   colors: string[]
+  sizes: string[]
   materials: string[]
   brands: string[]
   leadTimes: string[]
@@ -13,7 +14,7 @@ export type CatalogFilters = {
   sustainable: boolean
 }
 
-type FilterKey = "category" | "color" | "material" | "brand" | "lead_time" | "print_method" | "price" | "in_stock" | "out_of_stock" | "sustainable"
+type FilterKey = "category" | "color" | "size" | "material" | "brand" | "lead_time" | "print_method" | "price" | "in_stock" | "out_of_stock" | "sustainable"
 
 export type CatalogEntry = {
   name: string
@@ -30,7 +31,7 @@ export type CatalogEntry = {
   sustainable?: boolean
   price_eur?: number
   stock_quantity?: number
-  filter_variants?: Array<{ sku?: string; color?: string; color_group?: string; price_eur?: number; stock_quantity?: number }>
+  filter_variants?: Array<{ sku?: string; color?: string; color_group?: string; size?: string; price_eur?: number; stock_quantity?: number }>
 }
 
 export function colorLabel(value: string) {
@@ -43,6 +44,7 @@ function colorKey(value: string) {
 
 function variantMatches(variant: NonNullable<CatalogEntry["filter_variants"]>[number], product: CatalogEntry, filters: CatalogFilters, excluded?: FilterKey) {
   if (excluded !== "color" && filters.colors.length && !filters.colors.some((color) => [variant.color, variant.color_group].filter(Boolean).some((value) => colorKey(value!) === colorKey(color)))) return false
+  if (excluded !== "size" && filters.sizes.length && !filters.sizes.includes(variant.size || "")) return false
   const price = variant.price_eur ?? product.price_eur
   if (excluded !== "price" && filters.minPrice !== undefined && (price === undefined || price < filters.minPrice)) return false
   if (excluded !== "price" && filters.maxPrice !== undefined && (price === undefined || price > filters.maxPrice)) return false
@@ -92,6 +94,7 @@ export function catalogFacets(products: CatalogEntry[], filters: CatalogFilters)
   return {
     categories: facet(matching("category"), (product) => product.category_hierarchy || [product.category || ""], filters.categories),
     colors: facet(matching("color"), (product) => eligibleVariants(product, filters, "color").map((variant) => colorLabel(variant.color_group || variant.color || "")), filters.colors.map(colorLabel)),
+    sizes: facet(matching("size"), (product) => eligibleVariants(product, filters, "size").map((variant) => variant.size || "").filter((value) => value !== "Standard" && value !== "000"), filters.sizes),
     materials: facet(matching("material"), (product) => product.materials || [], filters.materials),
     brands: facet(matching("brand"), (product) => [product.brand || ""], filters.brands),
     lead_times: facet(matching("lead_time"), (product) => [product.lead_time || ""], filters.leadTimes),

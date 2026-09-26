@@ -3,7 +3,7 @@ import { ContainerRegistrationKeys, MedusaError, Modules, ProductStatus } from "
 import { createInventoryLevelsWorkflow, createProductCategoriesWorkflow, createProductVariantsWorkflow, createProductsWorkflow, updateInventoryLevelsWorkflow, updateProductVariantsWorkflow } from "@medusajs/medusa/core-flows"
 import { normalizeSupplierCatalog, normalizedProductHandle, opaqueSourceKey, supplierMasterReference, type NormalizedProduct } from "../modules/merchportal/normalization"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
-import { makitoColorLabels, makitoVariantLabel } from "../modules/merchportal/makito-colors"
+import { makitoColorLabels, makitoVariantLabel, makitoVariantSizeLabel } from "../modules/merchportal/makito-colors"
 import { sellingPrice } from "../modules/merchportal/catalog-rules"
 import { catalogPreview } from "../modules/merchportal/catalog-preview"
 import { resolveMarkup } from "./manage-pricing-rules"
@@ -58,7 +58,7 @@ export async function refreshMakitoColorLabels(container: any) {
   const rawBySource = new Map(records.map((record) => [opaqueSourceKey(supplier.id, supplierMasterReference("makito", record.payload || {}, record.external_id)), record.payload]))
   const sources: any[] = []
   for (let skip = 0; ; skip += 500) {
-    const batch = await service.listPublishedProductSources({ supplier_id: supplier.id }, { take: 500, skip, select: ["id", "source_key", "catalog_document"] })
+    const batch = await service.listPublishedProductSources({ supplier_id: supplier.id }, { take: 500, skip, order: { id: "ASC" }, select: ["id", "source_key", "catalog_document"] })
     sources.push(...batch)
     if (batch.length < 500) break
   }
@@ -75,10 +75,13 @@ export async function refreshMakitoColorLabels(container: any) {
         const sourceVariant = variantsBySku.get(variant.sku)
         if (!sourceVariant) return variant
         const code = String(sourceVariant.variant_colorcode || "")
-        const label = makitoVariantLabel(sourceVariant, String(raw.name || "")) || fallbackLabels.get(`${supplier.id}:${code}`)
-        if (!label || (variant.color === label && variant.color_group === label)) return variant
+        const label = fallbackLabels.get(`${supplier.id}:${code}`) || makitoVariantLabel(sourceVariant, String(raw.name || ""))
+        if (!label) return variant
+        const sizeCode = String(sourceVariant.variant_size || "")
+        const size = makitoVariantSizeLabel(sourceVariant, String(raw.name || ""), label) || (sizeCode && sizeCode !== "000" ? sizeCode : "Standard")
+        if (variant.color === label && variant.color_group === label && variant.size === size) return variant
         changed = true
-        return { ...variant, color: label, color_group: label, title: [label, variant.size === "Standard" ? "" : variant.size].filter(Boolean).join(" ") }
+        return { ...variant, color: label, color_group: label, size, title: [label, size === "Standard" ? "" : size].filter(Boolean).join(" ") }
       })
       if (!changed) continue
       const catalogDocument = { ...document, variants, colors: [...new Set(variants.map((variant: any) => variant.color_group || variant.color).filter(Boolean))] }
@@ -90,6 +93,33 @@ export async function refreshMakitoColorLabels(container: any) {
     }
   }
   return { updated, total: sources.length }
+}
+
+export async function refreshCatalogPreviewSizes(container: any) {
+  const service = container.resolve(MERCHPORTAL_MODULE) as any
+  let updated = 0
+  for (let skip = 0; ; skip += 100) {
+    const sources = await service.listPublishedProductSources({}, { take: 100, skip, order: { id: "ASC" }, select: ["id", "catalog_document", "catalog_preview"] })
+    const changes = sources.flatMap((source: any) => {
+      const preview = source.catalog_preview
+      if (!preview?.variants?.length || !source.catalog_document?.variants?.length) return []
+      const sizeBySku = new Map(source.catalog_document.variants.map((variant: any) => [variant.sku, variant.size]))
+      let changed = false
+      const variants = preview.variants.map((variant: any) => {
+        const size = sizeBySku.get(variant.sku)
+        if (typeof size !== "string" || !size || size === "Standard" || variant.size === size) return variant
+        changed = true
+        return { ...variant, size }
+      })
+      return changed ? [{ id: source.id, catalog_preview: { ...preview, variants } }] : []
+    })
+    if (changes.length) {
+      await service.updatePublishedProductSources(changes)
+      updated += changes.length
+    }
+    if (sources.length < 100) break
+  }
+  return updated
 }
 
 async function persistProductSources(container: any, normalized: NormalizedProduct[], nativeProducts: any[], onProgress?: (percent: number, message: string) => Promise<void>, checkCancelled?: () => Promise<void>) {

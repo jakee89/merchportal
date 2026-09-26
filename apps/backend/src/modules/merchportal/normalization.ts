@@ -3,7 +3,7 @@ import type { MedusaContainer } from "@medusajs/framework/types"
 import { MERCHPORTAL_MODULE } from "."
 import { categoryHierarchy, fieldValue, normalizedFieldName, productAttributes, productSpecifications, supplierCategory } from "./catalog-rules"
 import { makitoCategoryPaths, primaryMakitoCategoryPath } from "./makito-categories"
-import { makitoColorLabels, makitoVariantLabel } from "./makito-colors"
+import { makitoColorLabels, makitoVariantLabel, makitoVariantSizeLabel } from "./makito-colors"
 import { normalizeAodaciDecorationOptions, normalizeDecorationOptions, normalizeMakitoDecorationOptions, type DecorationMethod } from "./decoration"
 import { supplierImageToken } from "./media"
 import { interruptibleSupplierRead } from "./sync"
@@ -453,10 +453,12 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         const suppliedHex = value(row, ["ColorHex1", "color_hex", "colour_hex"])
         const colorHex = suppliedHex && /^#?[0-9a-f]{6}$/iu.test(suppliedHex) ? `#${suppliedHex.replace(/^#/u, "")}` : undefined
         const color = supplier?.code === "makito"
-          ? makitoVariantLabel(row, value(payload, ["name"]) || "") || makitoLabels.get(`${group.supplier_id}:${colorCode}`) || value(row, ["color"]) || colorCode || "Standard"
+          ? makitoLabels.get(`${group.supplier_id}:${colorCode}`) || makitoVariantLabel(row, value(payload, ["name"]) || "") || value(row, ["color"]) || colorCode || "Standard"
           : value(row, ["productColour", "ColorDesc1", "ColorDescription", "color_description", "colour_description", "color_name", "colour_name", "color", "colour", "color_group", "variant_name"]) || colorCode || "Standard"
         const colorGroup = value(row, ["color_group", "colour_group", "color_family", "colour_family"]) || color
-        let size = value(row, ["productSize", "size_description", "size", "combined_sizes", "capacity", "format", "dimension", "variant_size"]) || "Standard"
+        let size = supplier?.code === "makito"
+          ? makitoVariantSizeLabel(row, value(payload, ["name"]) || "", color) || value(row, ["variant_size"]) || "Standard"
+          : value(row, ["productSize", "size_description", "size", "combined_sizes", "capacity", "format", "dimension", "variant_size"]) || "Standard"
         if (supplier?.code === "makito" && size === "000") size = "Standard"
         const combination = `${color}:${size}`
         if (seen.has(combination)) size = sku

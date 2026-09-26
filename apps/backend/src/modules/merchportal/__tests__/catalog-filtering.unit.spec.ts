@@ -6,8 +6,8 @@ const products: CatalogEntry[] = [
     category_hierarchy: ["Bags", "Backpacks"],
     materials: ["Polyester"],
     filter_variants: [
-      { sku: "B-BLK", color: "300 - Black", price_eur: 10, stock_quantity: 4 },
-      { sku: "B-RED", color: "Red", price_eur: 8, stock_quantity: 0 },
+      { sku: "B-BLK", color: "300 - Black", size: "4-5", price_eur: 10, stock_quantity: 4 },
+      { sku: "B-RED", color: "Red", size: "6-8", price_eur: 8, stock_quantity: 0 },
     ],
   },
   {
@@ -28,6 +28,7 @@ const base: CatalogFilters = {
   search: "",
   categories: [],
   colors: [],
+  sizes: [],
   materials: [],
   brands: [],
   leadTimes: [],
@@ -65,5 +66,11 @@ describe("client catalogue facets", () => {
     expect(products.filter((product) => matchesCatalogFilters(product, filters)).map((product) => product.name)).toEqual(["Travel backpack", "City backpack"])
     expect(catalogFacets(products, filters).availability.out_of_stock).toBe(2)
     expect(catalogFacets(products, filters).availability.in_stock).toBe(2)
+  })
+
+  it("filters size and colour on the same variant", () => {
+    expect(products.filter((product) => matchesCatalogFilters(product, { ...base, colors: ["Black"], sizes: ["6-8"] }))).toHaveLength(0)
+    expect(products.filter((product) => matchesCatalogFilters(product, { ...base, colors: ["Black"], sizes: ["4-5"] })).map((product) => product.name)).toEqual(["Travel backpack"])
+    expect(catalogFacets(products, { ...base, colors: ["Black"] }).sizes).toEqual(expect.arrayContaining([{ value: "4-5", count: 1 }]))
   })
 })

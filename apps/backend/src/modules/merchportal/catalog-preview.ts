@@ -19,6 +19,7 @@ export function catalogPreview(document: any) {
       sku: variant.sku,
       color: variant.color,
       color_group: variant.color_group,
+      size: variant.size,
       color_hex: variant.color_hex,
       stock_quantity: variant.stock_quantity,
       images: variant.images?.slice(0, 1),

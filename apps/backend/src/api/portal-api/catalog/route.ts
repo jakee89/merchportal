@@ -101,7 +101,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           stock_quantity: document.stock_quantity,
           color_option_count: new Set(variants.map((variant: any) => variant.color).filter(Boolean)).size,
           color_options: variants.filter((variant: any) => variant.color).map((variant: any) => ({ name: variant.color, color_hex: variant.color_hex, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity, next_arrival: variant.future_stock?.[0] })),
-          filter_variants: variants.map((variant: any) => ({ sku: variant.sku, color: variant.color, color_group: variant.color_group, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })),
+          filter_variants: variants.map((variant: any) => ({ sku: variant.sku, color: variant.color, color_group: variant.color_group, size: variant.size, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })),
         }
       })
     } else {
@@ -141,6 +141,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
             colors,
             color: indexedVariant?.color || colors[0],
             color_group: indexedVariant?.color_group,
+            size: indexedVariant?.size,
             color_hex: indexedVariant?.color_hex,
             images: indexedVariant?.images || [],
           }
@@ -161,7 +162,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           materials: document.materials || [],
           brand: document.brand,
           keywords: document.keywords || [],
-          filter_variants: variants.map((variant: any) => ({ sku: variant.sku, color: variant.color, color_group: variant.color_group, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })),
+          filter_variants: variants.map((variant: any) => ({ sku: variant.sku, color: variant.color, color_group: variant.color_group, size: variant.size, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })),
           color_option_count: new Set(variants.map((variant: any) => variant.color).filter(Boolean)).size,
           color_options: variants.filter((variant: any) => variant.color).map((variant: any) => ({ name: variant.color, color_hex: variant.color_hex, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity, next_arrival: variant.future_stock?.[0] })),
           price_eur: prices.length ? Math.min(...prices) : undefined,
@@ -183,6 +184,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     search: queryText(req.query.q),
     categories: queryValues(req.query.category),
     colors: queryValues(req.query.color),
+    sizes: queryValues(req.query.size),
     materials: queryValues(req.query.material),
     brands: queryValues(req.query.brand),
     leadTimes: queryValues(req.query.lead_time),

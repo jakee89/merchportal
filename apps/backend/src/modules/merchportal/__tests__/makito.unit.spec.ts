@@ -3,7 +3,7 @@ import { decorationPrice, normalizeMakitoDecorationOptions } from "../decoration
 import { supplierImageToken } from "../media"
 import { normalizeSupplierCatalog, productPriceBreaks } from "../normalization"
 import { deduplicateSupplierRecords } from "../sync"
-import { makitoColorLabels, makitoVariantLabel } from "../makito-colors"
+import { makitoColorLabels, makitoVariantLabel, makitoVariantSizeLabel } from "../makito-colors"
 
 const image = "https://apis.makito.es/catalog/assets/15246/15246003000/principal/5246-003-P.jpg"
 const guide = "https://apis.makito.es/print-config/assets/15246/prod_previsualizacio/5246-A1.jpg"
@@ -13,6 +13,16 @@ describe("Makito supplier", () => {
     expect(makitoVariantLabel({ variant_name: "Polo Chaplin Arena L", variant_size: "L" }, "Chaplin")).toBe("Arena")
     const labels = makitoColorLabels([{ supplier_id: "supplier-1", payload: { name: "Komir", variants: [{ variant_colorcode: "013", variant_name: "Bag Komir Natural" }] } }])
     expect(labels.get("supplier-1:013")).toBe("Natural")
+  })
+
+  it("groups coded Makito colours separately from visible apparel sizes", () => {
+    const sized = { variant_colorcode: "019", variant_name: "Camiseta Niño Bandul Azul 4-5", variant_size: "305" }
+    const labels = makitoColorLabels([
+      { supplier_id: "supplier-1", payload: { name: "Bandul", variants: [sized] } },
+      { supplier_id: "supplier-1", payload: { name: "Nortalik", variants: [{ variant_colorcode: "019", variant_name: "Bidón Nortalik Azul", variant_size: "000" }] } },
+    ])
+    expect(labels.get("supplier-1:019")).toBe("Azul")
+    expect(makitoVariantSizeLabel(sized, "Bandul", "Azul")).toBe("4-5")
   })
 
   it("uses the catalog feed and preserves supplier variant metadata", async () => {

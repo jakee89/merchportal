@@ -90,5 +90,16 @@ export async function facetMappingOptions(service: any) {
       else counts.set(id, { supplier_id: source.supplier_id, supplier_name: String(names.get(source.supplier_id) || "Supplier"), facet_type: type, source_value: value, target_value: targets.get(id), count: 1 })
     }
   }
+  for (const mapping of mappings) {
+    const id = key(mapping.supplier_id, mapping.facet_type, mapping.source_value)
+    if (!counts.has(id)) counts.set(id, {
+      supplier_id: mapping.supplier_id,
+      supplier_name: String(names.get(mapping.supplier_id) || "Supplier"),
+      facet_type: mapping.facet_type,
+      source_value: mapping.source_value,
+      target_value: mapping.target_value,
+      count: 0,
+    })
+  }
   return [...counts.values()].sort((a, b) => a.facet_type.localeCompare(b.facet_type) || a.source_value.localeCompare(b.source_value) || a.supplier_name.localeCompare(b.supplier_name))
 }
