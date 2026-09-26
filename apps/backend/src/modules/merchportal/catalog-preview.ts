@@ -6,6 +6,7 @@ export function catalogPreview(document: any) {
     image_url: document.image_url,
     category: document.category,
     category_hierarchy: document.category_hierarchy,
+    category_paths: document.category_paths,
     colors: document.colors,
     materials: document.materials,
     brand: document.brand,

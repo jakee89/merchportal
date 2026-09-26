@@ -2,6 +2,7 @@ import { createHash, createHmac } from "node:crypto"
 import type { MedusaContainer } from "@medusajs/framework/types"
 import { MERCHPORTAL_MODULE } from "."
 import { categoryHierarchy, fieldValue, normalizedFieldName, productAttributes, productSpecifications, supplierCategory } from "./catalog-rules"
+import { makitoCategoryPaths, primaryMakitoCategoryPath } from "./makito-categories"
 import { normalizeAodaciDecorationOptions, normalizeDecorationOptions, normalizeMakitoDecorationOptions, type DecorationMethod } from "./decoration"
 import { supplierImageToken } from "./media"
 import { interruptibleSupplierRead } from "./sync"
@@ -53,6 +54,7 @@ export type NormalizedProduct = {
     specifications: Array<{ label: string; value: string }>
   }
   category_hierarchy: string[]
+  category_paths?: string[][]
   downloads: Array<{ name: string; url: string }>
   images: string[]
   variants: NormalizedVariant[]
@@ -411,13 +413,12 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const record = group.records[0]
     const payload = (record.payload || {}) as ObjectValue
     const supplier = supplierById.get(group.supplier_id)
-    const makitoCategories = supplier?.code === "makito" && Array.isArray(payload.categories)
-      ? payload.categories.map((item: unknown) => typeof item === "string" ? item : item && typeof item === "object" ? value(item as ObjectValue, ["name", "description", "title"]) : undefined).filter((item: unknown): item is string => typeof item === "string" && Boolean(item))
-      : []
-    const originalCategory = makitoCategories.at(-1) || supplierCategory(group.records.map((item) => item.payload))
+    const makitoPaths = supplier?.code === "makito" ? makitoCategoryPaths(payload.categories) : []
+    const makitoPrimaryPath = primaryMakitoCategoryPath(makitoPaths)
+    const originalCategory = makitoPrimaryPath.at(-1) || supplierCategory(group.records.map((item) => item.payload))
     const attributes = productAttributes(group.records.map((item) => item.payload))
     const specifications = productSpecifications(group.records.map((item) => item.payload))
-    const hierarchy = makitoCategories.length ? makitoCategories : categoryHierarchy(group.records.map((item) => item.payload))
+    const hierarchy = makitoPrimaryPath.length ? makitoPrimaryPath : categoryHierarchy(group.records.map((item) => item.payload))
     const groupSkus = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue)).map((row) => value(row, ["productSKU", "sku", "SKU", "optionalReference", "reference", "variant_id", "variant_reference"])).filter(Boolean)
     const decorationPayloads = [...new Map([
       ...(decorationIndex.byMaster.get(`${group.supplier_id}:${group.master_id}`) || []),
@@ -521,6 +522,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         specifications,
       },
       category_hierarchy: hierarchy.length ? hierarchy : [originalCategory],
+      category_paths: makitoPaths.length ? makitoPaths : undefined,
       downloads: downloadUrls([...group.records.map((item) => item.payload), ...decorationPayloads]),
       images: productImages,
       variants,

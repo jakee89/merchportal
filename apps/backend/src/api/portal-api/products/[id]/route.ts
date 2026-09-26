@@ -2,6 +2,7 @@ import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/frame
 import { ContainerRegistrationKeys, MedusaError, ProductStatus } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../../../../modules/merchportal"
 import { markedUpUnitPrice, sellingPrice } from "../../../../modules/merchportal/catalog-rules"
+import { makitoDocumentCategories } from "../../../../modules/merchportal/makito-categories"
 import { markupForQuantity, resolveMarkupRule } from "../../../../workflows/manage-pricing-rules"
 import { saveProductConfigurationWorkflow } from "../../../../workflows/save-product-configuration"
 
@@ -29,6 +30,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const catalogDocument = (source.catalog_document || {}) as any
   const currentSkus = new Set((catalogDocument.variants || []).map((variant: any) => variant.sku))
   const supplier = (await service.listSuppliers({ id: source.supplier_id }, { take: 1 }))[0]
+  const makitoCategories = supplier?.code === "makito" ? makitoDocumentCategories(catalogDocument) : null
   const rule = await resolveMarkupRule(service, membership.organization_id, supplier?.code)
   const markup = markupForQuantity(rule)
   const variants = (product.variants || [])
@@ -128,8 +130,8 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
       description: catalogDocument.description || product.description,
       short_description: catalogDocument.short_description,
       code: catalogDocument.supplier_product_code || catalogDocument.variants?.[0]?.sku,
-      category: catalogDocument.category || product.categories?.[0]?.name,
-      category_hierarchy: catalogDocument.category_hierarchy || [catalogDocument.category].filter(Boolean),
+      category: makitoCategories?.primary.at(-1) || catalogDocument.category || product.categories?.[0]?.name,
+      category_hierarchy: makitoCategories?.primary.length ? makitoCategories.primary : catalogDocument.category_hierarchy || [catalogDocument.category].filter(Boolean),
       brand: catalogDocument.brand,
       sustainable: Boolean(catalogDocument.sustainable),
       specifications: catalogDocument.specifications || (source.attributes as any)?.specifications || [],

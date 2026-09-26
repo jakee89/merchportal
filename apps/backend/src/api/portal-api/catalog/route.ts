@@ -5,6 +5,7 @@ import { sellingPrice } from "../../../modules/merchportal/catalog-rules"
 import { markupForQuantity } from "../../../workflows/manage-pricing-rules"
 import { cachePortalCatalogResponse, portalCatalogCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
 import { catalogFacets, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
+import { makitoDocumentCategories } from "../../../modules/merchportal/makito-categories"
 
 const catalogSourceFields = ["id", "product_id", "supplier_id", "catalog_preview", "cost_by_sku"]
 
@@ -59,6 +60,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     if (indexed.length && indexed.length === indexedSources.length) {
       safeProducts = indexed.map((source: any) => {
         const document = source.catalog_preview as any
+        const makitoCategories = supplierCodes.get(source.supplier_id) === "makito" ? makitoDocumentCategories(document) : null
         const costs = (source.cost_by_sku || {}) as Record<string, number>
         const rule = ruleForSource(source)
         const variants = (document.variants || []).map((variant: any) => {
@@ -79,8 +81,8 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           description: document.short_description || document.description,
           sku: variants[0]?.sku,
           image_url: document.image_url,
-          category: document.category,
-          category_hierarchy: document.category_hierarchy || [document.category].filter(Boolean),
+          category: makitoCategories?.primary.at(-1) || document.category,
+          category_hierarchy: makitoCategories?.levels.length ? makitoCategories.levels : document.category_hierarchy || [document.category].filter(Boolean),
           colors: document.colors || [],
           materials: document.materials || [],
           brand: document.brand,
@@ -115,6 +117,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         const source = sourceByProduct.get(product.id)
         const markup = markupForQuantity(ruleForSource(source))
         const document = source?.catalog_document || {}
+        const makitoCategories = supplierCodes.get(source?.supplier_id) === "makito" ? makitoDocumentCategories(document) : null
         const costs = (source?.cost_by_sku || {}) as Record<string, number>
         const variants = (product.variants || []).map((variant: any) => {
           const nativePrice = (variant.prices || []).find((price: any) => price.currency_code === "eur")?.amount
@@ -145,8 +148,8 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           description: source?.catalog_document?.short_description || product.description,
           sku: variants[0]?.sku,
           image_url: product.thumbnail || product.images?.[0]?.url || null,
-          category: product.categories?.[0]?.name,
-          category_hierarchy: document.category_hierarchy || [product.categories?.[0]?.name].filter(Boolean),
+          category: makitoCategories?.primary.at(-1) || product.categories?.[0]?.name,
+          category_hierarchy: makitoCategories?.levels.length ? makitoCategories.levels : document.category_hierarchy || [product.categories?.[0]?.name].filter(Boolean),
           colors: [...new Set(variants.map((variant: any) => variant.color_group || variant.color).filter(Boolean))],
           materials: document.materials || [],
           brand: document.brand,

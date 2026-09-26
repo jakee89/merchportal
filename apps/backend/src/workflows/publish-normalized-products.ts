@@ -78,6 +78,7 @@ async function persistProductSources(container: any, normalized: NormalizedProdu
         images: product.images,
         category: product.category,
         category_hierarchy: product.category_hierarchy,
+        category_paths: product.category_paths,
         colors: [...new Set(product.variants.map((variant) => variant.color_group || variant.color))],
         materials: product.attributes.materials,
         brand: product.attributes.brand,

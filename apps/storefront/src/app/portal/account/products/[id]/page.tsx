@@ -32,7 +32,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
   return <div className={styles.page}>
     <header className={styles.topbar}><Link href="/portal/account" className={styles.brand}><span className={styles.mark}>M</span>MerchPortal</Link><div className={styles.headerActions}><Link className={styles.secondary} href="/portal/account">Back to catalogue</Link><QuoteCartLink /></div></header>
     <main className={styles.productMain}>
-      <nav className={styles.breadcrumbs} aria-label="Breadcrumb"><Link href="/portal/account">Catalogue</Link>{product.category_hierarchy?.map((item) => <span key={item}>/ {item}</span>)}</nav>
+      <nav className={styles.breadcrumbs} aria-label="Breadcrumb"><Link href="/portal/account">Catalogue</Link>{product.category_hierarchy?.map((item, index) => <span key={`${item}-${index}`}>/ <Link href={`/portal/account?category=${encodeURIComponent(item)}`}>{item}</Link></span>)}</nav>
       <header className={styles.productTitle}><div><div className={styles.badges}>{product.category && <span>{product.category}</span>}{product.sustainable && <span className={styles.ecoBadge}>Sustainable</span>}</div><h1>{product.name}</h1><p>{[product.brand, product.code ? `Code ${product.code}` : ""].filter(Boolean).join(" · ")}</p></div></header>
       <Configurator productId={product.id} productName={product.name} productImages={product.images} backend={backend} variants={product.variants} methods={product.decoration_options} initialSku={sku} />
       <div className={styles.productSections}>
