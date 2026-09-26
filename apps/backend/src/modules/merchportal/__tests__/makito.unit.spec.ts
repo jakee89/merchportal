@@ -3,23 +3,29 @@ import { decorationPrice, normalizeMakitoDecorationOptions } from "../decoration
 import { supplierImageToken } from "../media"
 import { normalizeSupplierCatalog, productPriceBreaks } from "../normalization"
 import { deduplicateSupplierRecords } from "../sync"
+import { makitoColorLabels, makitoVariantLabel } from "../makito-colors"
 
 const image = "https://apis.makito.es/catalog/assets/15246/15246003000/principal/5246-003-P.jpg"
 const guide = "https://apis.makito.es/print-config/assets/15246/prod_previsualizacio/5246-A1.jpg"
 
 describe("Makito supplier", () => {
-  it("uses the documented JSON feeds and read-only colour metadata", async () => {
+  it("uses supplied variant names and removes apparel sizes from colour labels", () => {
+    expect(makitoVariantLabel({ variant_name: "Polo Chaplin Arena L", variant_size: "L" }, "Chaplin")).toBe("Arena")
+    const labels = makitoColorLabels([{ supplier_id: "supplier-1", payload: { name: "Komir", variants: [{ variant_colorcode: "013", variant_name: "Bag Komir Natural" }] } }])
+    expect(labels.get("supplier-1:013")).toBe("Natural")
+  })
+
+  it("uses the catalog feed and preserves supplier variant metadata", async () => {
     const original = global.fetch
     const fetchMock = jest.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ token: "header.eyJleHAiOjk5OTk5OTk5OTl9.signature" }) })
-      .mockResolvedValueOnce({ ok: true, body: null, json: async () => ({ products: [{ ref: "15246", variants: [{ variant_reference: "5246ROJS/T", variant_colorcode: "003", variant_image: image }] }] }) })
-      .mockResolvedValueOnce({ ok: true, body: null, json: async () => [{ id: "1", code: "003", description: "Red" }] })
+      .mockResolvedValueOnce({ ok: true, body: null, json: async () => ({ products: [{ ref: "15246", variants: [{ variant_reference: "5246ROJS/T", variant_colorcode: "003", variant_name: "Bag Komir Red", variant_image: image }] }] }) })
     global.fetch = fetchMock as typeof fetch
     try {
       const products = await new MakitoAdapter(JSON.stringify({ clientId: "test-id", clientSecret: "test-secret" })).fetchProducts() as any[]
-      expect(products[0].variants[0]).toMatchObject({ variant_reference: "5246ROJS/T", variant_material: "15246003000", color: "Red" })
+      expect(products[0].variants[0]).toMatchObject({ variant_reference: "5246ROJS/T", variant_material: "15246003000", variant_name: "Bag Komir Red" })
       expect(String(fetchMock.mock.calls[1][0])).toContain("/catalog/files?format=JSON&lang=en")
-      expect(String(fetchMock.mock.calls[2][0])).toContain("/orders/colors")
+      expect(fetchMock).toHaveBeenCalledTimes(2)
       expect(fetchMock.mock.calls[1][1].headers.Authorization).toMatch(/^Bearer /u)
       expect(fetchMock.mock.calls.every((call) => call[1]?.method !== "POST" || String(call[0]).includes("/access/auth/login"))).toBe(true)
     } finally {
@@ -34,7 +40,10 @@ describe("Makito supplier", () => {
       { quantity: 500, price_eur: 4.25 },
     ])
     const records = (type: string) => ({
-      product: [{ supplier_id: "supplier-1", external_id: "15246", payload: { ref: "15246", name: "Komir", image, variants: [{ variant_reference: "5246ROJS/T", variant_material: "15246003000", variant_colorcode: "003", color: "Red", variant_image: image, variant_size: "000" }] } }],
+      product: [
+        { supplier_id: "supplier-1", external_id: "15246", payload: { ref: "15246", name: "Komir", image, variants: [{ variant_reference: "5246ROJS/T", variant_material: "15246003000", variant_colorcode: "013", color: "013", variant_name: "Bag Komir Natural", variant_image: image, variant_size: "000" }] } },
+        { supplier_id: "supplier-1", external_id: "15247", payload: { ref: "15247", name: "Komir 500 ml", image, variants: [{ variant_reference: "5247NAT", variant_colorcode: "013", color: "013", variant_name: "Bag Komir Natural", variant_size: "000" }] } },
+      ],
       price: [{ supplier_id: "supplier-1", external_id: "15246", sku: "15246", payload: { material: "15246", currency: "EUR", baseQuantity: "1000", scales: [{ quantity: "1", amount: "4400.00" }] } }],
       stock: [{ supplier_id: "supplier-1", external_id: "15246003000", sku: "15246003000", payload: { material: "15246003000", quantity: 16 } }],
       decoration: [],
@@ -45,8 +54,9 @@ describe("Makito supplier", () => {
       listRawSupplierRecords: jest.fn().mockImplementation(async (filters) => records(filters.record_type)),
       listPublishedProductSources: jest.fn().mockResolvedValue([]),
     }
-    const [product] = await normalizeSupplierCatalog({ resolve: () => service } as any, { supplier_code: "makito", take: 10 })
-    expect(product.variants[0]).toMatchObject({ sku: "5246ROJS/T", stock_reference: "15246003000", color: "Red", stock_quantity: 16, price_eur: 4.4 })
+    const [product, other] = await normalizeSupplierCatalog({ resolve: () => service } as any, { supplier_code: "makito", take: 10 })
+    expect(product.variants[0]).toMatchObject({ sku: "5246ROJS/T", stock_reference: "15246003000", color: "Natural", color_code: "013", stock_quantity: 16, price_eur: 4.4 })
+    expect(other.variants[0]).toMatchObject({ sku: "5247NAT", color: "Natural", color_code: "013" })
     expect(product.variants[0].images[0]).toBe(`/media/${supplierImageToken(image)}`)
   })
 

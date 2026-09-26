@@ -3,6 +3,7 @@ import type { MedusaContainer } from "@medusajs/framework/types"
 import { MERCHPORTAL_MODULE } from "."
 import { categoryHierarchy, fieldValue, normalizedFieldName, productAttributes, productSpecifications, supplierCategory } from "./catalog-rules"
 import { makitoCategoryPaths, primaryMakitoCategoryPath } from "./makito-categories"
+import { makitoColorLabels, makitoVariantLabel } from "./makito-colors"
 import { normalizeAodaciDecorationOptions, normalizeDecorationOptions, normalizeMakitoDecorationOptions, type DecorationMethod } from "./decoration"
 import { supplierImageToken } from "./media"
 import { interruptibleSupplierRead } from "./sync"
@@ -367,6 +368,7 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
   const filters = (recordType: string) => ({ record_type: recordType, supplier_id: supplierIds })
   const report = (label: string) => options.onStage ? async (count: number) => { await options.onStage?.(`Loading ${label} (${count.toLocaleString()} records)`) } : undefined
   const records = await listAllRawSupplierRecords(service, filters("product"), { updated_at: "DESC" }, report("products"), options.checkCancelled)
+  const makitoLabels = makitoColorLabels(records.filter((record) => supplierById.get(record.supplier_id)?.code === "makito"))
   const groups = new Map<string, { supplier_id: string; master_id: string; records: any[] }>()
   for (const record of records) {
     const payload = (record.payload || {}) as ObjectValue
@@ -450,7 +452,9 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         const colorCode = value(row, ["productColourCode", "color_code", "colour_code", "colorCode", "colourCode", "ColorCode", "Color1", "variant_colorcode"]) || (supplier?.code === "midocean" && sku.includes("-") ? sku.split("-").at(-1) : undefined)
         const suppliedHex = value(row, ["ColorHex1", "color_hex", "colour_hex"])
         const colorHex = suppliedHex && /^#?[0-9a-f]{6}$/iu.test(suppliedHex) ? `#${suppliedHex.replace(/^#/u, "")}` : undefined
-        const color = value(row, ["productColour", "ColorDesc1", "ColorDescription", "color_description", "colour_description", "color_name", "colour_name", "color", "colour", "color_group", "variant_name"]) || colorCode || "Standard"
+        const color = supplier?.code === "makito"
+          ? makitoVariantLabel(row, value(payload, ["name"]) || "") || makitoLabels.get(`${group.supplier_id}:${colorCode}`) || value(row, ["color"]) || colorCode || "Standard"
+          : value(row, ["productColour", "ColorDesc1", "ColorDescription", "color_description", "colour_description", "color_name", "colour_name", "color", "colour", "color_group", "variant_name"]) || colorCode || "Standard"
         const colorGroup = value(row, ["color_group", "colour_group", "color_family", "colour_family"]) || color
         let size = value(row, ["productSize", "size_description", "size", "combined_sizes", "capacity", "format", "dimension", "variant_size"]) || "Standard"
         if (supplier?.code === "makito" && size === "000") size = "Standard"

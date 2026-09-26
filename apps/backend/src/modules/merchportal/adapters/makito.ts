@@ -68,8 +68,6 @@ export class MakitoAdapter implements SupplierAdapter {
 
   async fetchProducts(context?: SupplierFetchContext) {
     const products = (await this.download("/catalog/files?format=JSON&lang=en", "products", context)).records
-    const colors = (await this.download("/orders/colors", "colors", context)).records as Array<{ code?: string; description?: string }>
-    const names = new Map(colors.filter((item) => item.code && item.description).map((item) => [String(item.code), String(item.description)]))
     return products.map((item) => {
       const product = item as { ref?: string; variants?: Array<{ variant_colorcode?: string; variant_image?: string }> }
       return { ...product, variants: (product.variants || []).map((variant) => {
@@ -78,7 +76,7 @@ export class MakitoAdapter implements SupplierAdapter {
           const segments = new URL(variant.variant_image || "").pathname.split("/")
           if (segments[3] === String(product.ref) && /^\d+$/u.test(segments[4] || "")) material = segments[4]
         } catch {}
-        return { ...variant, color: names.get(String(variant.variant_colorcode || "")) || variant.variant_colorcode, variant_material: material }
+        return { ...variant, variant_material: material }
       }) }
     })
   }

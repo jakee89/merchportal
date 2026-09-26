@@ -1,8 +1,9 @@
 import { createStep, createWorkflow, StepResponse, WorkflowResponse } from "@medusajs/framework/workflows-sdk"
 import { ContainerRegistrationKeys, MedusaError, Modules, ProductStatus } from "@medusajs/framework/utils"
 import { createInventoryLevelsWorkflow, createProductCategoriesWorkflow, createProductVariantsWorkflow, createProductsWorkflow, updateInventoryLevelsWorkflow, updateProductVariantsWorkflow } from "@medusajs/medusa/core-flows"
-import { normalizeSupplierCatalog, normalizedProductHandle, type NormalizedProduct } from "../modules/merchportal/normalization"
+import { normalizeSupplierCatalog, normalizedProductHandle, opaqueSourceKey, supplierMasterReference, type NormalizedProduct } from "../modules/merchportal/normalization"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
+import { makitoColorLabels, makitoVariantLabel } from "../modules/merchportal/makito-colors"
 import { sellingPrice } from "../modules/merchportal/catalog-rules"
 import { catalogPreview } from "../modules/merchportal/catalog-preview"
 import { resolveMarkup } from "./manage-pricing-rules"
@@ -41,6 +42,54 @@ async function listAllPublishedProductSources(service: any, filters: Record<stri
     await onPage?.(sources.length)
     if (batch.length < take) return sources
   }
+}
+
+export async function refreshMakitoColorLabels(container: any) {
+  const service = container.resolve(MERCHPORTAL_MODULE) as any
+  const supplier = (await service.listSuppliers({ code: "makito" }, { take: 1 }))[0]
+  if (!supplier) throw new MedusaError(MedusaError.Types.NOT_FOUND, "Makito supplier not found")
+  const records: any[] = []
+  for (let skip = 0; ; skip += 500) {
+    const batch = await service.listRawSupplierRecords({ supplier_id: supplier.id, record_type: "product" }, { take: 500, skip, select: ["supplier_id", "external_id", "payload"] })
+    records.push(...batch)
+    if (batch.length < 500) break
+  }
+  const fallbackLabels = makitoColorLabels(records)
+  const rawBySource = new Map(records.map((record) => [opaqueSourceKey(supplier.id, supplierMasterReference("makito", record.payload || {}, record.external_id)), record.payload]))
+  const sources: any[] = []
+  for (let skip = 0; ; skip += 500) {
+    const batch = await service.listPublishedProductSources({ supplier_id: supplier.id }, { take: 500, skip, select: ["id", "source_key", "catalog_document"] })
+    sources.push(...batch)
+    if (batch.length < 500) break
+  }
+  let updated = 0
+  for (const group of batches(sources, 100)) {
+    const changes: any[] = []
+    for (const source of group) {
+      const raw = rawBySource.get(source.source_key) as { name?: string; variants?: Array<{ variant_reference?: string; variant_colorcode?: string; variant_name?: string; variant_size?: string }> } | undefined
+      const document = source.catalog_document
+      if (!raw?.variants?.length || !document?.variants?.length) continue
+      const variantsBySku = new Map(raw.variants.map((variant) => [variant.variant_reference, variant]))
+      let changed = false
+      const variants = document.variants.map((variant: any) => {
+        const sourceVariant = variantsBySku.get(variant.sku)
+        if (!sourceVariant) return variant
+        const code = String(sourceVariant.variant_colorcode || "")
+        const label = makitoVariantLabel(sourceVariant, String(raw.name || "")) || fallbackLabels.get(`${supplier.id}:${code}`)
+        if (!label || (variant.color === label && variant.color_group === label)) return variant
+        changed = true
+        return { ...variant, color: label, color_group: label, title: [label, variant.size === "Standard" ? "" : variant.size].filter(Boolean).join(" ") }
+      })
+      if (!changed) continue
+      const catalogDocument = { ...document, variants, colors: [...new Set(variants.map((variant: any) => variant.color_group || variant.color).filter(Boolean))] }
+      changes.push({ id: source.id, catalog_document: catalogDocument, catalog_preview: catalogPreview(catalogDocument) })
+    }
+    if (changes.length) {
+      await service.updatePublishedProductSources(changes)
+      updated += changes.length
+    }
+  }
+  return { updated, total: sources.length }
 }
 
 async function persistProductSources(container: any, normalized: NormalizedProduct[], nativeProducts: any[], onProgress?: (percent: number, message: string) => Promise<void>, checkCancelled?: () => Promise<void>) {
