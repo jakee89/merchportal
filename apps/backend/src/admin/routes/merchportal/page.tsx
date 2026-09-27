@@ -1,5 +1,5 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
-import { Button, Container, Heading, Input, Text, toast } from "@medusajs/ui"
+import { Button, Container, Heading, Text, toast } from "@medusajs/ui"
 import { useCallback, useEffect, useState } from "react"
 
 type Supplier = {
@@ -13,12 +13,6 @@ type Supplier = {
   last_error?: string
 }
 
-type Organization = {
-  id: string
-  name: string
-  join_code: string
-  status: string
-}
 type Job = {
   id: string
   supplier_name: string
@@ -80,17 +74,12 @@ function duration(job?: Job) {
 const MerchPortalPage = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
-  const [organizations, setOrganizations] = useState<Organization[]>([])
-  const [companyName, setCompanyName] = useState("")
-  const [companyAddress, setCompanyAddress] = useState("")
-  const [companyLogo, setCompanyLogo] = useState("")
   const [busy, setBusy] = useState("")
 
   const refresh = useCallback(async () => {
-    const [supplierData, companyData] = await Promise.all([api<{ suppliers: Supplier[]; jobs: Job[] }>("/admin/merchportal/suppliers"), api<{ organizations: Organization[] }>("/admin/merchportal/organizations")])
+    const supplierData = await api<{ suppliers: Supplier[]; jobs: Job[] }>("/admin/merchportal/suppliers")
     setSuppliers(supplierData.suppliers)
     setJobs(supplierData.jobs)
-    setOrganizations(companyData.organizations)
   }, [])
 
   useEffect(() => {
@@ -133,31 +122,6 @@ const MerchPortalPage = () => {
     }
   }
 
-  const createCompany = async () => {
-    if (!companyName.trim()) return
-    setBusy("company")
-    try {
-      const address = companyAddress.trim() ? { address_1: companyAddress.trim(), country_code: "mt" } : undefined
-      await api("/admin/merchportal/organizations", {
-        method: "POST",
-        body: JSON.stringify({
-          name: companyName,
-          logo_url: companyLogo || undefined,
-          billing_address: address,
-          shipping_address: address,
-        }),
-      })
-      setCompanyName("")
-      setCompanyAddress("")
-      setCompanyLogo("")
-      toast.success("Company created")
-      await refresh()
-    } catch (error) {
-      toast.error((error as Error).message)
-    } finally {
-      setBusy("")
-    }
-  }
 
   const activeJobs = jobs.filter((job) => job.status === "running" || job.status === "queued" || job.status === "cancelling")
   const failedJobs = jobs.filter((job) => job.status === "failed" || job.error_count > 0)
@@ -260,28 +224,6 @@ const MerchPortalPage = () => {
                   {supplier.last_error}
                 </Text>
               )}
-            </div>
-          ))}
-        </div>
-      </Container>
-
-      <Container>
-        <Heading level="h2">Client companies</Heading>
-        <div className="my-4 grid grid-cols-1 gap-2 md:grid-cols-4">
-          <Input placeholder="Company name" value={companyName} onChange={(event) => setCompanyName(event.target.value)} />
-          <Input placeholder="Address in Malta" value={companyAddress} onChange={(event) => setCompanyAddress(event.target.value)} />
-          <Input placeholder="Logo URL (optional)" value={companyLogo} onChange={(event) => setCompanyLogo(event.target.value)} />
-          <Button onClick={createCompany} isLoading={busy === "company"}>
-            Create company
-          </Button>
-        </div>
-        <div className="flex flex-col gap-y-2">
-          {organizations.map((organization) => (
-            <div key={organization.id} className="flex items-center justify-between rounded border p-3">
-              <Text weight="plus">{organization.name}</Text>
-              <Text size="small">
-                Client code: <strong>{organization.join_code}</strong>
-              </Text>
             </div>
           ))}
         </div>

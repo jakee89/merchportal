@@ -17,10 +17,9 @@ export async function POST(req: AuthenticatedMedusaRequest, res: MedusaResponse)
   }
   try {
     await sendPortalEmail(service, settings.notification_email, "MerchPortal email test", "MerchPortal is connected to your Zoho mailbox. Quote notifications are ready.", true)
-    await sendPortalEmail(service, settings.notification_email, "MerchPortal no-reply test", "Transactional messages will be sent from this address.", true, undefined, true)
     await markEmailSettingsVerified(service)
     res.json({ sent: true, recipient: settings.notification_email })
   } catch {
-    res.status(502).json({ message: "Zoho could not send both test emails. Verify the no-reply address as a Zoho alias, then retry." })
+    res.status(502).json({ message: "Zoho could not send the test email from the configured sender. Check the SMTP account and sender address." })
   }
 }

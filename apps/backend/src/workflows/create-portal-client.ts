@@ -16,7 +16,7 @@ const createClientStep = createStep("create-portal-client", async (input: Input,
   const details = validateQuoteDetails(input)
   const service = container.resolve(MERCHPORTAL_MODULE) as any
   const settings = await loadEmailSettings(service)
-  if (!settings?.verified || !settings.encrypted_password) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Verify Zoho SMTP and the no-reply sender in Settings before inviting clients")
+  if (!settings?.verified || !settings.encrypted_password) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Verify Zoho SMTP in Settings before inviting clients")
   const customers = container.resolve(Modules.CUSTOMER) as any
   if ((await customers.listCustomers({ email: details.contact_email }, { take: 1 })).length) throw new MedusaError(MedusaError.Types.INVALID_DATA, "This email already has a customer account")
 
@@ -56,7 +56,7 @@ const createClientStep = createStep("create-portal-client", async (input: Input,
   const loginUrl = `${origin}/portal/login`
   let emailSent = false
   try {
-    emailSent = await sendPortalEmail(service, details.contact_email, "Your MerchPortal account is ready", `Hello ${firstName},\n\nYour MerchPortal account is ready.\nEmail: ${details.contact_email}\nTemporary password: ${password}\nSign in: ${loginUrl}\n\nPlease change your password using Forgot password after signing in.`, false, transactionalEmailHtml("Your account is ready", `Hello ${firstName}, your business account has been created. Use the temporary password below to sign in, then change it using Forgot password.`, "Sign in to MerchPortal", loginUrl, `Email: ${details.contact_email}\nTemporary password: ${password}`), true)
+    emailSent = await sendPortalEmail(service, details.contact_email, "Your MerchPortal account is ready", `Hello ${firstName},\n\nYour MerchPortal account is ready.\nEmail: ${details.contact_email}\nTemporary password: ${password}\nSign in: ${loginUrl}\n\nPlease change your password using Forgot password after signing in.`, false, transactionalEmailHtml("Your account is ready", `Hello ${firstName}, your business account has been created. Use the temporary password below to sign in, then change it using Forgot password.`, "Sign in to MerchPortal", loginUrl, `Email: ${details.contact_email}\nTemporary password: ${password}`))
   } catch (error) {
     console.error("Client invite email failed", error instanceof Error ? error.message : "Unknown SMTP error")
   }

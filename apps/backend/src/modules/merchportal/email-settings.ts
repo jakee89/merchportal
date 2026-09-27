@@ -9,7 +9,6 @@ type EmailSettings = {
   port: 465 | 587
   username: string
   from_email: string
-  transactional_from_email?: string
   notification_email: string
   encrypted_password?: string
   verified?: boolean
@@ -26,7 +25,6 @@ export function publicEmailSettings(settings: EmailSettings | null) {
     port: settings?.port || 587,
     username: settings?.username || "",
     from_email: settings?.from_email || "",
-    transactional_from_email: settings?.transactional_from_email || "noreply@customislandgifts.mt",
     notification_email: settings?.notification_email || "",
     password_configured: Boolean(settings?.encrypted_password),
     verified: Boolean(settings?.verified),
@@ -39,7 +37,6 @@ export async function saveEmailSettings(service: any, input: Record<string, unkn
   const port = Number(input.port || 587)
   const username = String(input.username || "").trim()
   const fromEmail = String(input.from_email || "").trim()
-  const transactionalFromEmail = String(input.transactional_from_email || existing?.transactional_from_email || "noreply@customislandgifts.mt").trim().toLowerCase()
   const notificationEmail = String(input.notification_email || "").trim()
   const password = typeof input.app_password === "string" ? input.app_password.trim() : ""
   const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value.length <= 254
@@ -47,7 +44,7 @@ export async function saveEmailSettings(service: any, input: Record<string, unkn
   if (!allowedHosts.has(host) || (port !== 465 && port !== 587)) {
     throw new MedusaError(MedusaError.Types.INVALID_DATA, "Use a Zoho EU SMTP host and port 465 or 587")
   }
-  if (!isEmail(username) || !isEmail(fromEmail) || !isEmail(notificationEmail) || !isEmail(transactionalFromEmail)) {
+  if (!isEmail(username) || !isEmail(fromEmail) || !isEmail(notificationEmail)) {
     throw new MedusaError(MedusaError.Types.INVALID_DATA, "Enter valid Zoho login, sender and staff notification email addresses")
   }
   if (!password && !existing?.encrypted_password) {
@@ -62,7 +59,6 @@ export async function saveEmailSettings(service: any, input: Record<string, unkn
     port: port as 465 | 587,
     username,
     from_email: fromEmail,
-    transactional_from_email: transactionalFromEmail,
     notification_email: notificationEmail,
     encrypted_password: password ? encryptStoredSecret("email:zoho", password) : existing?.encrypted_password,
     verified: false,
@@ -78,7 +74,7 @@ export async function markEmailSettingsVerified(service: any) {
   if (setting) await service.updatePortalSettings({ id: setting.id, value: { ...setting.value, verified: true } })
 }
 
-export async function sendPortalEmail(service: any, recipient: string, subject: string, message: string, test = false, html?: string, transactional = false) {
+export async function sendPortalEmail(service: any, recipient: string, subject: string, message: string, test = false, html?: string) {
   const settings = await loadEmailSettings(service)
   if (!settings?.encrypted_password || (!test && !settings.verified)) return false
   const transport = nodemailer.createTransport({
@@ -91,6 +87,6 @@ export async function sendPortalEmail(service: any, recipient: string, subject: 
     greetingTimeout: 12_000,
     socketTimeout: 20_000,
   })
-  await transport.sendMail({ from: transactional ? settings.transactional_from_email || "noreply@customislandgifts.mt" : settings.from_email, to: recipient, subject, text: message, html })
+  await transport.sendMail({ from: settings.from_email, to: recipient, subject, text: message, html })
   return true
 }
