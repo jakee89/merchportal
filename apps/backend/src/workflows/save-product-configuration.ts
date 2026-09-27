@@ -68,6 +68,9 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
   const nativePrice = Number(variant.prices?.find((item: any) => item.currency_code === "eur")?.amount)
   const supplier = (await service.listSuppliers({ id: source.supplier_id }, { take: 1 }))[0]
   const rule = await resolveMarkupRule(service, memberships[0].organization_id, supplier?.code)
+  const supplierTiers = input.preview_only && supplier?.code
+    ? (await service.listPricingRules({ scope_key: `supplier:${supplier.code}`, status: "active" }, { take: 1 }))[0]?.quantity_tiers
+    : []
 
   const usedPositions = new Set<string>()
   const validatedLines = requested.map((line) => {
@@ -101,14 +104,7 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
   const selected = calculate(input.quantity)
   const { baseUnitPrice, brandingUnitPrice, setupPrice, decorationLines, total, pricePending, basePricePending } = selected
   if (input.preview_only) {
-    const breakQuantities = [1, input.quantity, ...priceBreaks.map((item: any) => Number(item.quantity)), ...(Array.isArray(rule.quantity_tiers) ? rule.quantity_tiers.map((tier: any) => Number(tier.min_quantity)) : [])]
-    for (const { method } of validatedLines) {
-      breakQuantities.push(...(method.price_breaks || []).map((item) => Number(item.quantity)))
-      breakQuantities.push(...(method.handling_price_breaks || []).map((item) => Number(item.quantity)))
-      for (const range of method.price_ranges || []) breakQuantities.push(...range.price_breaks.map((item) => Number(item.quantity)))
-      for (const table of method.price_tables || []) breakQuantities.push(...table.price_breaks.map((item) => Number(item.quantity)))
-    }
-    const quantities = [...new Set(breakQuantities.filter((quantity) => Number.isInteger(quantity) && quantity >= input.quantity && quantity <= 100000))].sort((a, b) => a - b).slice(0, 12)
+    const quantities = [...new Set((Array.isArray(supplierTiers) ? supplierTiers : []).map((tier: any) => Number(tier.min_quantity)).filter((quantity: number) => Number.isInteger(quantity) && quantity > input.quantity && quantity <= 100000))].sort((a, b) => a - b)
     const quantityPrices = quantities.map((quantity) => {
       const price = quantity === input.quantity ? selected : calculate(quantity)
       return { quantity, estimated_total: price.pricePending ? null : price.total, unit_price_eur: price.pricePending ? null : Math.round(price.total / quantity * 100) / 100 }

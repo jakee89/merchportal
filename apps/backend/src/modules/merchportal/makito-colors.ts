@@ -1,6 +1,32 @@
 type MakitoVariant = { variant_colorcode?: string; variant_name?: string; variant_size?: string; color?: string }
 type MakitoProductRecord = { supplier_id: string; payload?: { name?: string; variants?: MakitoVariant[] } }
 const sizeSuffix = /\s+(\d{1,3}(?:[-/]\d{1,3})?|[2-6]?XL|XXXL|XXL|XXS|XL|XS|S|M|L)$/iu
+const colourWords: Record<string, string> = {
+  amarillo: "Yellow", azul: "Blue", beig: "Beige", blanco: "White", burdeos: "Burgundy",
+  celeste: "Sky Blue", dorado: "Gold", fucsia: "Fuchsia", granate: "Maroon",
+  gris: "Grey", kaki: "Khaki", marron: "Brown", morado: "Purple", mostaza: "Mustard",
+  naranja: "Orange", negro: "Black", oro: "Gold", plata: "Silver", plateado: "Silver",
+  rojo: "Red", rosa: "Pink", salmon: "Salmon", turquesa: "Turquoise", verde: "Green",
+  marino: "Navy", arena: "Sand", natural: "Natural", transparente: "Transparent",
+}
+const modifiers: Record<string, string> = {
+  claro: "Light", oscuro: "Dark", pastel: "Pastel", fluor: "Fluorescent",
+  militar: "Military", aguamarina: "Aqua", traslucido: "Translucent",
+}
+
+export function makitoColourLabel(label: string) {
+  return label.split("/").map((part) => {
+    const words = part.trim().split(/\s+/u)
+    const [first, second] = words.map((word) => word.normalize("NFD").replace(/[\u0300-\u036f]/gu, "").toLowerCase())
+    if (first === "traslucido" && colourWords[second]) return `Translucent ${colourWords[second]}`
+    if (colourWords[first] && modifiers[second]) return `${modifiers[second]} ${colourWords[first]}`
+    if (first === "azul" && second === "royal") return "Royal Blue"
+    if (first === "ver" && second === "menta") return "Mint Green"
+    if (colourWords[first] && words.length === 1) return colourWords[first]
+    if (colourWords[first] && second === "aguamarina") return "Aqua Green"
+    return part.trim()
+  }).join(" / ")
+}
 
 export function makitoVariantLabel(variant: MakitoVariant, productName: string) {
   const name = String(variant.variant_name || "").trim()
@@ -38,5 +64,5 @@ export function makitoColorLabels(records: MakitoProductRecord[]) {
       counts.set(key, labels)
     }
   }
-  return new Map([...counts].map(([key, labels]) => [key, [...labels].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0][0]]))
+  return new Map([...counts].map(([key, labels]) => [key, makitoColourLabel([...labels].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0][0])]))
 }

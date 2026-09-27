@@ -118,11 +118,11 @@ export function normalizeMakitoDecorationOptions(payloads: unknown[], pricePaylo
           method.positions.push({
             id: positionId,
             name,
-            max_width_mm: width * 10,
-            max_height_mm: height * 10,
+            max_width_mm: width,
+            max_height_mm: height,
             max_colours: method.colour_mode === "spot_colour" ? maxColours : undefined,
             image_url: typeof area.image === "string" ? area.image : undefined,
-            size_options: [{ id: `${positionId}:${id}`, label: `${width.toFixed(1)} × ${height.toFixed(1)} cm`, width_mm: width * 10, height_mm: height * 10 }],
+            size_options: [{ id: `${positionId}:${id}`, label: `${(width / 10).toFixed(1)} × ${(height / 10).toFixed(1)} cm`, width_mm: width, height_mm: height }],
           })
         }
         methods.set(id, method)
@@ -636,7 +636,8 @@ export function decorationPrice(method: DecorationMethod | undefined, quantity: 
   const colours = Math.max(1, Math.floor(options.colours || 1))
   const areaCm2 = options.width_mm && options.height_mm ? (options.width_mm * options.height_mm) / 100 : undefined
   if (method.pricing_type === "makito") {
-    const tier = [...method.price_breaks].filter((item) => item.quantity <= quantity).sort((a, b) => b.quantity - a.quantity)[0]
+    const tiers = [...method.price_breaks].sort((a, b) => a.quantity - b.quantity)
+    const tier = tiers.find((item) => quantity < item.quantity) || tiers.at(-1)
     if (!tier || (method.minimum_quantity && quantity < method.minimum_quantity) || (tier.unit_type === "CM2" && !areaCm2) || (colours > 1 && tier.next_colour_price_eur === undefined)) return { unit: 0, handling: 0, setup: 0, pending: true }
     const areaFactor = tier.unit_type === "CM2" ? areaCm2! : 1
     const unit = (tier.unit_price_eur + (tier.next_colour_price_eur || 0) * (colours - 1)) * areaFactor

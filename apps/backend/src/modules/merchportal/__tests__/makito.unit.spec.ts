@@ -3,7 +3,8 @@ import { decorationPrice, normalizeMakitoDecorationOptions } from "../decoration
 import { supplierImageToken } from "../media"
 import { normalizeSupplierCatalog, productPriceBreaks } from "../normalization"
 import { deduplicateSupplierRecords } from "../sync"
-import { makitoColorLabels, makitoVariantLabel, makitoVariantSizeLabel } from "../makito-colors"
+import { makitoColorLabels, makitoColourLabel, makitoVariantLabel, makitoVariantSizeLabel } from "../makito-colors"
+import { markedUpUnitPrice, sellingPrice } from "../catalog-rules"
 
 const image = "https://apis.makito.es/catalog/assets/15246/15246003000/principal/5246-003-P.jpg"
 const guide = "https://apis.makito.es/print-config/assets/15246/prod_previsualizacio/5246-A1.jpg"
@@ -21,8 +22,11 @@ describe("Makito supplier", () => {
       { supplier_id: "supplier-1", payload: { name: "Bandul", variants: [sized] } },
       { supplier_id: "supplier-1", payload: { name: "Nortalik", variants: [{ variant_colorcode: "019", variant_name: "Bidón Nortalik Azul", variant_size: "000" }] } },
     ])
-    expect(labels.get("supplier-1:019")).toBe("Azul")
+    expect(labels.get("supplier-1:019")).toBe("Blue")
     expect(makitoVariantSizeLabel(sized, "Bandul", "Azul")).toBe("4-5")
+    expect(makitoColourLabel("Negro")).toBe("Black")
+    expect(makitoColourLabel("Marino")).toBe("Navy")
+    expect(makitoColourLabel("Azul Claro/Blanco")).toBe("Light Blue / White")
   })
 
   it("uses the catalog feed and preserves supplier variant metadata", async () => {
@@ -77,9 +81,27 @@ describe("Makito supplier", () => {
       position_lookup: [{ id: "2915", description: "Upper front" }],
       technique_lookup: [{ id: "100123", description: "Pad printing", maximumColors: 4, fullColor: "false" }],
     }], [{ id: "100123", prices: { setupFee: 30, minPrice: 35, tiers: [{ threshold: "25", type: "UNIT", price: 0.4, additionalPrice: 0.2 }] } }])
-    expect(methods[0].positions[0]).toMatchObject({ name: "Upper front", image_url: guide, max_width_mm: 120, max_height_mm: 60, max_colours: 4 })
-    expect(decorationPrice(methods[0], 100, { colours: 2, width_mm: 120, height_mm: 60 })).toEqual({ unit: 0.6, handling: 0, setup: 30, pending: false })
-    expect(decorationPrice(methods[0], 10).pending).toBe(true)
+    expect(methods[0].positions[0]).toMatchObject({ name: "Upper front", image_url: guide, max_width_mm: 12, max_height_mm: 6, max_colours: 4 })
+    expect(decorationPrice(methods[0], 100, { colours: 2, width_mm: 12, height_mm: 6 })).toEqual({ unit: 0.6, handling: 0, setup: 30, pending: false })
+    expect(decorationPrice(methods[0], 10)).toEqual({ unit: 3.5, handling: 0, setup: 30, pending: false })
     expect(supplierImageToken(guide)).toBeTruthy()
+  })
+
+  it("uses Makito's upper quantity bands and minimum print charge", () => {
+    const methods = normalizeMakitoDecorationOptions([{
+      id: "22528",
+      areas: [{ id: "A1", position: "3570", width: 120, height: 60, techniques: "100217(1)" }],
+      position_lookup: [{ id: "3570", description: "Area 1" }],
+      technique_lookup: [{ id: "100217", description: "SCREEN PRINTING G", maximumColors: 6 }],
+    }], [{ id: "100217", prices: { minPrice: 45, setupFee: 30, tiers: [
+      { type: "UNIT", threshold: "250", price: 0.57 },
+      { type: "UNIT", threshold: "500", price: 0.5 },
+      { type: "UNIT", threshold: "2000", price: 0.435 },
+    ] } }])
+    expect(methods[0].positions[0].size_options?.[0]).toMatchObject({ label: "12.0 × 6.0 cm", width_mm: 120, height_mm: 60 })
+    expect(decorationPrice(methods[0], 25)).toEqual({ unit: 1.8, handling: 0, setup: 30, pending: false })
+    expect(decorationPrice(methods[0], 250)).toEqual({ unit: 0.5, handling: 0, setup: 30, pending: false })
+    expect(markedUpUnitPrice(4.98, 30) * 250 + markedUpUnitPrice(0.5, 30) * 250 + sellingPrice(30, 30)).toBeCloseTo(1820)
+    expect(markedUpUnitPrice(4.98, 30) * 25 + markedUpUnitPrice(1.8, 30) * 25 + sellingPrice(30, 30)).toBeCloseTo(259.35)
   })
 })
