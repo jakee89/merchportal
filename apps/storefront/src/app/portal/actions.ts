@@ -38,6 +38,14 @@ async function joinCompany(formData: FormData, token?: string, details?: ReturnT
   }
 }
 
+async function recordLogin(token?: string) {
+  try {
+    await sdk.client.fetch("/portal-api/usage", { method: "POST", body: { logins: 1 }, headers: token ? { authorization: `Bearer ${token}` } : await getAuthHeaders(), cache: "no-store" })
+  } catch {
+    // Analytics must never prevent a customer from signing in.
+  }
+}
+
 export async function portalSignup(_state: CustomerAuthState, formData: FormData): Promise<CustomerAuthState> {
   let details: ReturnType<typeof registrationDetails>
   try {
@@ -57,6 +65,7 @@ export async function portalSignup(_state: CustomerAuthState, formData: FormData
   } catch {
     return { state: "error", error: "Account created, but business details could not be saved. Please sign in and complete them in the quote cart." }
   }
+  await recordLogin(result.token)
   redirect("/portal/account")
 }
 
@@ -73,5 +82,6 @@ export async function portalLogin(_state: CustomerAuthState, formData: FormData)
     const joined = await joinCompany(companyForm, result.token, details)
     if (joined?.state !== "success") return joined
   }
+  await recordLogin(result.token)
   redirect("/portal/account")
 }

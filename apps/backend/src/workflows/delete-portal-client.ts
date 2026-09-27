@@ -2,6 +2,7 @@ import { createStep, createWorkflow, StepResponse, WorkflowResponse } from "@med
 import { MedusaError, Modules } from "@medusajs/framework/utils"
 import { removeCustomerAccountWorkflow } from "@medusajs/medusa/core-flows"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
+import { clearPortalUsage } from "../modules/merchportal/portal-usage"
 
 type Input = { customer_id: string; confirm_email: string }
 
@@ -16,6 +17,7 @@ const deleteClientStep = createStep("delete-client", async (input: Input, { cont
   }
   await removeCustomerAccountWorkflow(container).run({ input: { customerId: customer.id } })
   await service.deleteMemberships(membership.id)
+  await clearPortalUsage(container, customer.id)
   return new StepResponse({ deleted: true, customer_id: customer.id })
 })
 

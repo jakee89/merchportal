@@ -1,5 +1,6 @@
 import { Modules } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "."
+import { portalUsageByActors } from "./portal-usage"
 
 export async function listPortalClients(container: any, offset: number, limit: number) {
   const service = container.resolve(MERCHPORTAL_MODULE) as any
@@ -11,9 +12,10 @@ export async function listPortalClients(container: any, offset: number, limit: n
   const ids = memberships.map((membership: any) => membership.actor_id)
   if (!ids.length) return { clients: [], count }
   const organizationIds = [...new Set(memberships.map((membership: any) => membership.organization_id).filter(Boolean))]
-  const [customerRows, organizations] = await Promise.all([
+  const [customerRows, organizations, usageByActor] = await Promise.all([
     customers.listCustomers({ id: ids }, { take: ids.length }),
     organizationIds.length ? service.listOrganizations({ id: organizationIds }, { take: organizationIds.length }) : [],
+    portalUsageByActors(container, ids),
   ])
   const customerById = new Map(customerRows.map((customer: any) => [customer.id, customer]))
   const organizationById = new Map(organizations.map((organization: any) => [organization.id, organization]))
@@ -52,6 +54,7 @@ export async function listPortalClients(container: any, offset: number, limit: n
       last_quote_at: quotes[0]?.[0]?.submitted_at || quotes[0]?.[0]?.created_at || null,
       configuration_count: configurations[1],
       last_configuration_at: configurations[0]?.[0]?.updated_at || null,
+      usage: usageByActor.get(membership.actor_id) || { login_count: 0, page_view_count: 0, product_view_count: 0, active_seconds: 0, last_seen_at: null },
     }
     }))
     clients.push(...page)

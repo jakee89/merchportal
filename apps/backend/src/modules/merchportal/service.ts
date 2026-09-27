@@ -11,6 +11,7 @@ import PublishedProductSource from "./models/published-product-source"
 import ProductConfiguration from "./models/product-configuration"
 import QuoteRequest from "./models/quote-request"
 import PortalSetting from "./models/portal-setting"
+import PortalUsageDaily from "./models/portal-usage-daily"
 
 class MerchPortalModuleService extends MedusaService({
   ImportJob,
@@ -25,6 +26,7 @@ class MerchPortalModuleService extends MedusaService({
   ProductConfiguration,
   QuoteRequest,
   PortalSetting,
+  PortalUsageDaily,
 }) {}
 
 export default MerchPortalModuleService

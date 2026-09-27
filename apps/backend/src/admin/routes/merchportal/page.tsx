@@ -40,6 +40,7 @@ type Job = {
     events?: { at: string; phase: string; message: string }[]
   }
 }
+type Analytics = { days: number; client_count: number; active_clients: number; submitted_quotes: number; totals: { logins: number; page_views: number; product_views: number; active_seconds: number }; daily: Array<{ day: string; product_views: number }> }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -74,6 +75,7 @@ function duration(job?: Job) {
 const MerchPortalPage = () => {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
+  const [analytics, setAnalytics] = useState<Analytics | null>(null)
   const [busy, setBusy] = useState("")
 
   const refresh = useCallback(async () => {
@@ -84,6 +86,7 @@ const MerchPortalPage = () => {
 
   useEffect(() => {
     refresh().catch((error) => toast.error(error.message))
+    api<Analytics>("/admin/merchportal/analytics").then(setAnalytics).catch((error) => toast.error(error.message))
   }, [refresh])
 
   useEffect(() => {
@@ -133,7 +136,7 @@ const MerchPortalPage = () => {
         <div>
           <Heading>MerchPortal setup</Heading>
           <Text className="text-ui-fg-subtle">Malta commerce, clients and supplier updates</Text>
-          <div className="flex gap-4"><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/quotes">Review quote requests →</a><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/settings">Supplier API & settings →</a></div>
+          <div className="flex gap-4"><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/clients">Clients →</a><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/quotes">Review quote requests →</a><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/settings">Supplier API & settings →</a></div>
         </div>
       </Container>
 
@@ -157,6 +160,23 @@ const MerchPortalPage = () => {
             {failedJobs[0] && <Text size="xsmall" className="text-ui-fg-error">{failedJobs[0].supplier_name} · {failedJobs[0].kind}</Text>}
           </div>
         </div>
+      </Container>
+
+      <Container>
+        <Heading level="h2">Client activity · last 30 days</Heading>
+        <Text className="mb-4 text-ui-fg-subtle">Tracking begins with this release. Active time counts engaged, visible portal sessions and is approximate.</Text>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {([
+            ["Client accounts", analytics?.client_count],
+            ["Active clients", analytics?.active_clients],
+            ["Sign-ins", analytics?.totals.logins],
+            ["Page views", analytics?.totals.page_views],
+            ["Product views", analytics?.totals.product_views],
+            ["Engaged hours", analytics ? (analytics.totals.active_seconds / 3600).toFixed(1) : null],
+            ["Submitted quotes", analytics?.submitted_quotes],
+          ] as Array<[string, number | string | null | undefined]>).map(([label, value]) => <div key={label} className="rounded border p-3"><Text size="small" className="text-ui-fg-subtle">{label}</Text><Text weight="plus">{value ?? "—"}</Text></div>)}
+        </div>
+        {analytics?.daily.length ? <div className="mt-4"><Text size="small" weight="plus">Product views by day</Text><div className="mt-2 flex h-20 items-end gap-1" aria-label="Daily product views">{analytics.daily.slice(-14).map((day) => <div key={day.day} className="flex-1 rounded-t bg-ui-tag-blue-icon" title={`${day.day}: ${day.product_views} product views`} style={{ height: `${Math.max(5, day.product_views / Math.max(1, ...analytics.daily.slice(-14).map((row) => row.product_views)) * 100)}%` }} />)}</div></div> : null}
       </Container>
 
       <Container>
