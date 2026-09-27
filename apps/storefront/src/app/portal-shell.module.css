@@ -371,17 +371,18 @@
   outline-offset: 3px;
 }
 .authPage {
-  align-items: center;
+  align-content: start;
   display: grid;
-  gap: 64px;
-  grid-template-columns: 1fr 430px;
+  gap: 26px;
+  grid-template-columns: minmax(0, 1fr);
   margin: 0 auto;
-  max-width: 1100px;
+  max-width: 760px;
   min-height: calc(100vh - 72px);
-  padding: 40px 5vw;
+  padding: 48px 20px 72px;
 }
+.authIntro { text-align: center; }
 .authPage h1 {
-  font-size: 46px;
+  font-size: clamp(30px, 5vw, 42px);
   font-weight: 800;
   letter-spacing: -0.05em;
   margin: 10px 0;
@@ -395,7 +396,8 @@
   border: 1px solid #dce6f0;
   border-radius: 18px;
   box-shadow: 0 18px 50px rgba(26, 62, 105, 0.1);
-  padding: 24px;
+  min-width: 0;
+  padding: clamp(20px, 4vw, 36px);
 }
 .tabs {
   background: #eef4fa;
@@ -427,18 +429,25 @@
   font-weight: 700;
   gap: 6px;
 }
-.authForm input {
+.authForm input, .authForm select {
   border: 1px solid #ccd8e5;
   border-radius: 9px;
   font-size: 15px;
+  min-width: 0;
   padding: 11px;
+  width: 100%;
 }
+.authForm input:focus-visible, .authForm select:focus-visible, .quotePanel select:focus-visible { outline: 3px solid #73aef7; outline-offset: 2px; }
+.authSection { border-top: 1px solid #e2eaf3; display: grid; gap: 14px; padding-top: 18px; }
+.authSection h2 { color: #1b324e; font-size: 17px; margin: 0; }
+.optional { color: #66758a; font-size: 12px; font-weight: 400; }
+.authFooter { margin: 18px 0 0; text-align: center; }
 .checkboxLabel { align-items: center; display: flex !important; flex-direction: row; gap: 10px !important; }
-.checkboxLabel input { height: 18px; width: 18px; }
+.checkboxLabel input { flex: 0 0 18px; height: 18px; width: 18px; }
 .formRow {
   display: grid;
-  gap: 10px;
-  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .error {
   background: #fff0f1;
@@ -1081,6 +1090,7 @@
 .quotePanel label { display: grid; font-size: 13px; font-weight: 700; gap: 7px; }
 .quotePanel textarea { border: 1px solid #ccd8e5; border-radius: 8px; min-height: 90px; padding: 10px; }
 .quotePanel input { border: 1px solid #ccd8e5; border-radius: 8px; min-width: 0; padding: 10px; width: 100%; }
+.quotePanel select { background: #fff; border: 1px solid #ccd8e5; border-radius: 8px; min-width: 0; padding: 10px; width: 100%; }
 .quoteBusiness { background: #f6f9fc; border: 1px solid #e0e9f2; border-radius: 12px; display: grid; gap: 16px; padding: 18px; }
 .quoteBusiness h3, .quoteBusiness h4 { color: #1b324e; font-size: 16px; margin: 0; }
 .quoteBusiness h4 { font-size: 14px; }
@@ -1207,6 +1217,7 @@
 }
 
 @media (max-width: 620px) {
+  .formRow { grid-template-columns: 1fr; }
   .adminLayout {
     display: block;
   }

@@ -87,10 +87,11 @@ export function normalizeMakitoDecorationOptions(payloads: unknown[], pricePaylo
       if (!width || !height || width <= 0 || height <= 0) continue
       const positionId = `${area.id}:${area.position}`
       const name = String((positions.get(String(area.position)) as AnyObject | undefined)?.description || area.id)
-      for (const match of String(area.techniques || "").matchAll(/(\d{5,})\((\d+)\)/gu)) {
+      for (const match of String(area.techniques || "").matchAll(/\b(\d{5,})(?:\((\d+)\))?/gu)) {
         const id = match[1]
         const technique = (techniques.get(id) || {}) as AnyObject
         const price = prices.get(id)
+        const techniqueName = String(technique.description || price?.category || price?.code || id).replace(/^GRABACI[ÓO]N L[AÁ]SER/iu, "LASER ENGRAVING")
         const pricing = price?.prices || {}
         const tierRows = Array.isArray(pricing.tiers) ? pricing.tiers : Array.isArray(pricing.items) ? pricing.items : []
         const breaks = tierRows.flatMap((tier: AnyObject) => {
@@ -103,11 +104,11 @@ export function normalizeMakitoDecorationOptions(payloads: unknown[], pricePaylo
         }).sort((a: DecorationPriceBreak, b: DecorationPriceBreak) => a.quantity - b.quantity)
         const method = methods.get(id) || {
           id,
-          name: String(technique.description || price?.code || id),
+          name: techniqueName,
           positions: [],
           price_breaks: breaks,
           pricing_type: "makito",
-          colour_mode: String(technique.fullColor).toLowerCase() === "true" ? "full_colour" : "spot_colour",
+          colour_mode: /laser|engraving/iu.test(techniqueName) ? "colourless" : String(technique.fullColor).toLowerCase() === "true" ? "full_colour" : "spot_colour",
           setup_price_eur: number(pricing.setupFee ?? pricing.setupPrice),
           additional_setup_price_eur: number(pricing.additionalSetupFee ?? pricing.additionalSetupPrice),
           minimum_price_eur: number(pricing.minPrice),

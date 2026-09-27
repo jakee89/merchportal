@@ -15,20 +15,20 @@ function registrationDetails(formData: FormData) {
   const billing = { line1: field("portal_billing_line1", 160), line2: field("portal_billing_line2", 160, false), city: field("portal_billing_city", 100), postal_code: field("portal_billing_postal_code", 24), country_code: field("portal_billing_country_code", 2).toLowerCase() }
   const delivery = formData.has("portal_same_delivery") ? billing : { line1: field("portal_delivery_line1", 160), line2: field("portal_delivery_line2", 160, false), city: field("portal_delivery_city", 100), postal_code: field("portal_delivery_postal_code", 24), country_code: field("portal_delivery_country_code", 2).toLowerCase() }
   const phone = field("phone", 40)
-  if (!/^[+\d()\s.-]{6,40}$/.test(phone) || !/^[a-z]{2}$/.test(billing.country_code) || !/^[a-z]{2}$/.test(delivery.country_code)) throw new Error("Check the phone number and two-letter country codes")
+  if (!/^[+\d()\s.-]{6,40}$/.test(phone) || !/^[a-z]{2}$/.test(billing.country_code) || !/^[a-z]{2}$/.test(delivery.country_code)) throw new Error("Check the phone number and countries")
   if (field("password", 256).length < 12) throw new Error("Use a password of at least 12 characters")
   field("first_name", 60)
   field("last_name", 60)
   return { company_name: field("portal_company_name", 160), vat_number: field("portal_vat_number", 50, false), billing_address: billing, delivery_address: delivery }
 }
 
-async function joinCompany(formData: FormData, token?: string): Promise<CustomerAuthState> {
+async function joinCompany(formData: FormData, token?: string, details?: ReturnType<typeof registrationDetails>): Promise<CustomerAuthState> {
   const joinCode = String(formData.get("join_code") || "").trim()
-  if (!joinCode) return { state: "error", error: "Company code is required" }
+  if (!joinCode && !details) return { state: "error", error: "Company code is required" }
   try {
-    await sdk.client.fetch("/portal-api/join", {
+    await sdk.client.fetch(joinCode ? "/portal-api/join" : "/portal-api/register-company", {
       method: "POST",
-      body: { join_code: joinCode },
+      body: joinCode ? { join_code: joinCode } : details,
       headers: token ? { authorization: `Bearer ${token}` } : await getAuthHeaders(),
       cache: "no-store",
     })
@@ -42,13 +42,13 @@ export async function portalSignup(_state: CustomerAuthState, formData: FormData
   let details: ReturnType<typeof registrationDetails>
   try {
     details = registrationDetails(formData)
-    formData.set("portal_business_details", JSON.stringify(details))
+    formData.set("portal_business_details", JSON.stringify({ ...details, join_code: String(formData.get("join_code") || "").trim() }))
   } catch (error) {
     return { state: "error", error: error instanceof Error ? error.message : "Check your registration details" }
   }
   const result = await signup(null, formData)
   if (result?.state !== "success") return result
-  const joined = await joinCompany(formData, result.token)
+  const joined = await joinCompany(formData, result.token, details)
   if (joined?.state !== "success") return joined
   try {
     const headers = result.token ? { authorization: `Bearer ${result.token}` } : await getAuthHeaders()
@@ -63,9 +63,14 @@ export async function portalSignup(_state: CustomerAuthState, formData: FormData
 export async function portalLogin(_state: CustomerAuthState, formData: FormData): Promise<CustomerAuthState> {
   const result = await login(null, formData)
   if (result?.state !== "success") return result
-  const joinCode = String(formData.get("join_code") || "").trim()
-  if (joinCode) {
-    const joined = await joinCompany(formData, result.token)
+  const headers = result.token ? { authorization: `Bearer ${result.token}` } : await getAuthHeaders()
+  const { customer } = await sdk.store.customer.retrieve({}, headers)
+  const saved = customer.metadata?.merchportal_business
+  if (saved && typeof saved === "object") {
+    const details = saved as ReturnType<typeof registrationDetails> & { join_code?: string }
+    const companyForm = new FormData()
+    if (details.join_code) companyForm.set("join_code", details.join_code)
+    const joined = await joinCompany(companyForm, result.token, details)
     if (joined?.state !== "success") return joined
   }
   redirect("/portal/account")

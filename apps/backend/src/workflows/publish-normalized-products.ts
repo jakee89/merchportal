@@ -4,6 +4,8 @@ import { createInventoryLevelsWorkflow, createProductCategoriesWorkflow, createP
 import { normalizeSupplierCatalog, normalizedProductHandle, opaqueSourceKey, supplierMasterReference, type NormalizedProduct } from "../modules/merchportal/normalization"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
 import { makitoColorLabels, makitoColourLabel, makitoVariantLabel, makitoVariantSizeLabel } from "../modules/merchportal/makito-colors"
+import { normalizeMakitoDecorationOptions } from "../modules/merchportal/decoration"
+import { supplierImageToken } from "../modules/merchportal/media"
 import { sellingPrice } from "../modules/merchportal/catalog-rules"
 import { catalogPreview } from "../modules/merchportal/catalog-preview"
 import { resolveMarkup } from "./manage-pricing-rules"
@@ -56,15 +58,21 @@ export async function refreshMakitoColorLabels(container: any) {
   }
   const fallbackLabels = makitoColorLabels(records)
   const rawBySource = new Map(records.map((record) => [opaqueSourceKey(supplier.id, supplierMasterReference("makito", record.payload || {}, record.external_id)), record.payload]))
-  const areasByProduct = new Map<string, Map<string, any>>()
+  const decorationByProduct = new Map<string, any>()
   for (let skip = 0; ; skip += 500) {
     const batch = await service.listRawSupplierRecords({ supplier_id: supplier.id, record_type: "decoration" }, { take: 500, skip, select: ["external_id", "payload"] })
     for (const record of batch) {
-      const areas = Array.isArray(record.payload?.areas) ? record.payload.areas : []
-      areasByProduct.set(String(record.external_id), new Map(areas.map((area: any) => [`${area.id}:${area.position}`, area])))
+      decorationByProduct.set(String(record.external_id), record.payload)
     }
     if (batch.length < 500) break
   }
+  const pricePayloads: any[] = []
+  for (let skip = 0; ; skip += 500) {
+    const batch = await service.listRawSupplierRecords({ supplier_id: supplier.id, record_type: "decoration_price" }, { take: 500, skip, select: ["payload"] })
+    pricePayloads.push(...batch.map((record: any) => record.payload))
+    if (batch.length < 500) break
+  }
+  const priceById = new Map(pricePayloads.map((payload) => [String(payload?.id), payload]))
   const sources: any[] = []
   for (let skip = 0; ; skip += 500) {
     const batch = await service.listPublishedProductSources({ supplier_id: supplier.id }, { take: 500, skip, order: { id: "ASC" }, select: ["id", "source_key", "catalog_document", "decoration_options"] })
@@ -92,22 +100,24 @@ export async function refreshMakitoColorLabels(container: any) {
         changed = true
         return { ...variant, color: label, color_group: label, size, title: [label, size === "Standard" ? "" : size].filter(Boolean).join(" ") }
       })
-      const areas = areasByProduct.get(String((raw as any).ref))
-      let dimensionsChanged = false
-      const decorationOptions = (Array.isArray(source.decoration_options) ? source.decoration_options : []).map((method: any) => ({
+      const rawDecoration = decorationByProduct.get(String((raw as any).ref))
+      const techniqueIds = new Set<string>((rawDecoration?.areas || []).flatMap((area: any) => [...String(area.techniques || "").matchAll(/\b\d{5,}/gu)].map((match) => match[0])))
+      const decorationPrices = [...techniqueIds].map((id) => priceById.get(id)).filter(Boolean)
+      const decorationOptions = rawDecoration ? normalizeMakitoDecorationOptions([rawDecoration], decorationPrices).map((method) => ({
         ...method,
-        positions: (method.positions || []).map((position: any) => {
-          const area = areas?.get(position.id)
-          const width = Number(area?.width)
-          const height = Number(area?.height)
-          if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return position
-          if (position.max_width_mm !== width || position.max_height_mm !== height) dimensionsChanged = true
-          return { ...position, max_width_mm: width, max_height_mm: height, size_options: (position.size_options || []).map((size: any) => ({ ...size, width_mm: width, height_mm: height, label: `${(width / 10).toFixed(1)} × ${(height / 10).toFixed(1)} cm` })) }
+        positions: method.positions.map((position) => {
+          const token = position.image_url ? supplierImageToken(position.image_url) : null
+          return { ...position, image_url: token ? `/media/${token}` : undefined }
         }),
+      })) : []
+      const existingMethods = Array.isArray(source.decoration_options) ? source.decoration_options : []
+      const positionsChanged = decorationOptions.some((method) => method.positions.some((position) => {
+        const previous = existingMethods.find((item: any) => item.id === method.id)?.positions?.find((item: any) => item.id === position.id)
+        return !previous || previous.max_width_mm !== position.max_width_mm || previous.max_height_mm !== position.max_height_mm
       }))
-      if (!changed && !dimensionsChanged) continue
+      if (!changed && !positionsChanged) continue
       const catalogDocument = { ...document, variants, colors: [...new Set(variants.map((variant: any) => variant.color_group || variant.color).filter(Boolean))] }
-      changes.push({ id: source.id, catalog_document: catalogDocument, catalog_preview: catalogPreview(catalogDocument), ...(dimensionsChanged ? { decoration_options: decorationOptions } : {}) })
+      changes.push({ id: source.id, catalog_document: catalogDocument, catalog_preview: catalogPreview(catalogDocument), ...(positionsChanged ? { decoration_options: decorationOptions } : {}) })
     }
     if (changes.length) {
       await service.updatePublishedProductSources(changes)

@@ -5,15 +5,16 @@ import { useState } from "react"
 import styles from "../../../portal-shell.module.css"
 import type { QuoteDetails } from "../quotes/page"
 import { saveProfile } from "./actions"
+import CountrySelect from "../../country-select"
 
-const addressFields = ["line1", "line2", "city", "postal_code", "country_code"] as const
+const addressFields = ["line1", "line2", "city", "postal_code"] as const
 
 export default function ProfileForm({ initial }: { initial: QuoteDetails }) {
   const [details, setDetails] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
   const change = (key: "contact_name" | "phone" | "company_name" | "vat_number", value: string) => setDetails((current) => ({ ...current, [key]: value }))
-  const changeAddress = (kind: "billing_address" | "delivery_address", key: typeof addressFields[number], value: string) => setDetails((current) => ({ ...current, [kind]: { ...current[kind], [key]: value } }))
+  const changeAddress = (kind: "billing_address" | "delivery_address", key: keyof QuoteDetails["billing_address"], value: string) => setDetails((current) => ({ ...current, [kind]: { ...current[kind], [key]: value } }))
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setBusy(true)
@@ -35,7 +36,7 @@ export default function ProfileForm({ initial }: { initial: QuoteDetails }) {
       <label>VAT number (if registered)<input maxLength={50} value={details.vat_number} onChange={(event) => change("vat_number", event.target.value)} /></label>
     </div>
     <p className={styles.helper} id="profile-email-note">Your sign-in email is fixed to this account. Contact staff if it needs changing.</p>
-    {(["billing_address", "delivery_address"] as const).map((kind) => <section key={kind}><h2>{kind === "billing_address" ? "Billing address" : "Delivery address"}</h2><div className={styles.quoteDetailsGrid}>{addressFields.map((key) => <label key={key}>{key === "line1" ? "Street address" : key === "line2" ? "Address line 2 (optional)" : key === "postal_code" ? "Postal code" : key === "country_code" ? "Two-letter country code" : "City"}<input required={key !== "line2"} maxLength={key === "country_code" ? 2 : key === "postal_code" ? 24 : key === "city" ? 100 : 160} value={details[kind][key]} onChange={(event) => changeAddress(kind, key, event.target.value)} /></label>)}</div></section>)}
+    {(["billing_address", "delivery_address"] as const).map((kind) => <section key={kind}><h2>{kind === "billing_address" ? "Billing address" : "Delivery address"}</h2><div className={styles.quoteDetailsGrid}>{addressFields.map((key) => <label key={key}>{key === "line1" ? "Street address" : key === "line2" ? "Address line 2 (optional)" : key === "postal_code" ? "Postal code" : "City"}<input required={key !== "line2"} maxLength={key === "postal_code" ? 24 : key === "city" ? 100 : 160} value={details[kind][key]} onChange={(event) => changeAddress(kind, key, event.target.value)} /></label>)}<label>Country<CountrySelect value={details[kind].country_code} onChange={(value) => changeAddress(kind, "country_code", value)} /></label></div></section>)}
     <button className={styles.primary} disabled={busy}>{busy ? "Saving…" : "Save profile"}</button>
     {message && <p className={styles.configMessage} role="status">{message}</p>}
     <p className={styles.helper}>Want to change your password? <Link href={`/portal/forgot-password?email=${encodeURIComponent(details.contact_email)}`}>Send me a reset link →</Link></p>

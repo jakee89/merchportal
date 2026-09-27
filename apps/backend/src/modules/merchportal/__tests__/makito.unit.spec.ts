@@ -104,4 +104,18 @@ describe("Makito supplier", () => {
     expect(markedUpUnitPrice(4.98, 30) * 250 + markedUpUnitPrice(0.5, 30) * 250 + sellingPrice(30, 30)).toBeCloseTo(1820)
     expect(markedUpUnitPrice(4.98, 30) * 25 + markedUpUnitPrice(1.8, 30) * 25 + sellingPrice(30, 30)).toBeCloseTo(259.35)
   })
+
+  it("keeps print areas whose technique has no colour-count suffix", () => {
+    const methods = normalizeMakitoDecorationOptions([{
+      id: "21399",
+      areas: [
+        { id: "A1", position: "3570", width: 165, height: 60, techniques: "100416(1)" },
+        { id: "A2", position: "3571", width: 10, height: 45, techniques: "100400" },
+        { id: "A3", position: "3572", width: 25, height: 60, techniques: "100400" },
+      ],
+      position_lookup: [{ id: "3570", description: "Area 1" }, { id: "3571", description: "Area 2" }, { id: "3572", description: "Area 3" }],
+      technique_lookup: [{ id: "100416", description: "CIRCULAR SCREENPRINTING F" }],
+    }], [{ id: "100416", prices: { tiers: [{ type: "UNIT", threshold: "250", price: 0.5 }] } }, { id: "100400", category: "GRABACIÓN LASER 1", prices: { tiers: [{ type: "UNIT", threshold: "250", price: 0.4 }] } }])
+    expect(methods.find((method) => method.id === "100400")).toMatchObject({ name: "LASER ENGRAVING 1", colour_mode: "colourless", positions: [{ id: "A2:3571", max_width_mm: 10, max_height_mm: 45 }, { id: "A3:3572", max_width_mm: 25, max_height_mm: 60 }] })
+  })
 })

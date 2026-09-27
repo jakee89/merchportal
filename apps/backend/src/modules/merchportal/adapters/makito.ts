@@ -99,7 +99,7 @@ export class MakitoAdapter implements SupplierAdapter {
         ...product,
         productCode: String(product.id),
         position_lookup: (product.areas || []).map((area) => positions.get(String(area.position))).filter(Boolean),
-        technique_lookup: [...new Set((product.areas || []).flatMap((area) => [...String(area.techniques || "").matchAll(/\b\d{5,}(?=\()/gu)].map((match) => match[0])))].map((id) => techniques.get(id)).filter(Boolean),
+        technique_lookup: [...new Set((product.areas || []).flatMap((area) => [...String(area.techniques || "").matchAll(/\b\d{5,}\b/gu)].map((match) => match[0])))].map((id) => techniques.get(id)).filter(Boolean),
       }
     })
   }
