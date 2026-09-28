@@ -5,6 +5,7 @@ import { markedUpUnitPrice, sellingPrice } from "../../../../modules/merchportal
 import { makitoDocumentCategories } from "../../../../modules/merchportal/makito-categories"
 import { markupForQuantity, resolveMarkupRule } from "../../../../workflows/manage-pricing-rules"
 import { saveProductConfigurationWorkflow } from "../../../../workflows/save-product-configuration"
+import { relatedProductSources } from "../../../../modules/merchportal/related-products"
 
 async function context(req: AuthenticatedMedusaRequest) {
   const actorId = req.auth_context?.actor_id
@@ -109,10 +110,8 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           : [],
       }))
     : []
-  const relatedSources = await service.listPublishedProductSources({ supplier_id: source.supplier_id }, { take: 200, select: ["product_id", "catalog_preview", "cost_by_sku"], order: { updated_at: "DESC" } })
+  const relatedSources = await relatedProductSources(req.scope, source.supplier_id, product.id, catalogDocument.category)
   const related = relatedSources
-    .filter((item: any) => item.product_id !== product.id && item.catalog_preview?.category === catalogDocument.category)
-    .slice(0, 6)
     .map((item: any) => {
       const document = item.catalog_preview || {}
       const costs = Object.values(item.cost_by_sku || {}).map(Number).filter(Number.isFinite)

@@ -66,7 +66,8 @@ export async function portalSignup(_state: CustomerAuthState, formData: FormData
     return { state: "error", error: "Account created, but business details could not be saved. Please sign in and complete them in the quote cart." }
   }
   await recordLogin(result.token)
-  redirect("/portal/account")
+  const returnTo = String(formData.get("returnTo") || "")
+  redirect(returnTo.startsWith("/portal/account/products/") && !returnTo.includes("\\") ? returnTo : "/portal/account")
 }
 
 export async function portalLogin(_state: CustomerAuthState, formData: FormData): Promise<CustomerAuthState> {
@@ -83,5 +84,6 @@ export async function portalLogin(_state: CustomerAuthState, formData: FormData)
     if (joined?.state !== "success") return joined
   }
   await recordLogin(result.token)
-  redirect("/portal/account")
+  const returnTo = String(formData.get("returnTo") || "")
+  redirect(returnTo.startsWith("/portal/account/products/") && !returnTo.includes("\\") ? returnTo : "/portal/account")
 }

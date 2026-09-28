@@ -1,4 +1,4 @@
-import { catalogFacets, matchesCatalogFilters, type CatalogEntry, type CatalogFilters } from "../catalog-filtering"
+import { catalogFacets, catalogSearchText, matchesCatalogFilters, type CatalogEntry, type CatalogFilters } from "../catalog-filtering"
 
 const products: CatalogEntry[] = [
   {
@@ -39,6 +39,15 @@ const base: CatalogFilters = {
 }
 
 describe("client catalogue facets", () => {
+  it("uses the same search result with a precomputed catalogue search field", () => {
+    const indexed = products.map((product) => ({ ...product, search_text: catalogSearchText(product) }))
+    for (const search of ["backpack", "b-red", "polyester", "missing"]) {
+      const filters = { ...base, search }
+      expect(indexed.map((product) => matchesCatalogFilters(product, filters))).toEqual(products.map((product) => matchesCatalogFilters(product, filters)))
+      expect(catalogFacets(indexed, filters)).toEqual(catalogFacets(products, filters))
+    }
+  })
+
   it("combines search, category, and cross-supplier colour names at the variant level", () => {
     const filters = { ...base, search: "backpack", categories: ["Backpacks"], colors: ["Black"] }
     expect(products.filter((product) => matchesCatalogFilters(product, filters)).map((product) => product.name)).toEqual(["Travel backpack", "City backpack"])

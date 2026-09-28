@@ -2,7 +2,6 @@ import Link from "next/link"
 import { notFound, redirect } from "next/navigation"
 import { sdk } from "@lib/config"
 import { getAuthHeaders } from "@lib/data/cookies"
-import { retrieveCustomer } from "@lib/data/customer"
 import styles from "../../../../portal-shell.module.css"
 import ProductImage from "../../product-image"
 import Configurator from "./configurator"
@@ -24,10 +23,20 @@ function mediaUrl(backend: string, value?: string) {
 }
 
 export default async function ProductPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sku?: string }> }) {
-  const [customer, headers, { id }, { sku }] = await Promise.all([retrieveCustomer(), getAuthHeaders(), params, searchParams])
-  if (!customer) redirect("/portal/login")
+  const [headers, { id }, { sku }] = await Promise.all([getAuthHeaders(), params, searchParams])
+  const returnTo = `/portal/account/products/${encodeURIComponent(id)}${sku ? `?sku=${encodeURIComponent(sku)}` : ""}`
+  const loginUrl = `/portal/login?returnTo=${encodeURIComponent(returnTo)}`
+  if (!("authorization" in headers)) redirect(loginUrl)
   let product: Product
-  try { product = (await sdk.client.fetch<{ product: Product }>(`/portal-api/products/${id}`, { headers, cache: "no-store" })).product } catch { notFound() }
+  try {
+    product = (await sdk.client.fetch<{ product: Product }>(`/portal-api/products/${id}`, { headers, cache: "no-store" })).product
+  } catch (error) {
+    const failed = error as { status?: number; statusCode?: number; response?: { status?: number } }
+    const status = failed?.status || failed?.statusCode || failed?.response?.status
+    if (status === 401 || status === 403) redirect(loginUrl)
+    if (status === 404) notFound()
+    throw error
+  }
   const backend = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
   return <div className={styles.page}>
     <header className={styles.topbar}><Link href="/portal/account" className={styles.brand}><span className={styles.mark}>M</span>MerchPortal</Link><div className={styles.headerActions}><Link className={styles.secondary} href="/portal/account">Back to catalogue</Link><QuoteCartLink /></div></header>

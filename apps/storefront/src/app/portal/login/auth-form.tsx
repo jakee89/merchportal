@@ -6,7 +6,7 @@ import CountrySelect from "../country-select"
 import { portalLogin, portalSignup } from "../actions"
 import styles from "../../portal-shell.module.css"
 
-export default function AuthForm() {
+export default function AuthForm({ returnTo }: { returnTo?: string }) {
   const [registering, setRegistering] = useState(false)
   const [sameDelivery, setSameDelivery] = useState(true)
   const [billingCountry, setBillingCountry] = useState("mt")
@@ -22,6 +22,7 @@ export default function AuthForm() {
       <button type="button" className={registering ? styles.activeTab : ""} onClick={() => setRegistering(true)}>Register</button>
     </div>
     <form action={registering ? signupAction : loginAction} className={styles.authForm}>
+      {returnTo && <input type="hidden" name="returnTo" value={returnTo} />}
       {registering && <div className={styles.formRow}><label>First name<input name="first_name" required autoComplete="given-name" maxLength={60} /></label><label>Last name<input name="last_name" required autoComplete="family-name" maxLength={60} /></label></div>}
       <label>Email address<input name="email" type="email" required autoComplete="email" /></label>
       {registering && <>
