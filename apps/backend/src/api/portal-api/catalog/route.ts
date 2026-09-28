@@ -2,8 +2,7 @@ import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/frame
 import { createHash } from "node:crypto"
 import { ContainerRegistrationKeys, ProductStatus } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
-import { sellingPrice } from "../../../modules/merchportal/catalog-rules"
-import { markupForQuantity } from "../../../workflows/manage-pricing-rules"
+import { lowestPlainProductPrice, plainProductPriceBreaks } from "../../../modules/merchportal/plain-pricing"
 import { cachePortalCatalogFacets, cachePortalCatalogResponse, portalCatalogCache, portalCatalogFacetCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
 import { catalogFacets, catalogSearchText, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 import { makitoDocumentCategories } from "../../../modules/merchportal/makito-categories"
@@ -75,15 +74,17 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         const rule = ruleForSource(source)
         const variants = (document.variants || []).map((variant: any) => {
           const cost = variant.sku && costs[variant.sku] !== undefined ? Number(costs[variant.sku]) : undefined
+          const price_breaks = plainProductPriceBreaks(cost, variant.price_breaks, rule)
+          const lowest = lowestPlainProductPrice(price_breaks)
           return {
             ...variant,
-            price_eur: cost !== undefined && Number.isFinite(cost) ? sellingPrice(cost, markupForQuantity(rule)) : undefined,
-            price_breaks: Array.isArray(variant.price_breaks)
-              ? variant.price_breaks.map((price: any) => ({ quantity: price.quantity, price_eur: sellingPrice(Number(price.price_eur), markupForQuantity(rule, Number(price.quantity))) }))
-              : [],
+            price_eur: lowest?.price_eur,
+            price_from_quantity: lowest?.quantity,
+            has_price_tiers: price_breaks.length > 1,
           }
         })
         const prices = variants.map((variant: any) => variant.price_eur).filter(Number.isFinite)
+        const lowestVariant = variants.find((variant: any) => variant.price_eur === Math.min(...prices))
         return {
           id: document.id,
           supplier_id: source.supplier_id,
@@ -102,10 +103,12 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           print_methods: document.print_methods || [],
           keywords: document.keywords || [],
           price_eur: prices.length ? Math.min(...prices) : undefined,
+          price_from_quantity: lowestVariant?.price_from_quantity,
+          has_price_tiers: lowestVariant?.has_price_tiers,
           max_price_eur: prices.length ? Math.max(...prices) : undefined,
           stock_quantity: document.stock_quantity,
           color_option_count: new Set(variants.map((variant: any) => variant.color).filter(Boolean)).size,
-          color_options: variants.filter((variant: any) => variant.color).map((variant: any) => ({ name: variant.color, color_hex: variant.color_hex, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity, next_arrival: variant.future_stock?.[0] })),
+          color_options: variants.filter((variant: any) => variant.color).map((variant: any) => ({ name: variant.color, color_hex: variant.color_hex, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, price_from_quantity: variant.price_from_quantity, has_price_tiers: variant.has_price_tiers, stock_quantity: variant.stock_quantity, next_arrival: variant.future_stock?.[0] })),
           filter_variants: variants.map((variant: any) => ({ sku: variant.sku, color: variant.color, color_group: variant.color_group, size: variant.size, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })),
         }
       })
@@ -126,7 +129,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
       const sourceByProduct = new Map<string, any>(sources.map((source: any) => [source.product_id, source]))
       safeProducts = nativeProducts.map((product: any) => {
         const source = sourceByProduct.get(product.id)
-        const markup = markupForQuantity(ruleForSource(source))
+        const rule = ruleForSource(source)
         const document = source?.catalog_document || {}
         const makitoCategories = supplierCodes.get(source?.supplier_id) === "makito" ? makitoDocumentCategories(document) : null
         const costs = (source?.cost_by_sku || {}) as Record<string, number>
@@ -136,13 +139,17 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           const cost = variant.sku ? Number(costs[variant.sku]) : undefined
           const colors = (variant.options || []).filter((option: any) => option.option?.title === "Color").map((option: any) => option.value)
           const indexedVariant = (document.variants || []).find((item: any) => item.sku === variant.sku)
+          const priceBreaks = plainProductPriceBreaks(Number.isFinite(cost) ? cost : undefined, indexedVariant?.price_breaks, rule)
+          const lowest = lowestPlainProductPrice(priceBreaks)
           return {
             id: variant.id,
             title: variant.title,
             sku: variant.sku,
             stock_quantity: Number.isFinite(indexedVariant?.stock_quantity) ? indexedVariant.stock_quantity : variant.inventory_quantity,
             future_stock: indexedVariant?.future_stock || [],
-            price_eur: Number.isFinite(cost) ? sellingPrice(cost as number, markup) : Number.isFinite(fallbackPrice) ? fallbackPrice : undefined,
+            price_eur: lowest?.price_eur ?? (Number.isFinite(fallbackPrice) ? fallbackPrice : undefined),
+            price_from_quantity: lowest?.quantity,
+            has_price_tiers: priceBreaks.length > 1,
             colors,
             color: indexedVariant?.color || colors[0],
             color_group: indexedVariant?.color_group,
@@ -152,6 +159,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           }
         })
         const prices = variants.map((variant: any) => variant.price_eur).filter(Number.isFinite)
+        const lowestVariant = variants.find((variant: any) => variant.price_eur === Math.min(...prices))
         const stock = variants.map((variant: any) => Number(variant.stock_quantity)).filter(Number.isFinite)
         return {
           id: product.id,
@@ -169,8 +177,10 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
           keywords: document.keywords || [],
           filter_variants: variants.map((variant: any) => ({ sku: variant.sku, color: variant.color, color_group: variant.color_group, size: variant.size, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })),
           color_option_count: new Set(variants.map((variant: any) => variant.color).filter(Boolean)).size,
-          color_options: variants.filter((variant: any) => variant.color).map((variant: any) => ({ name: variant.color, color_hex: variant.color_hex, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity, next_arrival: variant.future_stock?.[0] })),
+          color_options: variants.filter((variant: any) => variant.color).map((variant: any) => ({ name: variant.color, color_hex: variant.color_hex, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, price_from_quantity: variant.price_from_quantity, has_price_tiers: variant.has_price_tiers, stock_quantity: variant.stock_quantity, next_arrival: variant.future_stock?.[0] })),
           price_eur: prices.length ? Math.min(...prices) : undefined,
+          price_from_quantity: lowestVariant?.price_from_quantity,
+          has_price_tiers: lowestVariant?.has_price_tiers,
           stock_quantity: stock.length ? stock.reduce((total: number, amount: number) => total + amount, 0) : undefined,
           lead_time: source?.lead_time || undefined,
           sustainable: Boolean(source?.sustainable),

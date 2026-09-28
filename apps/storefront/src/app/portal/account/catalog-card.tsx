@@ -15,13 +15,15 @@ export type CatalogProduct = {
   description?: string
   image_url?: string
   price_eur?: number
+  price_from_quantity?: number
+  has_price_tiers?: boolean
   max_price_eur?: number
   stock_quantity?: number
   category?: string
   brand?: string
   sustainable: boolean
   color_option_count?: number
-  color_options: Array<{ name: string; color_hex?: string; image_url?: string; sku?: string; price_eur?: number; stock_quantity?: number; next_arrival?: { date: string; quantity: number } }>
+  color_options: Array<{ name: string; color_hex?: string; image_url?: string; sku?: string; price_eur?: number; price_from_quantity?: number; has_price_tiers?: boolean; stock_quantity?: number; next_arrival?: { date: string; quantity: number } }>
 }
 
 function mediaUrl(backend: string, value?: string) {
@@ -37,6 +39,8 @@ function mediaUrl(backend: string, value?: string) {
 export default function CatalogCard({ product, backend }: { product: CatalogProduct; backend: string }) {
   const [option, setOption] = useState(product.color_options?.[0])
   const price = option?.price_eur ?? product.price_eur
+  const priceFromQuantity = option?.price_from_quantity ?? product.price_from_quantity
+  const hasPriceTiers = option?.has_price_tiers ?? product.has_price_tiers
   const stock = option?.stock_quantity ?? product.stock_quantity
   const arrival = option?.next_arrival
   const productHref = `/portal/account/products/${product.id}${option?.sku ? `?sku=${encodeURIComponent(option.sku)}` : ""}`
@@ -55,7 +59,7 @@ export default function CatalogCard({ product, backend }: { product: CatalogProd
         <p className={styles.cardCode}>Code: {option?.sku || product.sku || "On request"}</p>
         {product.description && <p className={styles.cardDescription}>{descriptionText(product.description)}</p>}
         {product.brand && <p className={styles.cardBrand}>{product.brand}</p>}
-        <div className={styles.cardCommercial}><strong>{price === undefined ? "Price on request" : `From €${price.toFixed(2)}`}</strong><span className={stock && stock > 0 ? styles.inStock : styles.onRequest}>{stock && stock > 0 ? `${stock.toLocaleString()} in stock` : arrival ? `${arrival.quantity.toLocaleString()} incoming · ${new Date(arrival.date).toLocaleDateString()}` : stock === 0 ? "Out of stock" : "Availability on request"}</span></div>
+        <div className={styles.cardCommercial}><strong>{price === undefined ? "Price on request" : `${hasPriceTiers ? "From " : ""}€${price.toFixed(2)}/unit`}</strong>{price !== undefined && <small>{priceFromQuantity && priceFromQuantity > 1 ? `${hasPriceTiers ? "at" : "available from"} ${priceFromQuantity.toLocaleString()} units · ` : ""}plain product · excl. VAT</small>}<span className={stock && stock > 0 ? styles.inStock : styles.onRequest}>{stock && stock > 0 ? `${stock.toLocaleString()} in stock` : arrival ? `${arrival.quantity.toLocaleString()} incoming · ${new Date(arrival.date).toLocaleDateString()}` : stock === 0 ? "Out of stock" : "Availability on request"}</span></div>
         <Link className={styles.viewProduct} href={productHref}>Choose options <span aria-hidden="true">→</span></Link>
       </div>
     </article>

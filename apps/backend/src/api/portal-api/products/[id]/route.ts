@@ -6,6 +6,7 @@ import { makitoDocumentCategories } from "../../../../modules/merchportal/makito
 import { markupForQuantity, resolveMarkupRule } from "../../../../workflows/manage-pricing-rules"
 import { saveProductConfigurationWorkflow } from "../../../../workflows/save-product-configuration"
 import { relatedProductSources } from "../../../../modules/merchportal/related-products"
+import { plainProductPriceBreaks } from "../../../../modules/merchportal/plain-pricing"
 
 async function context(req: AuthenticatedMedusaRequest) {
   const actorId = req.auth_context?.actor_id
@@ -53,9 +54,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         images: Array.isArray(indexedVariant?.images) ? indexedVariant.images : [],
         stock_quantity: Number.isFinite(indexedVariant?.stock_quantity) ? indexedVariant.stock_quantity : variant.inventory_quantity,
         price_eur: Number.isFinite(cost) ? markedUpUnitPrice(cost, markup) : nativePrice,
-        price_breaks: Array.isArray(indexedVariant?.price_breaks)
-          ? indexedVariant.price_breaks.map((price: any) => ({ quantity: price.quantity, price_eur: markedUpUnitPrice(Number(price.price_eur), markupForQuantity(rule, Number(price.quantity))) }))
-          : [],
+        price_breaks: plainProductPriceBreaks(Number.isFinite(cost) ? cost : undefined, indexedVariant?.price_breaks, rule),
         future_stock: Array.isArray(indexedVariant?.future_stock) ? indexedVariant.future_stock : [],
         color_code: indexedVariant?.color_code,
         color_hex: indexedVariant?.color_hex,

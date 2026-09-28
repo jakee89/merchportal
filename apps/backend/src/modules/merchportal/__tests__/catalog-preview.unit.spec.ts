@@ -23,6 +23,6 @@ describe("catalog preview", () => {
     expect(preview.variants[0].future_stock).toHaveLength(1)
     expect(preview).not.toHaveProperty("downloads")
     expect(preview).not.toHaveProperty("images")
-    expect(preview.variants[0]).not.toHaveProperty("price_breaks")
+    expect(preview.variants[0].price_breaks).toEqual([{ quantity: 25, price_eur: 2 }])
   })
 })

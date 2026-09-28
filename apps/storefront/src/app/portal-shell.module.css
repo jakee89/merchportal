@@ -678,6 +678,7 @@
 .cardCommercial strong {
   font-size: 17px;
 }
+.cardCommercial small { color: #617087; font-size: 11px; }
 .inStock,
 .onRequest {
   font-size: 11px;
@@ -882,6 +883,7 @@
 .priceTable th,
 .priceTable td { border-bottom: 1px solid #e9eef4; padding: 8px; text-align: left; }
 .priceTable th { background: #f6f8fb; color: #607086; }
+.selectedPriceTier { background: #eaf4ff; font-weight: 700; }
 .stockPanel {
   background: #eef8f4;
   border-radius: 10px;

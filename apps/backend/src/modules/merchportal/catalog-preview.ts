@@ -24,6 +24,7 @@ export function catalogPreview(document: any) {
       stock_quantity: variant.stock_quantity,
       images: variant.images?.slice(0, 1),
       future_stock: variant.future_stock?.slice(0, 1),
+      price_breaks: variant.price_breaks,
     })),
   }
 }
