@@ -348,6 +348,22 @@ describe("supplier-neutral decoration normalization", () => {
     expect(decorationPrice(method, 25, { colours: 2, color_code: "WW" }).unit).toBe(1.5)
   })
 
+  it("uses midocean manipulation codes instead of colliding print technique ids", () => {
+    const methods = normalizeDecorationOptions(
+      [{ print_manipulation: "B", printing_positions: [{ position_id: "PANEL 1", printing_techniques: [{ id: "TD1", name: "Digital transfer" }] }] }],
+      [],
+      [{
+        print_techniques: [
+          { id: "B", var_costs: [{ scales: [{ minimum_quantity: "250", price: "0,84" }] }] },
+          { id: "TD1", pricing_type: "AreaRange", setup: "20,00", var_costs: [{ area_from: "150", area_to: "300", scales: [{ minimum_quantity: "250", price: "0,79" }] }] },
+        ],
+        print_manipulations: [{ code: "B", price: "0,12" }],
+      }],
+    )
+    expect(methods[0].handling_price_breaks).toEqual([{ quantity: 1, unit_price_eur: 0.12 }])
+    expect(decorationPrice(methods[0], 300, { width_mm: 160, height_mm: 120 })).toEqual({ unit: 0.79, handling: 0.12, setup: 20, pending: false })
+  })
+
   it("uses the exact Stricker area tier but requires a quote below its quantity break", () => {
     const method = {
       id: "DTF1",

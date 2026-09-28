@@ -65,6 +65,7 @@ type DecorationPriceTable = {
 type PricingIndex = {
   candidates: AnyObject[]
   byId: Map<string, AnyObject[]>
+  manipulationsByCode: Map<string, AnyObject>
   byOption: Map<string, AnyObject>
   familiesByName: Map<string, Set<string>>
   matches: Map<string, AnyObject[]>
@@ -362,6 +363,13 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
   if (!pricingIndex) {
     const candidates = pricingPayloads.flatMap((payload) => objects(payload))
     const byId = new Map<string, AnyObject[]>()
+    const manipulationsByCode = new Map<string, AnyObject>()
+    for (const payload of pricingPayloads) {
+      for (const manipulation of Array.isArray((payload as AnyObject)?.print_manipulations) ? (payload as AnyObject).print_manipulations : []) {
+        const code = directValue(manipulation, ["code"])
+        if (code) manipulationsByCode.set(code.toLowerCase(), manipulation)
+      }
+    }
     const byOption = new Map<string, AnyObject>()
     const familiesByName = new Map<string, Set<string>>()
     for (const candidate of candidates) {
@@ -382,7 +390,7 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
       if (bucket) bucket.push(candidate)
       else byId.set(key, [candidate])
     }
-    pricingIndex = { candidates, byId, byOption, familiesByName, matches: new Map(), prepared: new Map() }
+    pricingIndex = { candidates, byId, manipulationsByCode, byOption, familiesByName, matches: new Map(), prepared: new Map() }
     if (cacheKey) pricingCache.set(cacheKey, pricingIndex)
   }
   const pricingCandidates = pricingIndex.candidates
@@ -449,7 +457,9 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
       current.next_colour_cost_indicator = /^(x|true|yes|1)$/i.test(nextColourIndicator)
     }
     if (manipulationCode) {
-      const manipulation = pricingIndex.byId.get(manipulationCode.toLowerCase())?.[0] || pricingCandidates.find((source) => directValue(source, ["id", "code", "manipulation_id"])?.toLowerCase() === manipulationCode.toLowerCase())
+      const manipulation = pricingIndex.manipulationsByCode.size
+        ? pricingIndex.manipulationsByCode.get(manipulationCode.toLowerCase())
+        : pricingIndex.byId.get(manipulationCode.toLowerCase())?.[0] || pricingCandidates.find((source) => directValue(source, ["id", "code", "manipulation_id"])?.toLowerCase() === manipulationCode.toLowerCase())
       const handlingBreaks = manipulation ? priceBreaks(manipulation) : []
       if (manipulation && !handlingBreaks.length) {
         const fixedPrice = number(key(manipulation, ["price", "unit_price"]))
