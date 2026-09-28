@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 
 type Tier = { min_quantity: number; max_quantity: number | null; markup_percentage: number }
 type Rule = { scope_key: string; organization_id?: string; markup_percentage: number; quantity_tiers?: Tier[] | null }
-type Supplier = { code: "stricker" | "midocean" | "aodaci" | "makito"; display_name: string; configured: boolean }
+type Supplier = { code: string; display_name: string; configured: boolean; catalog_priority: number }
 type Organization = { id: string; name: string }
 type Email = { host: string; port: number; username: string; from_email: string; notification_email: string; password_configured: boolean; verified: boolean }
 
@@ -38,7 +38,7 @@ const SettingsPage = () => {
       api<{ rules: Rule[]; organizations: Organization[] }>("/admin/merchportal/pricing-rules"),
       api<{ email: Email }>("/admin/merchportal/email"),
     ])
-    setSuppliers(supplierData.suppliers)
+    setSuppliers([...supplierData.suppliers].sort((left, right) => left.catalog_priority - right.catalog_priority || left.display_name.localeCompare(right.display_name)))
     setRules(pricingData.rules)
     setOrganizations(pricingData.organizations)
     setEmail(emailData.email)
@@ -68,6 +68,15 @@ const SettingsPage = () => {
     try {
       const result = await api<{ connection: { ok: boolean; message: string } }>(`/admin/merchportal/suppliers/${code}/connection`, { method: "POST" })
       result.connection.ok ? toast.success(result.connection.message) : toast.error(result.connection.message)
+    } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
+  }
+
+  const savePriority = async (code: string, priority: number) => {
+    setBusy(`priority-${code}`)
+    try {
+      await api(`/admin/merchportal/suppliers/${code}/priority`, { method: "POST", body: JSON.stringify({ priority }) })
+      await refresh()
+      toast.success("Supplier search order saved")
     } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
   }
 
@@ -109,12 +118,12 @@ const SettingsPage = () => {
 
   return <div className="flex flex-col gap-y-3">
     <Container><Heading>Supplier API & settings</Heading><Text className="text-ui-fg-subtle">Connections, supplier-specific quantity markups and shop settings.</Text><a className="text-ui-fg-interactive text-sm" href="/app/merchportal">← Back to supplier updates</a></Container>
-    <Container><Heading level="h2">Supplier connections and quantity markups</Heading><Text className="mb-4 text-ui-fg-subtle">Set tiers separately for each supplier. Quantities outside a tier use that supplier’s fallback markup. Client-specific markup, if set, takes priority over supplier tiers.</Text>
+    <Container><Heading level="h2">Supplier connections and quantity markups</Heading><Text className="mb-4 text-ui-fg-subtle">Search order 1 appears first in Recommended catalogue and filtered results. Changing one supplier’s position shifts the others automatically. Price and name sorts remain customer-controlled. Set pricing tiers separately for each supplier.</Text>
       <div className="flex flex-col gap-4">{suppliers.map((supplier) => {
         const code = supplier.code
         const rows = tiers[code] || []
         return <div key={code} className="rounded border p-4">
-          <div className="mb-3 flex items-center justify-between"><div><Text weight="plus">{supplier.display_name}</Text><Text size="small" className="text-ui-fg-subtle">{supplier.configured ? "Credentials configured" : "Credentials not configured"}</Text></div><Button variant="secondary" size="small" onClick={() => testConnection(code)} isLoading={busy === `test-${code}`}>Test connection</Button></div>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div><Text weight="plus">{supplier.display_name}</Text><Text size="small" className="text-ui-fg-subtle">{supplier.configured ? "Credentials configured" : "Credentials not configured"}</Text></div><div className="flex items-center gap-3"><label className="flex items-center gap-2 text-sm">Search order<select className="rounded border bg-ui-bg-base p-2" aria-label={`${supplier.display_name} search order`} value={supplier.catalog_priority} disabled={busy.startsWith("priority-")} onChange={(event) => savePriority(code, Number(event.target.value))}>{suppliers.map((_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select></label><Button variant="secondary" size="small" onClick={() => testConnection(code)} isLoading={busy === `test-${code}`}>Test connection</Button></div></div>
           <div className="mb-4 flex flex-wrap gap-2">{code === "makito" && <Input autoComplete="off" aria-label="Makito Client ID" placeholder="Makito Client ID" value={makitoId} onChange={(event) => setMakitoId(event.target.value)} />}<Input type="password" autoComplete="off" aria-label={code === "makito" ? "Makito Client Secret" : `${supplier.display_name} API key`} placeholder={code === "makito" ? "Makito Client Secret" : supplier.configured ? "Replace API key" : "Supplier API key"} value={supplierKeys[code] || ""} onChange={(event) => setSupplierKeys((current) => ({ ...current, [code]: event.target.value }))} /><Button variant="secondary" disabled={!supplierKeys[code]?.trim() || (code === "makito" && !makitoId.trim())} isLoading={busy === `key-${code}`} onClick={() => saveKey(code)}>Save {code === "makito" ? "credentials" : "key"}</Button></div>
           <label className="mb-3 flex max-w-xs flex-col gap-1 text-sm">Fallback markup %<Input type="number" min="0" max="1000" value={supplierMarkups[code] || ""} onChange={(event) => setSupplierMarkups((current) => ({ ...current, [code]: event.target.value }))} /></label>
           <Text weight="plus">Quantity tiers</Text>

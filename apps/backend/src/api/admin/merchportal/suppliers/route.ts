@@ -25,6 +25,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
       code: supplier.code,
       display_name: supplier.display_name,
       status: supplier.status,
+      catalog_priority: supplier.catalog_priority,
       product_sync_at: supplier.product_sync_at,
       price_sync_at: supplier.price_sync_at,
       stock_sync_at: supplier.stock_sync_at,

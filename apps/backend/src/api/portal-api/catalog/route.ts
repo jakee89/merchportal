@@ -9,6 +9,7 @@ import { catalogFacets, catalogSearchText, colorLabel, matchesCatalogFilters, ma
 import { makitoDocumentCategories } from "../../../modules/merchportal/makito-categories"
 import { applyFacetMappings, facetMappingIndex } from "../../../modules/merchportal/facet-mappings"
 import { catalogSearchScores } from "../../../modules/merchportal/catalog-search"
+import { compareSupplierPriority } from "../../../modules/merchportal/supplier-priority"
 
 const catalogSourceFields = ["id", "product_id", "supplier_id", "catalog_preview", "cost_by_sku"]
 
@@ -53,10 +54,11 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const mappingIndex = facetMappingIndex(facetMappings)
   const rulesByScope = new Map<string, any>(rules.map((rule: any) => [rule.scope_key, rule]))
   const supplierCodes = new Map<string, string>(suppliers.map((supplier: any) => [supplier.id, supplier.code]))
+  const supplierPriorities = new Map<string, number>(suppliers.map((supplier: any) => [supplier.id, supplier.catalog_priority]))
   const ruleForSource = (source: any) => rulesByScope.get(`organization:${membership[0].organization_id}`) || rulesByScope.get(`supplier:${supplierCodes.get(source?.supplier_id)}`) || rulesByScope.get("global")
   const latestChange = completedJobs.find((job: any) => job.log?.catalog_refreshed === true || (job.log?.catalog_refreshed === undefined && (job.created_count > 0 || job.updated_count > 0)))
   const mappingRevision = createHash("sha256").update(JSON.stringify(facetMappings.map((item: any) => [item.id, item.target_value]).sort((a: string[], b: string[]) => a[0].localeCompare(b[0])))).digest("hex").slice(0, 12)
-  const cacheKey = `${membership[0].organization_id}:${JSON.stringify(rules.map((rule: any) => [rule.scope_key, rule.markup_percentage, rule.quantity_tiers]))}:${latestChange?.id || "initial"}:${mappingRevision}`
+  const cacheKey = `${membership[0].organization_id}:${JSON.stringify(rules.map((rule: any) => [rule.scope_key, rule.markup_percentage, rule.quantity_tiers]))}:${latestChange?.id || "initial"}:${mappingRevision}:${JSON.stringify(suppliers.map((supplier: any) => [supplier.id, supplier.catalog_priority]))}`
   removeExpiredPortalCatalogCacheEntries()
   const cached = portalCatalogCache.get(cacheKey)
   let safeProducts: any[]
@@ -237,6 +239,8 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     if (sort === "price_desc") return (sortedPrices?.get(right) ?? Number.NEGATIVE_INFINITY) - (sortedPrices?.get(left) ?? Number.NEGATIVE_INFINITY)
     if (sort === "name_asc") return left.name.localeCompare(right.name)
     if (sort === "name_desc") return right.name.localeCompare(left.name)
+    const priorityDifference = compareSupplierPriority(left.supplier_id, right.supplier_id, supplierPriorities)
+    if (priorityDifference) return priorityDifference
     if (filters.search && searchScores) {
       const score = (product: any) => {
         const term = filters.search.toLocaleLowerCase()

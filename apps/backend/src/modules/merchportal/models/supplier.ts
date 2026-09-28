@@ -6,6 +6,7 @@ const Supplier = model
     code: model.text(),
     display_name: model.text(),
     status: model.enum(["active", "disabled"]).default("active"),
+    catalog_priority: model.number().default(9999),
     credential_env_var: model.text(),
     product_sync_at: model.dateTime().nullable(),
     price_sync_at: model.dateTime().nullable(),

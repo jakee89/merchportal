@@ -222,7 +222,8 @@ export async function ensureSuppliers(container: MedusaContainer) {
   for (const [code, definition] of Object.entries(suppliers)) {
     const existing = await service.listSuppliers({ code }, { take: 1 })
     if (!existing.length) {
-      await service.createSuppliers({ code, ...definition, status: "active" })
+      const supplierCount = (await service.listSuppliers({})).length
+      await service.createSuppliers({ code, ...definition, status: "active", catalog_priority: supplierCount + 1 })
     }
   }
   return service.listSuppliers({}, { order: { display_name: "ASC" } })
