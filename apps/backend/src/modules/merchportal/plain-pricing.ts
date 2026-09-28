@@ -34,3 +34,15 @@ export function plainProductPriceBreaks(baseCost: number | undefined, supplierBr
 export function lowestPlainProductPrice(breaks: PriceBreak[]) {
   return breaks.reduce<PriceBreak | undefined>((lowest, current) => !lowest || current.price_eur < lowest.price_eur ? current : lowest, undefined)
 }
+
+export function lowestProductPrice(variants: Array<{ sku: string; price_breaks?: PriceBreak[] }>, costs: Record<string, number>, rule: any) {
+  const pricedVariants: Array<{ sku: string; price_breaks?: PriceBreak[] }> = variants.length ? variants : Object.keys(costs).map((sku) => ({ sku }))
+  return pricedVariants.reduce<(PriceBreak & { has_price_tiers: boolean }) | undefined>((best, variant) => {
+    const cost = variant.sku && costs[variant.sku] !== undefined ? Number(costs[variant.sku]) : undefined
+    const breaks = plainProductPriceBreaks(cost, variant.price_breaks, rule)
+    const lowest = lowestPlainProductPrice(breaks)
+    return lowest && (!best || lowest.price_eur < best.price_eur)
+      ? { ...lowest, has_price_tiers: breaks.length > 1 }
+      : best
+  }, undefined)
+}

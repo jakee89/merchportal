@@ -1,4 +1,4 @@
-import { lowestPlainProductPrice, plainProductPriceBreaks } from "../plain-pricing"
+import { lowestPlainProductPrice, lowestProductPrice, plainProductPriceBreaks } from "../plain-pricing"
 
 describe("plain product quantity pricing", () => {
   it("keeps a flat supplier price flat without markup tiers", () => {
@@ -27,5 +27,12 @@ describe("plain product quantity pricing", () => {
 
   it("does not advertise a price available only above the site's quantity limit", () => {
     expect(plainProductPriceBreaks(10, [{ quantity: 200000, price_eur: 7 }], { markup_percentage: 30 })).toEqual([])
+  })
+
+  it("prices similar products from the cheapest actual variant tier", () => {
+    expect(lowestProductPrice([
+      { sku: "first", price_breaks: [{ quantity: 1, price_eur: 10 }] },
+      { sku: "second", price_breaks: [{ quantity: 1, price_eur: 12 }, { quantity: 500, price_eur: 7 }] },
+    ], { first: 10, second: 12 }, { markup_percentage: 30 })).toEqual({ quantity: 500, price_eur: 9.1, has_price_tiers: true })
   })
 })

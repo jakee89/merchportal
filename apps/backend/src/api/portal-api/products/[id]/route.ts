@@ -6,7 +6,7 @@ import { makitoDocumentCategories } from "../../../../modules/merchportal/makito
 import { markupForQuantity, resolveMarkupRule } from "../../../../workflows/manage-pricing-rules"
 import { saveProductConfigurationWorkflow } from "../../../../workflows/save-product-configuration"
 import { relatedProductSources } from "../../../../modules/merchportal/related-products"
-import { plainProductPriceBreaks } from "../../../../modules/merchportal/plain-pricing"
+import { lowestProductPrice, plainProductPriceBreaks } from "../../../../modules/merchportal/plain-pricing"
 
 async function context(req: AuthenticatedMedusaRequest) {
   const actorId = req.auth_context?.actor_id
@@ -113,12 +113,14 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const related = relatedSources
     .map((item: any) => {
       const document = item.catalog_preview || {}
-      const costs = Object.values(item.cost_by_sku || {}).map(Number).filter(Number.isFinite)
+      const lowest = lowestProductPrice(document.variants || [], item.cost_by_sku || {}, rule)
       return {
         id: item.product_id,
         name: document.name,
         image_url: document.image_url,
-        price_eur: costs.length ? sellingPrice(Math.min(...costs), markup) : undefined,
+        price_eur: lowest?.price_eur,
+        price_from_quantity: lowest?.quantity,
+        has_price_tiers: lowest?.has_price_tiers,
       }
     })
   res.json({
