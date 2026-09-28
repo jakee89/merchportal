@@ -5,6 +5,7 @@ import { useState } from "react"
 import styles from "../../portal-shell.module.css"
 import ProductImage from "./product-image"
 import { makitoColourHex } from "./makito-colours"
+import { descriptionText } from "./description-text"
 
 export type CatalogProduct = {
   id: string
@@ -52,7 +53,7 @@ export default function CatalogCard({ product, backend }: { product: CatalogProd
         </div><p className={styles.selectedColour}>Selected: {option?.name}</p></>}
         <h2><Link href={productHref}>{product.name}</Link></h2>
         <p className={styles.cardCode}>Code: {option?.sku || product.sku || "On request"}</p>
-        {product.description && <p className={styles.cardDescription}>{product.description}</p>}
+        {product.description && <p className={styles.cardDescription}>{descriptionText(product.description)}</p>}
         {product.brand && <p className={styles.cardBrand}>{product.brand}</p>}
         <div className={styles.cardCommercial}><strong>{price === undefined ? "Price on request" : `From €${price.toFixed(2)}`}</strong><span className={stock && stock > 0 ? styles.inStock : styles.onRequest}>{stock && stock > 0 ? `${stock.toLocaleString()} in stock` : arrival ? `${arrival.quantity.toLocaleString()} incoming · ${new Date(arrival.date).toLocaleDateString()}` : stock === 0 ? "Out of stock" : "Availability on request"}</span></div>
         <Link className={styles.viewProduct} href={productHref}>Choose options <span aria-hidden="true">→</span></Link>
