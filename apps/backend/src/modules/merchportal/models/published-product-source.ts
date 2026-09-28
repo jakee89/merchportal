@@ -14,6 +14,7 @@ const PublishedProductSource = model
     attributes: model.json().nullable(),
     catalog_document: model.json().nullable(),
     catalog_preview: model.json().nullable(),
+    search_text: model.text().nullable(),
   })
   .indexes([{ on: ["source_key"], unique: true }, { on: ["product_id"], unique: true }, { on: ["supplier_id"] }])
 

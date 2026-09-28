@@ -1,5 +1,6 @@
 export type CatalogFilters = {
   search: string
+  searchMatches?: ReadonlySet<string>
   categories: string[]
   colors: string[]
   sizes: string[]
@@ -17,6 +18,7 @@ export type CatalogFilters = {
 type FilterKey = "category" | "color" | "size" | "material" | "brand" | "lead_time" | "print_method" | "price" | "in_stock" | "out_of_stock" | "sustainable"
 
 export type CatalogEntry = {
+  id?: string
   name: string
   search_text?: string
   description?: string
@@ -40,7 +42,7 @@ export function colorLabel(value: string) {
 }
 
 export function catalogSearchText(product: CatalogEntry) {
-  return [product.name, product.description, product.sku, product.category, ...(product.category_hierarchy || []), product.brand, ...(product.keywords || []), ...(product.filter_variants || []).map((variant) => variant.sku)].filter(Boolean).join(" ").toLocaleLowerCase()
+  return [product.name, product.description, product.sku, product.category, ...(product.category_hierarchy || []), product.brand, ...(product.keywords || []), ...(product.materials || []), ...(product.colors || []), ...(product.print_methods || []), ...(product.filter_variants || []).flatMap((variant) => [variant.sku, variant.color, variant.color_group, variant.size])].filter(Boolean).join(" ").toLocaleLowerCase()
 }
 
 function colorKey(value: string) {
@@ -73,7 +75,7 @@ function selected(values: string[], available: string[]) {
 
 export function matchesCatalogFilters(product: CatalogEntry, filters: CatalogFilters, excluded?: FilterKey) {
   const search = filters.search.toLocaleLowerCase()
-  if (search && !(product.search_text || catalogSearchText(product)).includes(search)) return false
+  if (search && (filters.searchMatches ? !product.id || !filters.searchMatches.has(product.id) : !(product.search_text || catalogSearchText(product)).includes(search))) return false
   if (excluded !== "category" && !selected(filters.categories, product.category_hierarchy || [product.category || ""])) return false
   if (excluded !== "material" && !selected(filters.materials, product.materials || [])) return false
   if (excluded !== "brand" && !selected(filters.brands, [product.brand || ""])) return false
@@ -106,7 +108,7 @@ export function catalogFacets(products: CatalogEntry[], filters: CatalogFilters)
   const search = filters.search.toLocaleLowerCase()
   const availabilityFilters = { ...filters, inStock: false, outOfStock: false }
   for (const product of products) {
-    if (search && !(product.search_text || catalogSearchText(product)).includes(search)) continue
+    if (search && (filters.searchMatches ? !product.id || !filters.searchMatches.has(product.id) : !(product.search_text || catalogSearchText(product)).includes(search))) continue
     const categoryMatch = selected(filters.categories, product.category_hierarchy || [product.category || ""])
     const materialMatch = selected(filters.materials, product.materials || [])
     const brandMatch = selected(filters.brands, [product.brand || ""])

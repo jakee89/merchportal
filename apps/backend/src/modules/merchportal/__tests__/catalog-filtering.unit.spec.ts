@@ -48,6 +48,18 @@ describe("client catalogue facets", () => {
     }
   })
 
+  it("uses indexed matches for plurals and misspellings across products and facets", () => {
+    const indexed = products.map((product, index) => ({ ...product, id: `product-${index}` }))
+    const filters = { ...base, search: "backpaks", searchMatches: new Set(["product-0", "product-1"]) }
+    expect(indexed.filter((product) => matchesCatalogFilters(product, filters)).map((product) => product.name)).toEqual(["Travel backpack", "City backpack"])
+    expect(catalogFacets(indexed, filters).categories).toContainEqual({ value: "Backpacks", count: 2 })
+  })
+
+  it("indexes supplier keywords and product variation details", () => {
+    const text = catalogSearchText({ name: "Gift set", keywords: ["Rulers"], materials: ["Bamboo"], print_methods: ["Laser engraving"], filter_variants: [{ sku: "RUL-01", color: "Blue", size: "Large" }] })
+    for (const value of ["rulers", "bamboo", "laser engraving", "rul-01", "blue", "large"]) expect(text).toContain(value)
+  })
+
   it("combines search, category, and cross-supplier colour names at the variant level", () => {
     const filters = { ...base, search: "backpack", categories: ["Backpacks"], colors: ["Black"] }
     expect(products.filter((product) => matchesCatalogFilters(product, filters)).map((product) => product.name)).toEqual(["Travel backpack", "City backpack"])

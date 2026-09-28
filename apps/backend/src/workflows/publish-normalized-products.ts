@@ -8,6 +8,7 @@ import { normalizeMakitoDecorationOptions } from "../modules/merchportal/decorat
 import { supplierImageToken } from "../modules/merchportal/media"
 import { sellingPrice } from "../modules/merchportal/catalog-rules"
 import { catalogPreview } from "../modules/merchportal/catalog-preview"
+import { catalogSearchText } from "../modules/merchportal/catalog-filtering"
 import { resolveMarkup } from "./manage-pricing-rules"
 import { interruptibleSupplierRead } from "../modules/merchportal/sync"
 
@@ -143,7 +144,7 @@ export async function refreshCatalogPreviewSizes(container: any) {
         changed = true
         return { ...variant, size }
       })
-      return changed ? [{ id: source.id, catalog_preview: { ...preview, variants } }] : []
+      return changed ? [{ id: source.id, catalog_preview: { ...preview, variants }, search_text: catalogSearchText({ ...preview, filter_variants: variants }) }] : []
     })
     if (changes.length) {
       await service.updatePublishedProductSources(changes)
@@ -228,10 +229,15 @@ async function persistProductSources(container: any, normalized: NormalizedProdu
     }
     const existing = existingByKey.get(product.source_key)
     const catalog_preview = catalogPreview(data.catalog_document)
+    const search_text = [
+      catalogSearchText({ ...catalog_preview, sku: data.catalog_document.supplier_product_code, filter_variants: catalog_preview.variants }),
+      data.catalog_document.description,
+      JSON.stringify(data.catalog_document.category_paths || []),
+    ].filter(Boolean).join(" ").toLocaleLowerCase()
     if (existing) {
-      updates.push({ id: existing.id, ...data, catalog_preview })
+      updates.push({ id: existing.id, ...data, catalog_preview, search_text })
     } else {
-      creates.push({ ...data, catalog_preview })
+      creates.push({ ...data, catalog_preview, search_text })
     }
   }
   let saved = 0

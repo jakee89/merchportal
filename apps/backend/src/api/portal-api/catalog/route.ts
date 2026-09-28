@@ -8,6 +8,7 @@ import { cachePortalCatalogFacets, cachePortalCatalogResponse, portalCatalogCach
 import { catalogFacets, catalogSearchText, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 import { makitoDocumentCategories } from "../../../modules/merchportal/makito-categories"
 import { applyFacetMappings, facetMappingIndex } from "../../../modules/merchportal/facet-mappings"
+import { catalogSearchScores } from "../../../modules/merchportal/catalog-search"
 
 const catalogSourceFields = ["id", "product_id", "supplier_id", "catalog_preview", "cost_by_sku"]
 
@@ -207,7 +208,16 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     res.setHeader("Server-Timing", `metadata;dur=${metadataMs.toFixed(1)},catalog;dur=${catalogMs.toFixed(1)},total;dur=${(performance.now() - started).toFixed(1)}`)
     return res.json(cachedResponse.response)
   }
-  const facetKey = `${cacheKey}:${JSON.stringify(filters)}`
+  let searchScores: Map<string, number> | undefined
+  if (filters.search) {
+    try {
+      searchScores = await catalogSearchScores(req.scope, filters.search)
+      if (searchScores) filters.searchMatches = new Set(searchScores.keys())
+    } catch (error) {
+      console.error("Catalog indexed search unavailable; using text search", error)
+    }
+  }
+  const facetKey = `${cacheKey}:${JSON.stringify({ ...filters, searchMatches: undefined })}:${searchScores ? "indexed" : "literal"}`
   const cachedFacets = portalCatalogFacetCache.get(facetKey)
   const facets = cachedFacets && cachedFacets.expires > Date.now()
     ? cachedFacets.facets
@@ -227,6 +237,16 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     if (sort === "price_desc") return (sortedPrices?.get(right) ?? Number.NEGATIVE_INFINITY) - (sortedPrices?.get(left) ?? Number.NEGATIVE_INFINITY)
     if (sort === "name_asc") return left.name.localeCompare(right.name)
     if (sort === "name_desc") return right.name.localeCompare(left.name)
+    if (filters.search && searchScores) {
+      const score = (product: any) => {
+        const term = filters.search.toLocaleLowerCase()
+        const name = String(product.name).toLocaleLowerCase()
+        const skus = (product.filter_variants || []).map((variant: any) => String(variant.sku || "").toLocaleLowerCase())
+        return (skus.includes(term) ? 1000 : 0) + (name === term ? 500 : name.startsWith(term) ? 100 : name.includes(term) ? 25 : 0) + (searchScores.get(product.id) || 0)
+      }
+      const difference = score(right) - score(left)
+      if (difference) return difference
+    }
     return String(left.name).localeCompare(String(right.name))
   })
   const pageSize = Math.max(12, Math.min(48, Math.floor(queryNumber(req.query.page_size) || 24)))
