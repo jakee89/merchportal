@@ -1,4 +1,4 @@
-import { catalogFacets, catalogSearchText, matchesCatalogFilters, type CatalogEntry, type CatalogFilters } from "../catalog-filtering"
+import { catalogCodeMatches, catalogFacets, catalogSearchText, matchesCatalogFilters, type CatalogEntry, type CatalogFilters } from "../catalog-filtering"
 
 const products: CatalogEntry[] = [
   {
@@ -39,6 +39,14 @@ const base: CatalogFilters = {
 }
 
 describe("client catalogue facets", () => {
+  it("matches product codes without fuzzy neighbouring codes", () => {
+    const coded = ["92147-131", "92145-133", "92148-104", "92146-103"].map((sku, index) => ({ id: `product-${index}`, name: sku, filter_variants: [{ sku }] }))
+    expect([...catalogCodeMatches(coded, "92147")!]).toEqual(["product-0"])
+    expect([...catalogCodeMatches(coded, "92147-1")!]).toEqual(["product-0"])
+    expect([...catalogCodeMatches(coded, "92149")!]).toEqual([])
+    expect(catalogCodeMatches(coded, "backpacks")).toBeUndefined()
+  })
+
   it("uses the same search result with a precomputed catalogue search field", () => {
     const indexed = products.map((product) => ({ ...product, search_text: catalogSearchText(product) }))
     for (const search of ["backpack", "b-red", "polyester", "missing"]) {

@@ -45,6 +45,17 @@ export function catalogSearchText(product: CatalogEntry) {
   return [product.name, product.description, product.sku, product.category, ...(product.category_hierarchy || []), product.brand, ...(product.keywords || []), ...(product.materials || []), ...(product.colors || []), ...(product.print_methods || []), ...(product.filter_variants || []).flatMap((variant) => [variant.sku, variant.color, variant.color_group, variant.size])].filter(Boolean).join(" ").toLocaleLowerCase()
 }
 
+export function catalogCodeMatches(products: CatalogEntry[], input: string): Set<string> | undefined {
+  const code = input.trim().toLocaleLowerCase()
+  if (code.length < 4 || !/^[a-z0-9]+(?:[-/][a-z0-9]+)*$/u.test(code) || !/\d/u.test(code)) return
+  const matches = (predicate: (sku: string) => boolean) => new Set(products.filter((product) =>
+    product.id && [product.sku, ...(product.filter_variants || []).map((variant) => variant.sku)]
+      .some((sku) => sku && predicate(sku.toLocaleLowerCase())),
+  ).map((product) => product.id!))
+  const exact = matches((sku) => sku === code || sku.startsWith(`${code}-`) || sku.startsWith(`${code}/`))
+  return exact.size ? exact : matches((sku) => sku.startsWith(code))
+}
+
 function colorKey(value: string) {
   return colorLabel(value).toLocaleLowerCase()
 }

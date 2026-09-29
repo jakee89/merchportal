@@ -4,7 +4,7 @@ import { ContainerRegistrationKeys, ProductStatus } from "@medusajs/framework/ut
 import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
 import { lowestPlainProductPrice, plainProductPriceBreaks } from "../../../modules/merchportal/plain-pricing"
 import { cachePortalCatalogFacets, cachePortalCatalogResponse, portalCatalogCache, portalCatalogFacetCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
-import { catalogFacets, catalogSearchText, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
+import { catalogCodeMatches, catalogFacets, catalogSearchText, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 import { makitoDocumentCategories } from "../../../modules/merchportal/makito-categories"
 import { applyFacetMappings, facetMappingIndex } from "../../../modules/merchportal/facet-mappings"
 import { catalogSearchScores } from "../../../modules/merchportal/catalog-search"
@@ -222,11 +222,15 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   }
   let searchScores: Map<string, number> | undefined
   if (filters.search) {
-    try {
-      searchScores = await catalogSearchScores(req.scope, filters.search)
-      if (searchScores) filters.searchMatches = new Set(searchScores.keys())
-    } catch (error) {
-      console.error("Catalog indexed search unavailable; using text search", error)
+    const codeMatches = catalogCodeMatches(safeProducts, filters.search)
+    if (codeMatches) filters.searchMatches = codeMatches
+    else {
+      try {
+        searchScores = await catalogSearchScores(req.scope, filters.search)
+        if (searchScores) filters.searchMatches = new Set(searchScores.keys())
+      } catch (error) {
+        console.error("Catalog indexed search unavailable; using text search", error)
+      }
     }
   }
   const facetKey = `${cacheKey}:${JSON.stringify({ ...filters, searchMatches: undefined })}:${searchScores ? "indexed" : "literal"}`
