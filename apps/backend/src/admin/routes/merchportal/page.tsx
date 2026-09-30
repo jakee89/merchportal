@@ -136,7 +136,7 @@ const MerchPortalPage = () => {
         <div>
           <Heading>MerchPortal setup</Heading>
           <Text className="text-ui-fg-subtle">Malta commerce, clients and supplier updates</Text>
-          <div className="flex gap-4"><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/clients">Clients →</a><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/quotes">Review quote requests →</a><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/settings">Supplier API & settings →</a></div>
+          <div className="flex flex-wrap gap-4"><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/clients">Clients →</a><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/quotes">Review quote requests →</a><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/settings">Supplier API & settings →</a><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/filters">Filter cleanup & AI →</a><a className="text-ui-fg-interactive text-sm" href="/app/merchportal/health">Supplier data health →</a></div>
         </div>
       </Container>
 

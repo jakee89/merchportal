@@ -51,7 +51,8 @@ type Variant = {
   dimensions?: string
 }
 type Line = { key: number; positionId: string; methodId: string; sizeId: string; pricingCode: string; colours: number; stitches: number; width: string; height: string }
-type Props = { productId: string; productName: string; productImages: string[]; backend: string; variants: Variant[]; methods: Method[]; initialSku?: string }
+export type InitialConfiguration = { id: string; product_id: string; variant_id: string; quantity: number; has_artwork: boolean; decorations: Array<{ branding_method: string; print_position: string; pricing_code?: string; print_colours?: number; print_stitches?: number; print_width_mm?: number; print_height_mm?: number }> }
+type Props = { productId: string; productName: string; productImages: string[]; backend: string; variants: Variant[]; methods: Method[]; initialSku?: string; initialConfiguration?: InitialConfiguration }
 
 function orderedSizes<T extends { width_mm: number; height_mm: number }>(sizes: T[]) {
   return [...sizes].sort((left, right) => left.width_mm * left.height_mm - right.width_mm * right.height_mm || left.width_mm - right.width_mm || left.height_mm - right.height_mm)
@@ -92,11 +93,11 @@ function colourMode(method?: Method) {
   return "Spot colours"
 }
 
-export default function Configurator({ productId, productName, productImages, backend, variants, methods, initialSku }: Props) {
+export default function Configurator({ productId, productName, productImages, backend, variants, methods, initialSku, initialConfiguration }: Props) {
   const router = useRouter()
-  const [variantId, setVariantId] = useState(variants.find((item) => item.sku === initialSku)?.id || variants[0]?.id || "")
-  const [quantity, setQuantity] = useState(25)
-  const [lines, setLines] = useState<Line[]>([])
+  const [variantId, setVariantId] = useState(initialConfiguration?.variant_id || variants.find((item) => item.sku === initialSku)?.id || variants[0]?.id || "")
+  const [quantity, setQuantity] = useState(initialConfiguration?.quantity || 25)
+  const [lines, setLines] = useState<Line[]>(initialConfiguration?.decorations.map((line, index) => ({ key: index + 1, methodId: line.branding_method, positionId: line.print_position, sizeId: "", pricingCode: line.pricing_code || line.branding_method, colours: line.print_colours || 1, stitches: line.print_stitches || 0, width: line.print_width_mm ? String(line.print_width_mm) : "", height: line.print_height_mm ? String(line.print_height_mm) : "" })) || [])
   const [artwork, setArtwork] = useState<File[]>([])
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState("")
@@ -210,7 +211,8 @@ export default function Configurator({ productId, productName, productImages, ba
         const result = await uploadPortalArtwork({ filename: file.name, mime_type: file.type, content: await fileContent(file) })
         uploaded.push(result.file)
       }
-      const result = await savePortalConfiguration(productId, { variant_id: variant.id, quantity, color: variant.color, decorations, artwork_files: uploaded })
+      const result = await savePortalConfiguration(productId, { configuration_id: initialConfiguration?.id, variant_id: variant.id, quantity, color: variant.color, decorations, artwork_files: uploaded })
+      if (initialConfiguration) { router.push("/portal/account/quotes"); router.refresh(); return }
       setMessage(result.configuration.branding_price_pending ? "Added to cart · Quote required for one or more prices." : `Added to cart · Estimated total €${result.configuration.estimated_total?.toFixed(2)}.`)
       router.refresh()
     } catch (error) {
@@ -254,6 +256,11 @@ export default function Configurator({ productId, productName, productImages, ba
             {line.positionId && <label>Technique<select value={choiceForMethod(line.methodId)?.key || ""} onChange={(event) => chooseMethod(line, event.target.value)}>{compatible.map((item) => <option value={item.key} key={item.key}>{item.name}</option>)}</select></label>}
             {method && <label>Colour mode<input value={colourMode(method)} readOnly /></label>}
             {sizes.length > 0 && <div className={styles.sizeOptions}><span>Print size (W × H)</span><div>{sizes.map((size) => <button type="button" key={`${size.methodId}:${size.id}`} className={Number(line.width) === size.width_mm && Number(line.height) === size.height_mm ? styles.activeSizeOption : ""} onClick={() => chooseSize(line, size)}>{size.label}</button>)}</div></div>}
+            {position && <>
+              <label>Artwork width (mm)<input type="number" min="0.1" step="0.1" max={sizes.find((size) => (size.pricing_code || size.id) === line.pricingCode)?.width_mm || position.max_width_mm} value={line.width} onChange={(event) => updateLine(line.key, { width: event.target.value })} /></label>
+              <label>Artwork height (mm)<input type="number" min="0.1" step="0.1" max={sizes.find((size) => (size.pricing_code || size.id) === line.pricingCode)?.height_mm || position.max_height_mm} value={line.height} onChange={(event) => updateLine(line.key, { height: event.target.value })} /></label>
+              <p className={styles.helper}>Enter your actual artwork dimensions within the selected technique’s maximum area. Printing is recalculated for this size.</p>
+            </>}
             {position && !sizes.length && <p className={styles.helper}>{position.max_width_mm && position.max_height_mm ? `Maximum area ${position.max_width_mm} × ${position.max_height_mm} mm. ` : ""}{position.max_colours ? `Maximum ${position.max_colours} colours.` : ""}</p>}
             {method && colourMode(method) === "Spot colours" && <label>Number of print colours<select value={line.colours} onChange={(event) => updateLine(line.key, { colours: Number(event.target.value) })}>{Array.from({ length: position?.max_colours || 1 }, (_, colourIndex) => colourIndex + 1).map((count) => <option value={count} key={count}>{count}</option>)}</select></label>}
             {stitchTiers.length > 0 && <label>Stitch count<select value={line.stitches} onChange={(event) => updateLine(line.key, { stitches: Number(event.target.value) })}>{stitchTiers.map((count) => <option value={count} key={count}>Up to {count.toLocaleString()} stitches</option>)}</select></label>}
@@ -261,7 +268,7 @@ export default function Configurator({ productId, productName, productImages, ba
           </div>
         })}{lines.length < positions.length && <button className={styles.addPrint} type="button" onClick={() => setLines((items) => [...items, { key: Date.now(), positionId: "", methodId: "", sizeId: "", pricingCode: "", colours: 1, stitches: 0, width: "", height: "" }])}>+ Add print position</button>}</> : <p className={styles.notice}>No customisation information is available for this product.</p>}
         {expandedGuide && <div className={styles.guideOverlay} role="presentation" onClick={() => setExpandedGuide(null)}><div className={styles.guideDialog} role="dialog" aria-modal="true" aria-label={`${expandedGuide.name} print guide`} onClick={(event) => event.stopPropagation()}><button type="button" aria-label="Close enlarged print guide" onClick={() => setExpandedGuide(null)}>×</button><SafeImage src={expandedGuide.url} alt={`${expandedGuide.name} print area`} /><strong>{expandedGuide.name}</strong></div></div>}
-        <label>Artwork files (optional, up to 5)<input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.svg,application/pdf,image/png,image/jpeg,image/svg+xml" onChange={(event) => setArtwork(Array.from(event.target.files || []))} /></label><p className={styles.helper}>PDF, SVG, PNG or JPG · maximum 10 MB per file. {artwork.length ? `${artwork.length} file${artwork.length === 1 ? "" : "s"} selected: ${artwork.map((file) => file.name).join(", ")}` : "Choose all files for this product together."}</p>
+        <label>Artwork files (optional, up to 5)<input type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.svg,application/pdf,image/png,image/jpeg,image/svg+xml" onChange={(event) => setArtwork(Array.from(event.target.files || []))} /></label><p className={styles.helper}>PDF, SVG, PNG or JPG · maximum 10 MB per file. {artwork.length ? `${artwork.length} file${artwork.length === 1 ? "" : "s"} selected: ${artwork.map((file) => file.name).join(", ")}` : initialConfiguration?.has_artwork ? "Your existing artwork will be kept. Upload files here only to replace it." : "Choose all files for this product together."}</p>
       </div>
       <aside className={styles.priceSummary}>
         <h2>Estimate for {quantity.toLocaleString()} units</h2>
@@ -280,7 +287,7 @@ export default function Configurator({ productId, productName, productImages, ba
         {verified?.estimated_total !== null && verified?.estimated_total !== undefined && <div><span>Per unit incl. setup · excl. VAT</span><strong>€{(verified.estimated_total / quantity).toFixed(2)}</strong></div>}
         {verified?.quantity_prices?.some((price) => price.quantity >= quantity) && <section aria-label="Quantity price guide"><h3>Prices at higher quantities</h3><p className={styles.helper}>For this colour and print selection, including setup · excl. VAT.</p><table className={styles.priceTable}><thead><tr><th>Quantity</th><th>Per unit</th><th>Estimated total</th></tr></thead><tbody>{verified.quantity_prices.filter((price) => price.quantity >= quantity).map((price) => <tr key={price.quantity}><td>{price.quantity.toLocaleString()}</td><td>{price.unit_price_eur === null ? "Quote required" : `€${price.unit_price_eur.toFixed(2)}`}</td><td>{price.estimated_total === null ? "Quote required" : `€${price.estimated_total.toFixed(2)}`}</td></tr>)}</tbody></table></section>}
         <p className={styles.helper}>Final price confirmed by staff.</p>
-        <button className={styles.primary} type="button" disabled={busy || !variant || verificationStatus === "error"} onClick={save}>{busy ? "Adding…" : "Add to quote cart"}</button>
+        <button className={styles.primary} type="button" disabled={busy || !variant || verificationStatus !== "ready"} onClick={save}>{busy ? "Saving…" : initialConfiguration ? "Save cart changes" : "Add to quote cart"}</button>
         {message && <p className={styles.configMessage} aria-live="polite">{message} {message.startsWith("Added to cart") && <Link href="/portal/account/quotes">Review cart →</Link>}</p>}
       </aside>
     </section>

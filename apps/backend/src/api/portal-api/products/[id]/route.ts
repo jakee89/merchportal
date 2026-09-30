@@ -145,6 +145,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
 }
 
 type Body = {
+  configuration_id?: string
   preview_only?: boolean
   variant_id?: string
   quantity?: number
@@ -177,6 +178,7 @@ export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaRes
   const { result } = await saveProductConfigurationWorkflow(req.scope).run({
     input: {
       actor_id: actorId,
+      configuration_id: typeof req.body.configuration_id === "string" ? req.body.configuration_id : undefined,
       product_id: req.params.id,
       variant_id: req.body.variant_id,
       quantity: Number(req.body.quantity),

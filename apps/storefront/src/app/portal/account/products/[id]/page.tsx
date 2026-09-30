@@ -4,7 +4,7 @@ import { sdk } from "@lib/config"
 import { getAuthHeaders } from "@lib/data/cookies"
 import styles from "../../../../portal-shell.module.css"
 import ProductImage from "../../product-image"
-import Configurator from "./configurator"
+import Configurator, { type InitialConfiguration } from "./configurator"
 import PrintingOptions from "./printing-options"
 import QuoteCartLink from "../../quote-cart-link"
 
@@ -22,9 +22,10 @@ function mediaUrl(backend: string, value?: string) {
   return /^https?:\/\//i.test(value) ? value : `${backend.replace(/\/$/, "")}${value}`
 }
 
-export default async function ProductPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sku?: string }> }) {
-  const [headers, { id }, { sku }] = await Promise.all([getAuthHeaders(), params, searchParams])
-  const returnTo = `/portal/account/products/${encodeURIComponent(id)}${sku ? `?sku=${encodeURIComponent(sku)}` : ""}`
+export default async function ProductPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sku?: string; edit?: string }> }) {
+  const [headers, { id }, { sku, edit }] = await Promise.all([getAuthHeaders(), params, searchParams])
+  const query = new URLSearchParams({ ...(sku ? { sku } : {}), ...(edit ? { edit } : {}) }).toString()
+  const returnTo = `/portal/account/products/${encodeURIComponent(id)}${query ? `?${query}` : ""}`
   const loginUrl = `/portal/login?returnTo=${encodeURIComponent(returnTo)}`
   if (!("authorization" in headers)) redirect(loginUrl)
   let product: Product
@@ -38,12 +39,15 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
     throw error
   }
   const backend = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
+  const initialConfiguration = edit ? (await sdk.client.fetch<{ configuration: InitialConfiguration }>(`/portal-api/quotes/items/${encodeURIComponent(edit)}`, { headers, cache: "no-store" })).configuration : undefined
+  if (initialConfiguration && initialConfiguration.product_id !== product.id) notFound()
   return <div className={styles.page}>
     <header className={styles.topbar}><Link href="/portal/account" className={styles.brand}><span className={styles.mark}>M</span>MerchPortal</Link><div className={styles.headerActions}><Link className={styles.secondary} href="/portal/account">Back to catalogue</Link><QuoteCartLink /></div></header>
     <main className={styles.productMain}>
       <nav className={styles.breadcrumbs} aria-label="Breadcrumb"><Link href="/portal/account">Catalogue</Link>{product.category_hierarchy?.map((item, index) => <span key={`${item}-${index}`}>/ <Link href={`/portal/account?category=${encodeURIComponent(item)}`}>{item}</Link></span>)}</nav>
       <header className={styles.productTitle}><div><div className={styles.badges}>{product.category && <span>{product.category}</span>}{product.sustainable && <span className={styles.ecoBadge}>Sustainable</span>}</div><h1>{product.name}</h1><p>{[product.brand, product.code ? `Code ${product.code}` : ""].filter(Boolean).join(" · ")}</p></div></header>
-      <Configurator productId={product.id} productName={product.name} productImages={product.images} backend={backend} variants={product.variants} methods={product.decoration_options} initialSku={sku} />
+      {initialConfiguration && <p className={styles.helper}>Editing your cart item. Your quantity and print selections have been restored.</p>}
+      <Configurator productId={product.id} productName={product.name} productImages={product.images} backend={backend} variants={product.variants} methods={product.decoration_options} initialSku={sku} initialConfiguration={initialConfiguration} />
       <div className={styles.productSections}>
         {product.description && <section><h2>Description</h2><p>{product.description}</p></section>}
         {product.specifications?.length > 0 && <section><h2>Specifications</h2><dl className={styles.specifications}>{product.specifications.map((item) => <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl></section>}

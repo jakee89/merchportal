@@ -1,6 +1,16 @@
 import { decorationPrice, normalizeDecorationOptions, validateDecorationChoice } from "../decoration"
 
 describe("supplier-neutral decoration normalization", () => {
+  it("accepts smaller artwork within a supplied print size and rejects oversized or invalid dimensions", () => {
+    const method = { id: "WR7", name: "Digital", colour_mode: "full_colour" as const, price_breaks: [], positions: [] }
+    const position = { id: "drum", name: "Around drum", max_width_mm: 200, max_height_mm: 120, size_options: [{ id: "drum:WR7", label: "165 × 120 mm", width_mm: 165, height_mm: 120 }] }
+    const choice = { pricing_code: "drum:WR7", print_width_mm: 165, print_height_mm: 120 }
+    expect(validateDecorationChoice(method, position, choice)).toBeNull()
+    expect(validateDecorationChoice(method, position, { ...choice, print_width_mm: 100 })).toBeNull()
+    expect(validateDecorationChoice(method, position, { ...choice, print_width_mm: 166 })).toContain("exceed")
+    expect(validateDecorationChoice(method, position, { ...choice, print_height_mm: NaN })).toContain("positive")
+    expect(validateDecorationChoice(method, position, { ...choice, print_width_mm: 0 })).toContain("positive")
+  })
   it("normalizes midocean print positions and techniques", () => {
     const methods = normalizeDecorationOptions([
       {
@@ -393,6 +403,6 @@ describe("supplier-neutral decoration normalization", () => {
     expect(validateDecorationChoice(method, position, valid)).toBeNull()
     expect(validateDecorationChoice(method, position, { ...valid, print_colours: 3 })).toMatch(/colours/)
     expect(validateDecorationChoice(method, position, { ...valid, pricing_code: "wrong" })).toMatch(/size/)
-    expect(validateDecorationChoice(method, position, { ...valid, print_width_mm: 70 })).toMatch(/size/)
+    expect(validateDecorationChoice(method, position, { ...valid, print_width_mm: 70 })).toMatch(/exceed/)
   })
 })

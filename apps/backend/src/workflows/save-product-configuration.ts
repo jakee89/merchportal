@@ -18,6 +18,8 @@ type DecorationInput = {
 }
 
 type Input = {
+  configuration_id?: string
+  duplicate_configuration_id?: string
   preview_only?: boolean
   actor_id: string
   product_id: string
@@ -44,6 +46,11 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
   if (!memberships.length) throw new MedusaError(MedusaError.Types.UNAUTHORIZED, "Active company membership required")
   if (!input.preview_only && memberships[0].role === "client_viewer") throw new MedusaError(MedusaError.Types.UNAUTHORIZED, "Your account can view products but cannot add items to a quote")
   if (!Number.isInteger(input.quantity) || input.quantity < 1 || input.quantity > 100000) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Quantity must be between 1 and 100,000")
+  const currentCart = (await service.listQuoteRequests({ organization_id: memberships[0].organization_id, status: "cart" }, { take: 1 }))[0]
+  const originalId = input.configuration_id || input.duplicate_configuration_id
+  if (input.configuration_id && input.duplicate_configuration_id) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Choose edit or duplicate")
+  const original = originalId && Array.isArray(currentCart?.item_ids) && currentCart.item_ids.includes(originalId) ? (await service.listProductConfigurations({ id: originalId, organization_id: memberships[0].organization_id }, { take: 1 }))[0] : null
+  if (originalId && (!original || original.product_id !== input.product_id)) throw new MedusaError(MedusaError.Types.NOT_FOUND, "Editable cart item not found")
   if (!input.preview_only) {
     if (input.artwork_files !== undefined && (!Array.isArray(input.artwork_files) || input.artwork_files.length > 5)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Attach no more than five artwork files")
     if (input.artwork_files?.length && (input.artwork_file_id || input.artwork_filename || input.artwork_proof)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Use one artwork upload format")
@@ -111,10 +118,10 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
     })
     return new StepResponse({ id: null, base_unit_price: basePricePending ? null : baseUnitPrice, branding_unit_price: pricePending ? null : brandingUnitPrice, setup_price: pricePending ? null : setupPrice, estimated_total: pricePending ? null : total, branding_price_pending: pricePending, decoration_lines: decorationLines, quantity_prices: quantityPrices, status: "preview" })
   }
-  const currentCart = (await service.listQuoteRequests({ organization_id: memberships[0].organization_id, status: "cart" }, { take: 1 }))[0]
-  if (Array.isArray(currentCart?.item_ids) && currentCart.item_ids.length >= 50) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Cart limit is 50 configured products")
+  if (!input.configuration_id && Array.isArray(currentCart?.item_ids) && currentCart.item_ids.length >= 50) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Cart limit is 50 configured products")
   const first = decorationLines[0]
-  const configuration = await service.createProductConfigurations({
+  const keepArtwork = original && !input.artwork_file_id && !input.artwork_files?.length
+  const data = {
     organization_id: memberships[0].organization_id,
     actor_id: input.actor_id,
     product_id: input.product_id,
@@ -127,17 +134,18 @@ const saveConfigurationStep = createStep("save-configuration", async (input: Inp
     print_width_mm: first?.print_width_mm || null,
     print_height_mm: first?.print_height_mm || null,
     decoration_lines: decorationLines,
-    artwork_file_id: input.artwork_file_id || null,
-    artwork_filename: input.artwork_filename || null,
-    artwork_files: input.artwork_files?.map((file) => ({ file_id: file.id, filename: file.filename })) || null,
+    artwork_file_id: keepArtwork ? original.artwork_file_id : input.artwork_file_id || null,
+    artwork_filename: keepArtwork ? original.artwork_filename : input.artwork_filename || null,
+    artwork_files: keepArtwork ? original.artwork_files : input.artwork_files?.map((file) => ({ file_id: file.id, filename: file.filename })) || null,
     base_unit_price: baseUnitPrice,
     branding_unit_price: brandingUnitPrice,
     setup_price: setupPrice,
     estimated_total: total,
     branding_price_pending: pricePending,
-    status: pricePending || (!input.artwork_file_id && !input.artwork_files?.length && decorationLines.length) ? "draft" : "ready",
-  })
-  await addConfigurationToCart(service, memberships[0].organization_id, input.actor_id, configuration.id)
+    status: pricePending || (!(keepArtwork ? original.artwork_file_id || original.artwork_files?.length : input.artwork_file_id || input.artwork_files?.length) && decorationLines.length) ? "draft" : "ready",
+  }
+  const configuration = input.configuration_id ? await service.updateProductConfigurations({ id: original.id, ...data }) : await service.createProductConfigurations(data)
+  if (!input.configuration_id) await addConfigurationToCart(service, memberships[0].organization_id, input.actor_id, configuration.id)
   return new StepResponse({ id: configuration.id, base_unit_price: basePricePending ? null : baseUnitPrice, branding_unit_price: pricePending ? null : brandingUnitPrice, setup_price: pricePending ? null : setupPrice, estimated_total: pricePending ? null : total, branding_price_pending: pricePending, decoration_lines: decorationLines, status: configuration.status })
 })
 

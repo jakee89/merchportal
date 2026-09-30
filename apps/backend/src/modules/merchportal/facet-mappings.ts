@@ -3,10 +3,30 @@ import { makitoDocumentCategories } from "./makito-categories"
 
 export type FacetType = "color" | "material" | "category" | "print_method"
 export const facetTypes: FacetType[] = ["color", "material", "category", "print_method"]
+export type FacetOption = { supplier_id: string; supplier_name: string; facet_type: FacetType; source_value: string; target_value?: string; count: number; samples: Array<{ id: string; name: string }>; first_seen_at?: string; new_since_import?: boolean }
 export type FacetMappingInput = { supplier_id: string; facet_type: FacetType; source_value: string; target_value: string }
+
+export async function listAllFacetMappings(service: any) {
+  const mappings: any[] = []
+  for (let skip = 0; ; skip += 1000) {
+    const batch = await service.listFacetMappings({}, { take: 1000, skip, order: { id: "ASC" } })
+    mappings.push(...batch)
+    if (batch.length < 1000) return mappings
+  }
+}
 
 function key(supplierId: string, type: FacetType, value: string) {
   return `${supplierId}\u0000${type}\u0000${value.trim().toLocaleLowerCase()}`
+}
+
+export function documentFacetValues(document: any, supplierCode?: string): Array<[FacetType, string]> {
+  const categories = supplierCode === "makito" ? makitoDocumentCategories(document).levels : document.category_hierarchy?.length ? document.category_hierarchy : [document.category]
+  return [
+    ...(document.variants || []).map((variant: any) => ["color", variant.color_group || variant.color] as [FacetType, string]),
+    ...(document.materials || []).map((value: string) => ["material", value] as [FacetType, string]),
+    ...categories.map((value: string) => ["category", value] as [FacetType, string]),
+    ...(document.print_methods || []).map((value: string) => ["print_method", value] as [FacetType, string]),
+  ].filter((item): item is [FacetType, string] => typeof item[1] === "string" && Boolean(item[1].trim()))
 }
 
 export function facetMappingIndex(mappings: FacetMappingInput[]) {
@@ -66,28 +86,22 @@ export async function facetMappingOptions(service: any) {
   const [suppliers, sources, mappings] = await Promise.all([
     service.listSuppliers({}),
     service.listPublishedProductSources({}, { take: 50000, select: ["supplier_id", "catalog_preview"] }),
-    service.listFacetMappings({}, { take: 5000 }),
+    listAllFacetMappings(service),
   ])
   const names = new Map(suppliers.map((item: any) => [item.id, item.display_name]))
   const codes = new Map(suppliers.map((item: any) => [item.id, item.code]))
   const targets = facetMappingIndex(mappings)
-  const counts = new Map<string, { supplier_id: string; supplier_name: string; facet_type: FacetType; source_value: string; target_value?: string; count: number }>()
+  const counts = new Map<string, FacetOption>()
   for (const source of sources) {
     const document = source.catalog_preview || {}
-    const categories = codes.get(source.supplier_id) === "makito"
-      ? makitoDocumentCategories(document).levels
-      : document.category_hierarchy?.length ? document.category_hierarchy : [document.category]
-    const values: Array<[FacetType, string]> = [
-      ...(document.variants || []).map((variant: any) => ["color", variant.color_group || variant.color] as [FacetType, string]),
-      ...(document.materials || []).map((value: string) => ["material", value] as [FacetType, string]),
-      ...categories.map((value: string) => ["category", value] as [FacetType, string]),
-      ...(document.print_methods || []).map((value: string) => ["print_method", value] as [FacetType, string]),
-    ]
+    const values = documentFacetValues(document, String(codes.get(source.supplier_id) || ""))
     for (const [type, value] of new Map(values.filter((item) => item[1]).map((item) => [key(source.supplier_id, item[0], item[1]), item])).values()) {
       const id = key(source.supplier_id, type, value)
       const current = counts.get(id)
-      if (current) current.count += 1
-      else counts.set(id, { supplier_id: source.supplier_id, supplier_name: String(names.get(source.supplier_id) || "Supplier"), facet_type: type, source_value: value, target_value: targets.get(id), count: 1 })
+      if (current) {
+        current.count += 1
+        if (document.id && current.samples.length < 3) current.samples.push({ id: document.id, name: document.name || "Product" })
+      } else counts.set(id, { supplier_id: source.supplier_id, supplier_name: String(names.get(source.supplier_id) || "Supplier"), facet_type: type, source_value: value, target_value: targets.get(id), count: 1, samples: document.id ? [{ id: document.id, name: document.name || "Product" }] : [] })
     }
   }
   for (const mapping of mappings) {
@@ -99,6 +113,7 @@ export async function facetMappingOptions(service: any) {
       source_value: mapping.source_value,
       target_value: mapping.target_value,
       count: 0,
+      samples: [],
     })
   }
   return [...counts.values()].sort((a, b) => a.facet_type.localeCompare(b.facet_type) || a.source_value.localeCompare(b.source_value) || a.supplier_name.localeCompare(b.supplier_name))

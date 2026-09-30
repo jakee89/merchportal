@@ -6,7 +6,7 @@ import { lowestPlainProductPrice, plainProductPriceBreaks } from "../../../modul
 import { cachePortalCatalogFacets, cachePortalCatalogResponse, portalCatalogCache, portalCatalogFacetCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
 import { catalogCodeMatches, catalogFacets, catalogSearchText, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 import { makitoDocumentCategories } from "../../../modules/merchportal/makito-categories"
-import { applyFacetMappings, facetMappingIndex } from "../../../modules/merchportal/facet-mappings"
+import { applyFacetMappings, facetMappingIndex, listAllFacetMappings } from "../../../modules/merchportal/facet-mappings"
 import { catalogSearchScores } from "../../../modules/merchportal/catalog-search"
 import { compareSupplierPriority } from "../../../modules/merchportal/supplier-priority"
 
@@ -47,7 +47,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     service.listPricingRules({ status: "active" }),
     service.listSuppliers({}),
     service.listImportJobs({ status: "completed" }, { take: 100, order: { completed_at: "DESC" } }),
-    service.listFacetMappings({}, { take: 5000 }),
+    listAllFacetMappings(service),
   ])
   const metadataMs = performance.now() - started
   const mappingIndex = facetMappingIndex(facetMappings)

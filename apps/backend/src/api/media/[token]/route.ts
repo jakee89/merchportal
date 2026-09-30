@@ -5,10 +5,12 @@ import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
 import { resolveSupplierCredential } from "../../../modules/merchportal/supplier-credentials"
 import { makitoToken } from "../../../modules/merchportal/adapters/makito"
 import { loadMakitoImage } from "../../../modules/merchportal/makito-image-cache"
+import { recordMediaHealth } from "../../../modules/merchportal/catalog-health"
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
   const url = supplierImageUrl(req.params.token)
   if (!url) return res.status(404).json({ message: "Media not found" })
+  const observe = (available: boolean) => { void recordMediaHealth(req.scope, req.params.token, available).catch(() => {}) }
   try {
     const headers: Record<string, string> = { Accept: "image/avif,image/webp,image/png,image/jpeg,image/*,application/pdf" }
     let makitoCredential: string | undefined
@@ -16,7 +18,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
       const [supplier] = await service.listSuppliers({ code: "makito" }, { take: 1 })
       makitoCredential = resolveSupplierCredential("makito", supplier?.configuration)
-      if (!makitoCredential) return res.status(404).json({ message: "Media not found" })
+      if (!makitoCredential) { observe(false); return res.status(404).json({ message: "Media not found" }) }
       headers.Authorization = `Bearer ${await makitoToken(makitoCredential)}`
     }
     const request = () => fetch(url, {
@@ -35,6 +37,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     const upstream = result.response || new Response(result.cached ? Uint8Array.from(result.cached.body) : null, { headers: { "Content-Type": result.cached?.contentType || "" } })
     let contentType = upstream.headers.get("content-type") || ""
     if (!upstream.ok || !upstream.body) {
+      observe(false)
       return res.status(404).json({ message: "Media not found" })
     }
     let body: Readable
@@ -43,6 +46,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       const first = await reader.read()
       contentType = first.value ? supplierMediaType(first.value) || "" : ""
       if (!contentType) {
+        observe(false)
         await reader.cancel()
         return res.status(404).json({ message: "Media not found" })
       }
@@ -57,14 +61,17 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
     } else if (contentType.startsWith("image/") || contentType.startsWith("application/pdf")) {
       body = Readable.fromWeb(upstream.body as any)
     } else {
+      observe(false)
       return res.status(404).json({ message: "Media not found" })
     }
+    observe(true)
     res.setHeader("Content-Type", contentType)
     res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800")
     res.setHeader("X-Content-Type-Options", "nosniff")
     if (contentType.startsWith("application/pdf")) res.setHeader("Content-Disposition", "inline; filename=\"supplier-document.pdf\"")
     body.pipe(res)
   } catch {
+    observe(false)
     return res.status(404).json({ message: "Media not found" })
   }
 }

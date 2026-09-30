@@ -8,6 +8,7 @@ import { normalizeMakitoDecorationOptions } from "../modules/merchportal/decorat
 import { supplierImageToken } from "../modules/merchportal/media"
 import { sellingPrice } from "../modules/merchportal/catalog-rules"
 import { catalogPreview } from "../modules/merchportal/catalog-preview"
+import { trackFacetValues } from "../modules/merchportal/facet-tools"
 import { catalogSearchText } from "../modules/merchportal/catalog-filtering"
 import { resolveMarkup } from "./manage-pricing-rules"
 import { interruptibleSupplierRead } from "../modules/merchportal/sync"
@@ -253,6 +254,7 @@ async function persistProductSources(container: any, normalized: NormalizedProdu
     saved += batch.length
     await onProgress?.(99, `Saving catalog entries (${saved.toLocaleString()} of ${(creates.length + updates.length).toLocaleString()})`)
   }
+  await trackFacetValues(container, [...creates, ...updates], new Map(suppliers.map((supplier: any) => [supplier.id, supplier.code])))
 }
 
 export async function refreshPublishedSupplierProducts(container: any, supplierCode?: "stricker" | "midocean" | "aodaci" | "makito", normalizedProducts?: NormalizedProduct[], onProgress?: (percent: number, message: string) => Promise<void>, checkCancelled?: () => Promise<void>, sourceKeys?: string[], refreshKind: "catalog" | "price" | "stock" = "catalog") {

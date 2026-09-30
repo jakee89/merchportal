@@ -634,9 +634,14 @@ export function validateDecorationChoice(method: DecorationMethod, position: Dec
   if (!Number.isInteger(colours) || colours < 1 || (position.max_colours && colours > position.max_colours)) return "Choose a valid number of print colours"
   if (method.colour_mode !== "spot_colour" && colours !== 1) return "This printing technique does not allow a colour-count selection"
   const sizes = (position.size_options || []).filter((item) => !item.variant_sku || item.variant_sku === variantSku)
-  const size = sizes.find((item) => (item.pricing_code === choice.pricing_code || item.id === choice.pricing_code) && item.width_mm === choice.print_width_mm && item.height_mm === choice.print_height_mm)
+  const size = sizes.find((item) => item.pricing_code === choice.pricing_code || item.id === choice.pricing_code)
   if (sizes.length && !size) return "Choose a print size supplied for this technique"
-  if ((choice.print_width_mm && choice.print_width_mm < 1) || (choice.print_height_mm && choice.print_height_mm < 1) || (position.max_width_mm && choice.print_width_mm && choice.print_width_mm > position.max_width_mm) || (position.max_height_mm && choice.print_height_mm && choice.print_height_mm > position.max_height_mm)) return "Artwork dimensions exceed the selected print area"
+  if (choice.print_width_mm !== undefined || choice.print_height_mm !== undefined || sizes.length) {
+    const width = Number(choice.print_width_mm)
+    const height = Number(choice.print_height_mm)
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return "Enter a positive print width and height in millimetres"
+    if ((size && (width > size.width_mm || height > size.height_mm)) || (position.max_width_mm && width > position.max_width_mm) || (position.max_height_mm && height > position.max_height_mm)) return "Artwork dimensions exceed the selected print area"
+  }
   const stitchTables = (method.price_tables || []).filter((table) => table.price_by_stitches && table.max_stitches)
   if (stitchTables.length && (!choice.print_stitches || choice.print_stitches < 1 || choice.print_stitches > Math.max(...stitchTables.map((table) => Number(table.max_stitches))))) return "Choose a supported stitch count"
   return null

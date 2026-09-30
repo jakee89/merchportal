@@ -12,6 +12,9 @@ import ProductConfiguration from "./models/product-configuration"
 import QuoteRequest from "./models/quote-request"
 import PortalSetting from "./models/portal-setting"
 import PortalUsageDaily from "./models/portal-usage-daily"
+import FacetOperation from "./models/facet-operation"
+import FacetValue from "./models/facet-value"
+import MediaHealth from "./models/media-health"
 
 class MerchPortalModuleService extends MedusaService({
   ImportJob,
@@ -27,6 +30,9 @@ class MerchPortalModuleService extends MedusaService({
   QuoteRequest,
   PortalSetting,
   PortalUsageDaily,
+  FacetOperation,
+  FacetValue,
+  MediaHealth,
 }) {}
 
 export default MerchPortalModuleService
