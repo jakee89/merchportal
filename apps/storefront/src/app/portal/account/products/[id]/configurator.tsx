@@ -6,6 +6,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { previewPortalConfiguration, savePortalConfiguration, uploadPortalArtwork } from "../actions"
 import { decorationImage } from "@lib/util/decoration-image"
+import { boundedPrintDimension, printDimensionLimits, selectedPrintSize, uniquePrintSizes, validPrintDimensions } from "@lib/util/decoration-size"
 
 type PriceBreak = { quantity: number; unit_price_eur: number; next_colour_price_eur?: number }
 type PriceTable = { code: string; option_code?: string; variant_sku?: string; max_colours?: number; max_area_cm2?: number; max_stitches?: number; price_by_color: boolean; price_by_area: boolean; price_by_stitches?: boolean; price_breaks: PriceBreak[] }
@@ -146,7 +147,7 @@ export default function Configurator({ productId, productName, productImages, ba
   const sizeChoices = (line: Line) => {
     const method = methods.find((item) => item.id === line.methodId)
     const sizes = method?.positions.find((position) => position.id === line.positionId)?.size_options?.filter((item) => !item.variant_sku || item.variant_sku === variant?.sku) || []
-    return orderedSizes(sizes.filter((size, index) => sizes.findIndex((other) => other.width_mm === size.width_mm && other.height_mm === size.height_mm && other.pricing_code === size.pricing_code) === index)).map((size) => ({ ...size, methodId: line.methodId }))
+    return uniquePrintSizes(orderedSizes(sizes), line).map((size) => ({ ...size, methodId: line.methodId }))
   }
   const selectedPosition = (line: Line) => methods.find((item) => item.id === line.methodId)?.positions.find((item) => item.id === line.positionId) || positions.find((item) => item.id === line.positionId)
   const positionImage = (position?: Position) => {
@@ -195,9 +196,11 @@ export default function Configurator({ productId, productName, productImages, ba
   const knownPrintingLines = verified?.decoration_lines.filter((line) => !line.price_pending && line.unit_price_eur !== null) || []
   const knownPrintingSubtotal = knownPrintingLines.reduce((sum, line) => sum + (line.unit_price_eur || 0) * quantity + (line.setup_price_eur || 0), 0)
   const decorations = lines.map((line) => ({ branding_method: line.methodId, print_position: line.positionId, pricing_code: line.pricingCode, print_colours: line.colours, print_stitches: line.stitches || undefined, print_width_mm: line.width ? Number(line.width) : undefined, print_height_mm: line.height ? Number(line.height) : undefined }))
+  const invalidDimensions = lines.some((line) => !validPrintDimensions(line.width, line.height, printDimensionLimits(selectedPosition(line), selectedPrintSize(sizeChoices(line), line))))
   const selectionKey = JSON.stringify({ variant_id: variant?.id, quantity, decorations })
   useEffect(() => {
     if (!variant || lines.some((line) => !line.positionId || !line.methodId)) { setVerified(undefined); setVerificationStatus("checking"); return }
+    if (invalidDimensions) { setVerified(undefined); setVerificationStatus("error"); setVerificationError("Enter positive artwork dimensions within the selected print area's limits"); return }
     let cancelled = false
     setVerified(undefined)
     setVerificationStatus("checking")
@@ -217,6 +220,7 @@ export default function Configurator({ productId, productName, productImages, ba
   const save = async () => {
     if (!variant) return
     if (lines.some((line) => !line.positionId || !line.methodId)) return setMessage("Choose a position and print technology for every print line")
+    if (invalidDimensions) return setMessage("Enter positive artwork dimensions within the selected print area's limits")
     if (artwork.length > 5) return setMessage("Choose no more than five artwork files")
     if (artwork.some((file) => file.size > 10 * 1024 * 1024)) return setMessage("Each artwork file must be smaller than 10 MB")
     setBusy(true)
@@ -261,6 +265,8 @@ export default function Configurator({ productId, productName, productImages, ba
           const price = verified?.decoration_lines[index]
           const compatible = compatibleChoices(line.positionId)
           const sizes = sizeChoices(line)
+          const selectedSize = selectedPrintSize(sizes, line)
+          const limits = printDimensionLimits(position, selectedSize)
           const stitchTiers = Array.from(new Set((method?.price_tables || []).filter((table) => table.price_by_stitches && table.max_stitches).map((table) => Number(table.max_stitches)))).sort((left, right) => left - right)
           return <div className={styles.printLine} key={line.key}>
             <div className={styles.printLineHeading}><strong>Print position {index + 1}</strong><button type="button" onClick={() => setLines((items) => items.filter((item) => item.key !== line.key))}>Remove</button></div>
@@ -272,10 +278,10 @@ export default function Configurator({ productId, productName, productImages, ba
             })}</div>
             {line.positionId && <label>Technique<select value={choiceForMethod(line.methodId)?.key || ""} onChange={(event) => chooseMethod(line, event.target.value)}>{compatible.map((item) => <option value={item.key} key={item.key}>{item.name}</option>)}</select></label>}
             {method && <label>Colour mode<input value={colourMode(method)} readOnly /></label>}
-            {sizes.length > 0 && <div className={styles.sizeOptions}><span>Print size (W × H)</span><div>{sizes.map((size) => <button type="button" key={`${size.methodId}:${size.id}`} className={Number(line.width) === size.width_mm && Number(line.height) === size.height_mm ? styles.activeSizeOption : ""} onClick={() => chooseSize(line, size)}>{size.label}</button>)}</div></div>}
+            {sizes.length > 0 && <div className={styles.sizeOptions}><span>Print size (W × H)</span><div>{sizes.map((size) => <button type="button" key={`${size.methodId}:${size.id}`} aria-pressed={size === selectedSize} className={size === selectedSize ? styles.activeSizeOption : ""} onClick={() => chooseSize(line, size)}>{size.label}</button>)}</div></div>}
             {position && <>
-              <label>Artwork width (mm)<input type="number" min="0.1" step="0.1" max={sizes.find((size) => (size.pricing_code || size.id) === line.pricingCode)?.width_mm || position.max_width_mm} value={line.width} onChange={(event) => updateLine(line.key, { width: event.target.value })} /></label>
-              <label>Artwork height (mm)<input type="number" min="0.1" step="0.1" max={sizes.find((size) => (size.pricing_code || size.id) === line.pricingCode)?.height_mm || position.max_height_mm} value={line.height} onChange={(event) => updateLine(line.key, { height: event.target.value })} /></label>
+              <label>Artwork width (mm){limits.width && <small>Maximum {limits.width} mm</small>}<input type="number" min="0.1" step="0.1" max={limits.width} value={line.width} onChange={(event) => updateLine(line.key, { width: boundedPrintDimension(event.target.value, limits.width) })} /></label>
+              <label>Artwork height (mm){limits.height && <small>Maximum {limits.height} mm</small>}<input type="number" min="0.1" step="0.1" max={limits.height} value={line.height} onChange={(event) => updateLine(line.key, { height: boundedPrintDimension(event.target.value, limits.height) })} /></label>
               <p className={styles.helper}>Enter your actual artwork dimensions within the selected technique’s maximum area. Printing is recalculated for this size.</p>
             </>}
             {position && !sizes.length && <p className={styles.helper}>{position.max_width_mm && position.max_height_mm ? `Maximum area ${position.max_width_mm} × ${position.max_height_mm} mm. ` : ""}{position.max_colours ? `Maximum ${position.max_colours} colours.` : ""}</p>}

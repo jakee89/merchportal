@@ -269,6 +269,19 @@ function positionImages(candidate: AnyObject) {
 // area images belong to the individual product rows. Keep both sources.
 export function strickerPositionImages(payloads: unknown[]) {
   const result = new Map<string, NonNullable<DecorationPosition["images"]>>()
+  const areaOwners = new Map<string, Set<string>>()
+  for (const payload of payloads) {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue
+    const product = payload as AnyObject
+    const sku = directValue(product, ["reference", "sku", "optional_reference"])
+    for (let index = 1; index <= 64; index++) {
+      const area = directValue(product, [`area${index}image`])
+      if (!area || !sku) continue
+      const owners = areaOwners.get(area) || new Set<string>()
+      owners.add(sku)
+      areaOwners.set(area, owners)
+    }
+  }
   for (const payload of payloads) {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue
     const product = payload as AnyObject
@@ -277,11 +290,15 @@ export function strickerPositionImages(payloads: unknown[]) {
     for (let index = 1; index <= 64; index++) {
       const component = directValue(product, [`component${index}`])
       const location = directValue(product, [`location${index}`])
-      const image = directValue(product, [`area${index}image`, `location${index}image`])
+      const locationImage = directValue(product, [`location${index}image`])
+      const areaImage = directValue(product, [`area${index}image`])
+      const image = locationImage || areaImage
       if (!component || !location || !image) continue
       const id = slug(`${component}-${location}`)
       const images = result.get(id) || []
-      if (!images.some((item) => item.url === image && item.variant_sku === sku && item.variant_color === color)) images.push({ url: image, variant_sku: sku, variant_color: color })
+      const generic = !locationImage && (areaOwners.get(image)?.size || 0) > 1
+      const guide = { url: image, variant_sku: generic ? undefined : sku, variant_color: generic ? undefined : color }
+      if (!images.some((item) => item.url === image && item.variant_sku === guide.variant_sku && item.variant_color === guide.variant_color)) images.push(guide)
       result.set(id, images)
     }
   }

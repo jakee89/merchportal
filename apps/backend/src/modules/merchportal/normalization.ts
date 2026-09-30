@@ -222,6 +222,9 @@ export function supplierAssetUrl(value: string, supplierCode?: string) {
   if (supplierCode !== "stricker") return value
   const clean = first.replace(/^\/+/, "")
   if (clean.startsWith("public/")) return `https://cdn.hideacontent.com/${clean}`
+  // Stricker's SKU-specific LocationNImage files use the locations directory,
+  // unlike the shared AreaNImage printing-line guides.
+  if (/_C\d+_L\d+\.png$/iu.test(clean)) return `https://cdn.hideacontent.com/public/printings/locations/500x500/${clean}`
   return `https://cdn.hideacontent.com/public/printings/printinglines/500x500/${clean}`
 }
 
