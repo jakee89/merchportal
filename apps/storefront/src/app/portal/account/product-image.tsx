@@ -12,5 +12,5 @@ export default function ProductImage({ src, name, fallbackSrc, priority = false,
   const usingFallback = !src || failed
   const displayed = usingFallback ? fallbackSrc : src
   if (!displayed || fallbackFailed) return <div className={styles.productVisual} aria-hidden="true">M</div>
-  return <Image className={styles.productImage} src={displayed} alt={usingFallback ? `${name} product photo; print guide unavailable` : name} width={640} height={640} sizes={sizes} priority={priority} unoptimized={!displayed.startsWith("/portal/media/")} onError={() => usingFallback ? setFallbackFailed(true) : setFailed(true)} />
+  return <Image key={displayed} className={styles.productImage} src={displayed} alt={usingFallback ? `${name} product photo; print guide unavailable` : name} width={640} height={640} sizes={sizes} priority={priority} unoptimized={!displayed.startsWith("/portal/media/")} onError={() => usingFallback ? setFallbackFailed(true) : setFailed(true)} />
 }
