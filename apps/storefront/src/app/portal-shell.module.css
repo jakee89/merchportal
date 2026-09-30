@@ -896,6 +896,7 @@
 .stockPanel span { color: #557064; font-size: 11px; }
 .productGallery {
   margin-bottom: 24px;
+  min-width: 0;
 }
 .thumbnails {
   display: flex;
@@ -951,16 +952,24 @@
 }
 .detailVisual {
   align-items: center;
+  aspect-ratio: 1;
   background: #eaf2f5;
+  border: 0;
   border-radius: 18px;
   display: flex;
   justify-content: center;
-  min-height: 360px;
+  min-height: 0;
   overflow: hidden;
+  padding: 0;
+  position: relative;
+  width: 100%;
 }
 .detailVisual img {
-  height: 360px;
+  display: block;
+  height: 100%;
+  inset: 0;
   object-fit: contain;
+  position: absolute;
   width: 100%;
 }
 .detailVisual span {

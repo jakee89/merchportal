@@ -259,9 +259,33 @@ function positionImages(candidate: AnyObject) {
     if (!url) return []
     return [{
       variant_color: fieldValue(image, ["variant_color", "color_description", "colour_description", "color_code"]),
+      ...(fieldValue(image, ["variant_sku", "sku", "reference"]) ? { variant_sku: fieldValue(image, ["variant_sku", "sku", "reference"]) } : {}),
       url,
     }]
   })
+}
+
+// The detailed Stricker options control sizes/pricing, but colour-specific
+// area images belong to the individual product rows. Keep both sources.
+export function strickerPositionImages(payloads: unknown[]) {
+  const result = new Map<string, NonNullable<DecorationPosition["images"]>>()
+  for (const payload of payloads) {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue
+    const product = payload as AnyObject
+    const sku = directValue(product, ["reference", "sku", "optional_reference"])
+    const color = directValue(product, ["color_desc_1", "color_description", "color_code"])
+    for (let index = 1; index <= 64; index++) {
+      const component = directValue(product, [`component${index}`])
+      const location = directValue(product, [`location${index}`])
+      const image = directValue(product, [`area${index}image`, `location${index}image`])
+      if (!component || !location || !image) continue
+      const id = slug(`${component}-${location}`)
+      const images = result.get(id) || []
+      if (!images.some((item) => item.url === image && item.variant_sku === sku && item.variant_color === color)) images.push({ url: image, variant_sku: sku, variant_color: color })
+      result.set(id, images)
+    }
+  }
+  return result
 }
 
 function directValue(object: AnyObject, names: string[]) {
@@ -422,7 +446,7 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
       existingPosition.max_colours = Math.max(existingPosition.max_colours || 0, position.max_colours || 0) || undefined
       existingPosition.handling_price_eur = Math.max(existingPosition.handling_price_eur || 0, position.handling_price_eur || 0) || undefined
       existingPosition.image_url ||= position.image_url
-      existingPosition.images = [...(existingPosition.images || []), ...(position.images || [])].filter((item, index, all) => all.findIndex((other) => other.url === item.url && other.variant_color === item.variant_color) === index)
+      existingPosition.images = [...(existingPosition.images || []), ...(position.images || [])].filter((item, index, all) => all.findIndex((other) => other.url === item.url && other.variant_color === item.variant_color && other.variant_sku === item.variant_sku) === index)
       existingPosition.size_options = [...(existingPosition.size_options || []), ...(position.size_options || [])].filter((item, index, all) => all.findIndex((other) => other.id === item.id) === index)
     }
     const matchedPrices = matchingPrices(id)
@@ -626,6 +650,11 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
     }
   }
 
+  const variantGuides = strickerPositionImages(payloads)
+  for (const method of methods.values()) for (const position of method.positions) {
+    const images = variantGuides.get(position.id)
+    if (images?.length) position.images = [...images, ...(position.images || [])].filter((item, index, all) => all.findIndex((other) => other.url === item.url && other.variant_sku === item.variant_sku && other.variant_color === item.variant_color) === index)
+  }
   return [...methods.values()].sort((left, right) => left.name.localeCompare(right.name))
 }
 

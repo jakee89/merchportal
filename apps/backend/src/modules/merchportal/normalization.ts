@@ -215,7 +215,7 @@ function proxyImages(urls: string[]) {
   })
 }
 
-function supplierAssetUrl(value: string, supplierCode?: string) {
+export function supplierAssetUrl(value: string, supplierCode?: string) {
   const first = value.split(",")[0].trim()
   if (/^https:\/\//iu.test(first)) return first
   if (supplierCode === "aodaci") return `https://cdn.aodaci.com/resources/printlines/${first.replace(/^\/+/, "")}`

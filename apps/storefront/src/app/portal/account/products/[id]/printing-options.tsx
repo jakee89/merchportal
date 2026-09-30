@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import ProductImage from "../../product-image"
 import styles from "../../../../portal-shell.module.css"
+import { decorationImage } from "@lib/util/decoration-image"
 
 type Method = {
   id: string
   name: string
-  positions: Array<{ id: string; name: string; max_width_mm?: number; max_height_mm?: number; image_url?: string; images?: Array<{ variant_color?: string; url: string }> }>
+  positions: Array<{ id: string; name: string; max_width_mm?: number; max_height_mm?: number; image_url?: string; images?: Array<{ variant_color?: string; variant_sku?: string; url: string }> }>
 }
 type Variant = { sku?: string; color: string; color_code?: string; images: string[] }
 
@@ -34,17 +35,16 @@ export default function PrintingOptions({ methods, backend, variants, initialSku
       return [{ key, name: method.name, position }]
     }))
   }, [methods])
-  const colourKeys = [variant?.color, variant?.color_code, variant?.sku?.split("-").at(-1)].filter(Boolean).map((value) => value!.trim().toLowerCase())
-  const guideFor = (position: Method["positions"][number]) => position.images?.find((image) => image.variant_color && colourKeys.includes(image.variant_color.trim().toLowerCase()))?.url || position.images?.find((image) => !image.variant_color)?.url || (!position.images?.length ? position.image_url : undefined)
 
   return <div className={styles.printCarouselWrap}>
     <button className={styles.carouselArrow} type="button" aria-label="Previous printing options" onClick={() => track.current?.scrollBy({ left: -320, behavior: "smooth" })}>‹</button>
     <div ref={track} className={styles.printCarousel} role="list" aria-label="Printing techniques and positions">
-      {options.map(({ key, name, position }) => <article role="listitem" key={key} className={styles.printCarouselCard}>
-        <ProductImage src={mediaUrl(backend, guideFor(position))} fallbackSrc={mediaUrl(backend, variant?.images?.[0])} name={`${name} on ${position.name}`} />
+      {options.map(({ key, name, position }) => { const guide = decorationImage(position, variant); return <article role="listitem" key={key} className={styles.printCarouselCard}>
+        <ProductImage key={guide.url || variant?.sku} src={mediaUrl(backend, guide.url)} fallbackSrc={mediaUrl(backend, variant?.images?.[0])} name={`${name} on ${position.name}`} />
+        {!guide.url ? <small>Product photo · guide unavailable for this colour</small> : guide.generic && <small>Generic supplier print guide</small>}
         <strong>{name}</strong><span>{position.name}</span>
         {position.max_width_mm && position.max_height_mm && <small>{position.max_width_mm} × {position.max_height_mm} mm</small>}
-      </article>)}
+      </article> })}
     </div>
     <button className={styles.carouselArrow} type="button" aria-label="Next printing options" onClick={() => track.current?.scrollBy({ left: 320, behavior: "smooth" })}>›</button>
   </div>

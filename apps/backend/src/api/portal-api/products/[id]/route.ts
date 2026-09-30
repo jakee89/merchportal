@@ -7,6 +7,7 @@ import { markupForQuantity, resolveMarkupRule } from "../../../../workflows/mana
 import { saveProductConfigurationWorkflow } from "../../../../workflows/save-product-configuration"
 import { relatedProductSources } from "../../../../modules/merchportal/related-products"
 import { lowestProductPrice, plainProductPriceBreaks } from "../../../../modules/merchportal/plain-pricing"
+import { productDecorationImages } from "../../../../modules/merchportal/decoration-images"
 
 async function context(req: AuthenticatedMedusaRequest) {
   const actorId = req.auth_context?.actor_id
@@ -60,8 +61,8 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         color_hex: indexedVariant?.color_hex,
       }
     })
-  const decorationOptions = Array.isArray(source.decoration_options)
-    ? source.decoration_options.map((method: any) => ({
+  const decorationMethods = await productDecorationImages(service, source, supplier?.code)
+  const decorationOptions = decorationMethods.map((method: any) => ({
         ...method,
         positions: Array.isArray(method.positions)
           ? method.positions.map((position: any) => ({
@@ -108,7 +109,6 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
             }))
           : [],
       }))
-    : []
   const relatedSources = await relatedProductSources(req.scope, source.supplier_id, product.id, catalogDocument.category)
   const related = relatedSources
     .map((item: any) => {

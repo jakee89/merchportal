@@ -1,6 +1,30 @@
 import { decorationPrice, normalizeDecorationOptions, validateDecorationChoice } from "../decoration"
 
 describe("supplier-neutral decoration normalization", () => {
+  it("retains every Stricker colour guide when authoritative options override flat sizes", () => {
+    const rows = [
+      { Reference: "99164-104", ColorDesc1: "Blue", Component1: "Umbrella", Location1: "Panel 1", Area1: "999 x 999", Area1Image: "99164_blue.png", TableCodes1: "PDP1-01", CustomizationTypes1: "Pad Printing" },
+      { Reference: "99164-123", ColorDesc1: "Light grey", Component1: "Umbrella", Location1: "Panel 1", Area1: "999 x 999", Area1Image: "99164_grey.png", TableCodes1: "PDP1-01", CustomizationTypes1: "Pad Printing" },
+      { Component: "Umbrella", Location: "Panel 1", TableCode: "PDP1-01", CustomizationTypeName: "Pad Printing", LocationMaxPrintingAreaMM: "200 x 120", TableMaxAreaCM: "20 x 12", AreaImage: "99164_generic.png" },
+    ]
+    const method = normalizeDecorationOptions(rows)[0]
+    expect(method.positions[0]).toMatchObject({ max_width_mm: 200, max_height_mm: 120, images: expect.arrayContaining([
+      { variant_sku: "99164-104", variant_color: "Blue", url: "99164_blue.png" },
+      { variant_sku: "99164-123", variant_color: "Light grey", url: "99164_grey.png" },
+    ]) })
+    expect(method.positions[0].size_options?.[0]).toMatchObject({ width_mm: 200, height_mm: 120 })
+  })
+
+  it("preserves exact SKU bindings for supplier-neutral printing images", () => {
+    const method = normalizeDecorationOptions([{ printing_positions: [{ position_id: "FRONT", images: [
+      { sku: "MO6783-03", variant_color: "03", print_position_image_with_area: "black.png" },
+      { sku: "MO6783-04", variant_color: "04", print_position_image_with_area: "blue.png" },
+    ], printing_techniques: [{ id: "S1", name: "Screen print" }] }] }])[0]
+    expect(method.positions[0].images).toEqual([
+      { variant_sku: "MO6783-03", variant_color: "03", url: "black.png" },
+      { variant_sku: "MO6783-04", variant_color: "04", url: "blue.png" },
+    ])
+  })
   it("accepts smaller artwork within a supplied print size and rejects oversized or invalid dimensions", () => {
     const method = { id: "WR7", name: "Digital", colour_mode: "full_colour" as const, price_breaks: [], positions: [] }
     const position = { id: "drum", name: "Around drum", max_width_mm: 200, max_height_mm: 120, size_options: [{ id: "drum:WR7", label: "165 × 120 mm", width_mm: 165, height_mm: 120 }] }
