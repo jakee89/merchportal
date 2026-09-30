@@ -47,7 +47,26 @@ describe("recoverable AI filter reviews", () => {
     const values = JSON.parse(body.input).values
     expect(values.map((item: any) => item.id)).toEqual([100, 101])
     expect(body.model).toBe("gpt-6.1-sol")
-    expect(body.reasoning.effort).toBe("medium")
+    expect(body.reasoning.effort).toBe("high")
+  })
+
+  it("uses broad shopping families and shared catalogue context rather than specification filters", () => {
+    const data = fixture().row().data
+    expect(facetReviewRequest("color", data).instructions).toContain("Sky Blue become Blue")
+    expect(facetReviewRequest("material", data).instructions).toContain("polyester/rPET variants become Polyester")
+    expect(facetReviewRequest("material", data).instructions).toContain("Preserve meaningful blends")
+    expect(JSON.parse(facetReviewRequest("material", data).input).catalogue_context).toHaveLength(102)
+    const category = facetReviewRequest("category", data)
+    expect(category.text.format.schema.properties.groups.items.required).toContain("parent_value")
+    expect(category.instructions).toContain("never assign broad Bags to Backpacks")
+  })
+
+  it("validates category parents and preserves compatibility with saved flat reviews", () => {
+    const group = { target_value: "Backpacks", parent_value: "Bags & Travel", reason: "Useful shopping department", option_ids: [0] }
+    expect(validateAiGroups({ groups: [group] }, 0, 1, "category")[0].target_value).toBe("Bags & Travel > Backpacks")
+    expect(validateAiGroups({ groups: [{ ...group, parent_value: null }] }, 0, 1, "category")[0].target_value).toBe("Backpacks")
+    expect(validateAiGroups({ groups: [{ target_value: "Bags", reason: "Existing review", option_ids: [0] }] }, 0, 1, "category")[0].target_value).toBe("Bags")
+    for (const parent_value of ["", "Backpacks", "Bags > Travel", "x".repeat(80), 42]) expect(() => validateAiGroups({ groups: [{ ...group, parent_value }] }, 0, 1, "category")).toThrow()
   })
 
   it("retries an overlong material label without discarding completed groups or advancing progress", async () => {

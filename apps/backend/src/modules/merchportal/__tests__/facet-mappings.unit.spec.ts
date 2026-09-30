@@ -1,6 +1,29 @@
 import { applyFacetMappings, facetMappingIndex, facetMappingOptions, saveFacetMappings } from "../facet-mappings"
+import { catalogFacets, matchesCatalogFilters, type CatalogFilters } from "../catalog-filtering"
+import { validateMappingGroups } from "../facet-tools"
 
 describe("supplier filter mappings", () => {
+  it("replaces supplier ancestors with approved parents and keeps separate category branches", () => {
+    const mappings = facetMappingIndex([
+      { supplier_id: "makito", facet_type: "category", source_value: "Backpacks", target_value: "Bags & Travel > Backpacks" },
+      { supplier_id: "makito", facet_type: "category", source_value: "Cool bags", target_value: "Outdoor & Leisure > Cooler bags" },
+    ])
+    const original = { name: "Cooler backpack", category: "Backpacks", category_hierarchy: ["Supplier bags", "Backpacks", "Cool bags"], category_paths: [["Supplier bags", "Backpacks"], ["Supplier outdoors", "Cool bags"]] }
+    const mapped = applyFacetMappings(original, "makito", mappings)
+    expect(mapped.category).toBe("Backpacks")
+    expect(mapped.category_paths).toEqual([["Bags & Travel", "Backpacks"], ["Outdoor & Leisure", "Cooler bags"]])
+    expect(mapped.category_hierarchy).toEqual(["Bags & Travel", "Backpacks", "Outdoor & Leisure", "Cooler bags"])
+    expect(original.category_hierarchy).toContain("Supplier bags")
+    const filters: CatalogFilters = { search: "", categories: [], colors: [], sizes: [], materials: [], brands: [], leadTimes: [], printMethods: [], inStock: false, outOfStock: false, sustainable: false }
+    for (const category of mapped.category_hierarchy) expect(matchesCatalogFilters(mapped, { ...filters, categories: [category] })).toBe(true)
+    expect(catalogFacets([mapped], filters).categories).toContainEqual({ value: "Bags & Travel", count: 1 })
+    expect(matchesCatalogFilters(mapped, { ...filters, categories: ["Supplier bags"] })).toBe(false)
+  })
+
+  it("rejects empty, repeated and over-deep paths before mapping writes", () => {
+    for (const target_value of ["Bags >", "Bags > Bags", "Products > Bags > Backpacks"]) expect(() => validateMappingGroups("category", [{ target_value, sources: [{ supplier_id: "makito", source_value: "Bags" }] }])).toThrow("Parent > Subcategory")
+    expect(() => validateMappingGroups("category", [{ target_value: "Bags & Travel > Backpacks", sources: [{ supplier_id: "makito", source_value: "Backpacks" }] }])).not.toThrow()
+  })
   it("maps colours and materials per supplier without changing source variants", () => {
     const mappings = facetMappingIndex([
       { supplier_id: "makito", facet_type: "color", source_value: "Marine", target_value: "Navy Blue" },

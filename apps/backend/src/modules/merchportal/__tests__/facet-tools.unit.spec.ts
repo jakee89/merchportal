@@ -100,7 +100,7 @@ describe("filter cleanup review", () => {
       const review = await startFacetReview({ resolve: () => service }, "admin", "material")
       expect(review.status).toBe("running")
       const request = JSON.parse((global.fetch as jest.Mock).mock.calls[0][1].body)
-      expect(request).toMatchObject({ model: "gpt-6.1-sol", reasoning: { effort: "medium" }, background: true, text: { format: { type: "json_schema", strict: true } } })
+      expect(request).toMatchObject({ model: "gpt-6.1-sol", reasoning: { effort: "high" }, background: true, text: { format: { type: "json_schema", strict: true } } })
       expect(service.createFacetMappings).not.toHaveBeenCalled()
       expect(JSON.stringify(review)).not.toContain("test-key")
     } finally { global.fetch = previousFetch; if (previousKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previousKey }

@@ -1,9 +1,11 @@
 import { Button, Container, Heading, Input, Text, toast } from "@medusajs/ui"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { selectProposal } from "./proposal-selection"
+import { categoryDraftParts, categoryDraftPath } from "./category-draft"
 
 type Source = { supplier_name: string; source_value: string; target_value?: string; samples?: Array<{ id: string; name: string }> }
 type Group = { id: number; target_value: string; reason: string; sources: Source[]; count: number; accepted: boolean }
-type Review = { id: string; status: string; progress: string; error?: string; groups: Group[]; usage?: { input_tokens: number; output_tokens: number } }
+type Review = { id: string; facet_type: string; status: string; progress: string; error?: string; groups: Group[]; usage?: { input_tokens: number; output_tokens: number } }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/admin/merchportal/facet-mappings/${path}`, { credentials: "include", ...init, headers: { "Content-Type": "application/json" } })
@@ -17,6 +19,7 @@ export default function AiReview({ type, supplierId, reviews, onChange }: { type
   const [key, setKey] = useState("")
   const [review, setReview] = useState<Review>()
   const [selected, setSelected] = useState<number[]>([])
+  const anchor = useRef<number | undefined>(undefined)
   const [targets, setTargets] = useState<Record<number, string>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -25,6 +28,7 @@ export default function AiReview({ type, supplierId, reviews, onChange }: { type
     const result = await api<{ review: Review }>(`reviews/${id}`)
     setReview(result.review)
     setSelected([])
+    anchor.current = undefined
     setTargets({})
     setError("")
   }
@@ -43,6 +47,7 @@ export default function AiReview({ type, supplierId, reviews, onChange }: { type
     setReview(result.review)
     setTargets({})
     setSelected([])
+    anchor.current = undefined
     await onChange()
   })
   const accept = () => run(async () => {
@@ -50,12 +55,21 @@ export default function AiReview({ type, supplierId, reviews, onChange }: { type
     const result = await api<{ review: Review }>(`reviews/${review.id}`, { method: "POST", body: JSON.stringify({ groups: selected.map((id) => ({ id, target_value: targets[id] ?? review.groups.find((group) => group.id === id)!.target_value })) }) })
     setReview(result.review)
     setSelected([])
+    anchor.current = undefined
     await onChange()
     toast.success("Approved filter groups applied")
   })
+  const available = review?.groups.filter((group) => !group.accepted).map((group) => group.id) || []
+  const toggle = (id: number, shift: boolean) => {
+    if (busy) return
+    const previousAnchor = anchor.current
+    setSelected((current) => selectProposal(current, available, id, previousAnchor, shift))
+    anchor.current = id
+  }
+  const categoryGroups = review?.facet_type === "category" ? [...new Set(review.groups.map((group) => (targets[group.id] ?? group.target_value).split(">")[0].trim()))].sort() : []
   return <Container>
     <Heading level="h2">AI filter cleanup</Heading>
-    <Text className="my-2 text-ui-fg-subtle">GPT-6.1 Sol · Medium reasoning. Reviews the selected filter type and supplier, including existing mappings. Only supplier labels and example product names are sent to OpenAI. API usage is billed to your OpenAI account. Invalid or truncated batches retry up to twice with fewer values; completed proposals stay saved. Review and edit proposed names before approving.</Text>
+    <Text className="my-2 text-ui-fg-subtle">GPT-6.1 Sol · High reasoning. Groups shades into useful colour families, technical compositions into recognisable materials, and categories into parent departments and subcategories. Uses existing maps, catalogue-wide label context and example product names; no prices or client details are sent. API usage is billed to your OpenAI account. Completed batches stay saved if a retry is needed. Nothing changes until you approve; detailed supplier product specifications stay unchanged.</Text>
     <div className="mb-3 flex flex-wrap gap-2"><Input className="max-w-md" type="password" autoComplete="off" aria-label="OpenAI API key" placeholder={configured ? "Replace saved OpenAI API key" : "OpenAI API key"} value={key} onChange={(event) => setKey(event.target.value)} /><Button variant="secondary" disabled={busy || !key.trim()} onClick={() => run(async () => { const result = await api<{ configured: boolean }>("ai-settings", { method: "POST", body: JSON.stringify({ api_key: key }) }); setConfigured(result.configured); setKey(""); toast.success("OpenAI key saved securely") })}>Save key</Button><Button disabled={busy || !configured || review?.status === "running"} onClick={start}>Generate proposals</Button></div>
     <div className="mb-3 flex flex-wrap gap-2">{reviews.map((item) => <Button key={item.id} size="small" variant="secondary" disabled={busy} onClick={() => run(() => open(item.id))}>Open {item.facet_type} review · {item.status}</Button>)}</div>
     {error && <Text className="text-ui-fg-error" role="alert">{error}</Text>}
@@ -63,8 +77,17 @@ export default function AiReview({ type, supplierId, reviews, onChange }: { type
     {review?.error && <Text className="text-ui-fg-error">{review.error}</Text>}
     {review?.status === "failed" && <div className="my-3 flex items-center gap-3"><Text>Completed proposals are saved · {review.progress}</Text><Button variant="secondary" disabled={busy} onClick={() => run(async () => { const result = await api<{ review: Review }>(`reviews/${review.id}`, { method: "POST", body: JSON.stringify({ resume: true }) }); setReview(result.review); await onChange() })}>Resume unfinished values</Button></div>}
     {review?.status === "ready" && <>
-      <div className="my-3 flex flex-wrap items-center gap-2"><Text>{review.groups.length} proposed filters · {review.progress} values reviewed</Text><Button size="small" variant="secondary" onClick={() => setSelected(review.groups.filter((group) => !group.accepted).map((group) => group.id))}>Select all proposals</Button><Button size="small" variant="secondary" onClick={() => setSelected([])}>Clear selection</Button><Button disabled={busy || !selected.length} onClick={accept}>Approve {selected.length} groups</Button></div>
-      <div className="max-h-[60vh] overflow-y-auto space-y-3">{review.groups.map((group) => <div key={group.id} className="rounded border p-3"><div className="flex items-center gap-3"><input type="checkbox" aria-label={`Approve ${group.target_value}`} disabled={group.accepted || busy} checked={selected.includes(group.id)} onChange={() => setSelected((current) => current.includes(group.id) ? current.filter((id) => id !== group.id) : [...current, group.id])} /><Input className="max-w-md" disabled={group.accepted} aria-label="Proposed filter name" maxLength={80} value={targets[group.id] ?? group.target_value} onChange={(event) => setTargets((current) => ({ ...current, [group.id]: event.target.value }))} /><Text>{group.sources.length} values · {group.count} product memberships{group.accepted ? " · Applied" : ""}</Text></div><Text className="my-2 text-ui-fg-subtle">{group.reason}</Text><details><summary className="cursor-pointer">Review values and example products</summary>{group.sources.map((source, index) => <div className="border-t py-2 text-sm" key={index}>{source.source_value} · {source.supplier_name}{source.target_value ? ` · currently → ${source.target_value}` : ""}<div>{source.samples?.map((sample) => <a className="mr-3 text-ui-fg-interactive" href={`/app/products/${sample.id}`} target="_blank" rel="noreferrer" key={sample.id}>{sample.name} ↗</a>)}</div></div>)}</details></div>)}</div>
+      <div className="my-3 flex flex-wrap items-center gap-2"><Text>{review.groups.length} proposed filters · {review.progress} values reviewed · {selected.length} selected</Text><Button size="small" variant="secondary" disabled={busy || !available.length} onClick={() => { setSelected(available); anchor.current = undefined }}>Select all proposals</Button><Button size="small" variant="secondary" disabled={busy} onClick={() => { setSelected([]); anchor.current = undefined }}>Clear selection</Button><Button disabled={busy || !selected.length} onClick={accept}>Approve {selected.length} groups</Button></div>
+      <Text className="mb-3 text-ui-fg-subtle">Click a checkbox or proposal text to select. Shift-click selects or clears a range. Applied proposals are excluded.</Text>
+      {categoryGroups.length > 0 && <details className="mb-3 rounded border p-3" open><summary className="font-medium">Category tree preview · {categoryGroups.length} parent departments</summary>{categoryGroups.map((parent) => {
+        const children = review.groups.filter((group) => (targets[group.id] ?? group.target_value).split(">")[0].trim() === parent)
+        return <div className="mt-3" key={parent}><div className="flex items-center gap-2"><Text weight="plus">{parent || "Unnamed parent"}</Text><Button size="small" variant="secondary" disabled={busy || !children.some((group) => !group.accepted)} onClick={() => { setSelected((current) => [...new Set([...current, ...children.filter((group) => !group.accepted).map((group) => group.id)])]); anchor.current = undefined }}>Select department</Button></div><ul className="ml-5 list-disc text-sm">{children.map((group) => <li key={group.id}>{(targets[group.id] ?? group.target_value).split(">")[1]?.trim() || "All items in this department"} · {group.sources.length} source labels{group.accepted ? " · Applied" : ""}</li>)}</ul></div>
+      })}</details>}
+      <div className="max-h-[60vh] overflow-y-auto space-y-3">{review.groups.map((group) => {
+        const [parent, child] = categoryDraftParts(targets[group.id] ?? group.target_value)
+        const editCategory = (parent: string, child: string) => setTargets((current) => ({ ...current, [group.id]: categoryDraftPath(parent, child) }))
+        return <div key={group.id} className={`rounded border p-3 ${selected.includes(group.id) ? "bg-ui-bg-highlight" : ""}`} onClick={(event) => { if (!(event.target as HTMLElement).closest("input, button, a, details, label")) toggle(group.id, event.shiftKey) }}><div className="flex flex-wrap items-center gap-3"><input type="checkbox" aria-label={`Approve ${group.target_value}`} disabled={group.accepted || busy} checked={selected.includes(group.id)} onClick={(event) => toggle(group.id, event.shiftKey)} onChange={() => {}} />{review.facet_type === "category" ? <><label className="text-sm">Parent department (optional)<Input disabled={group.accepted || busy} aria-label="Parent department" maxLength={80} placeholder="e.g. Bags & Travel" value={parent} onChange={(event) => editCategory(event.target.value, child)} /></label><label className="text-sm">Subcategory / standalone department<Input disabled={group.accepted || busy} aria-label="Subcategory" maxLength={80} value={child} onChange={(event) => editCategory(parent, event.target.value)} /></label></> : <Input className="max-w-md" disabled={group.accepted || busy} aria-label="Proposed filter name" maxLength={80} value={targets[group.id] ?? group.target_value} onChange={(event) => setTargets((current) => ({ ...current, [group.id]: event.target.value }))} />}<Text>{group.sources.length} values · {group.count} product memberships{group.accepted ? " · Applied" : ""}</Text></div><Text className="my-2 text-ui-fg-subtle">{group.reason}</Text><details><summary className="cursor-pointer">Review values and example products</summary>{group.sources.map((source, index) => <div className="border-t py-2 text-sm" key={index}>{source.source_value} · {source.supplier_name}{source.target_value ? ` · currently → ${source.target_value}` : ""}<div>{source.samples?.map((sample) => <a className="mr-3 text-ui-fg-interactive" href={`/app/products/${sample.id}`} target="_blank" rel="noreferrer" key={sample.id}>{sample.name} ↗</a>)}</div></div>)}</details></div>
+      })}</div>
       {review.usage && <Text className="mt-2 text-ui-fg-subtle">API tokens: {review.usage.input_tokens.toLocaleString()} input · {review.usage.output_tokens.toLocaleString()} output</Text>}
     </>}
   </Container>

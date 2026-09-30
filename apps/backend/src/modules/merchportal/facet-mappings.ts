@@ -1,10 +1,17 @@
 import { colorLabel } from "./catalog-filtering"
+import { MedusaError } from "@medusajs/framework/utils"
 import { makitoDocumentCategories } from "./makito-categories"
 
 export type FacetType = "color" | "material" | "category" | "print_method"
 export const facetTypes: FacetType[] = ["color", "material", "category", "print_method"]
 export type FacetOption = { supplier_id: string; supplier_name: string; facet_type: FacetType; source_value: string; target_value?: string; count: number; samples: Array<{ id: string; name: string }>; first_seen_at?: string; new_since_import?: boolean }
 export type FacetMappingInput = { supplier_id: string; facet_type: FacetType; source_value: string; target_value: string }
+
+export function categoryFilterPath(value: string) {
+  const levels = value.split(">").map((level) => level.trim())
+  if (!value.trim() || value.length > 80 || levels.length > 2 || levels.some((level) => !level) || new Set(levels.map((level) => level.toLocaleLowerCase())).size !== levels.length) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Use a category name or Parent > Subcategory, up to 80 characters")
+  return levels
+}
 
 export async function listAllFacetMappings(service: any) {
   const mappings: any[] = []
@@ -33,7 +40,7 @@ export function facetMappingIndex(mappings: FacetMappingInput[]) {
   return new Map(mappings.map((item) => [key(item.supplier_id, item.facet_type, item.source_value), item.target_value]))
 }
 
-export function applyFacetMappings<T extends { category?: string; category_hierarchy?: string[]; print_methods?: string[]; materials?: string[]; colors?: string[]; color_options?: Array<{ name: string }>; filter_variants?: Array<{ color?: string; color_group?: string }> }>(
+export function applyFacetMappings<T extends { category?: string; category_hierarchy?: string[]; category_paths?: string[][]; print_methods?: string[]; materials?: string[]; colors?: string[]; color_options?: Array<{ name: string }>; filter_variants?: Array<{ color?: string; color_group?: string }> }>(
   product: T,
   supplierId: string,
   mappings: Map<string, string>,
@@ -42,10 +49,19 @@ export function applyFacetMappings<T extends { category?: string; category_hiera
   const mapColor = (value: string) => mapValue("color", value) === value
     ? mapValue("color", colorLabel(value))
     : mapValue("color", value)
+  const originalPaths = product.category_paths?.length ? product.category_paths : [product.category_hierarchy?.length ? product.category_hierarchy : [product.category || ""].filter(Boolean)]
+  const hasCategoryPaths = originalPaths.flat().some((value) => mappings.get(key(supplierId, "category", value))?.includes(">"))
+  const categoryPaths = hasCategoryPaths ? originalPaths.map((path) => {
+    // The most specific mapped child owns its new parents, not its old supplier ancestors.
+    const explicit = [...path].reverse().map((value) => mapValue("category", value)).find((value) => value.includes(">"))
+    // Historical maps may have deeper paths; validate new writes, not old catalogue reads.
+    return explicit ? [...new Set(explicit.split(">").map((level) => level.trim()).filter(Boolean))] : [...new Set(path.map((value) => mapValue("category", value)))]
+  }) : undefined
   return {
     ...product,
-    category: product.category ? mapValue("category", product.category) : product.category,
-    category_hierarchy: product.category_hierarchy?.map((value) => mapValue("category", value)).filter((value, index, all) => all.indexOf(value) === index),
+    category: categoryPaths?.[0]?.at(-1) || (product.category ? mapValue("category", product.category) : product.category),
+    category_hierarchy: categoryPaths ? [...new Set(categoryPaths.flat())] : product.category_hierarchy?.map((value) => mapValue("category", value)).filter((value, index, all) => all.indexOf(value) === index),
+    ...(categoryPaths ? { category_paths: categoryPaths } : {}),
     print_methods: product.print_methods?.map((value) => mapValue("print_method", value)).filter((value, index, all) => all.indexOf(value) === index),
     materials: product.materials?.map((value) => mapValue("material", value)).filter((value, index, all) => all.indexOf(value) === index),
     colors: product.colors?.map(mapColor),
@@ -63,6 +79,7 @@ export async function saveFacetMappings(service: any, input: { facet_type: Facet
   if (!target || target.length > 80 || !values.length || values.length > 100 || values.some((item) => !item.supplier_id || !item.source_value || item.source_value.length > 160) || !facetTypes.includes(input.facet_type)) {
     throw new Error("Choose 1–100 values and enter a target name of up to 80 characters")
   }
+  if (input.facet_type === "category") categoryFilterPath(target)
   const suppliers = await service.listSuppliers({})
   if (values.some((item) => !suppliers.some((supplier: any) => supplier.id === item.supplier_id))) throw new Error("Supplier not found")
   const existing = await service.listFacetMappings({ facet_type: input.facet_type }, { take: 5000 })

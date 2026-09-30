@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { ContainerRegistrationKeys, MedusaError } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "."
 import { clearPortalCatalogCache } from "./catalog-cache"
-import { documentFacetValues, facetMappingOptions, facetTypes, type FacetType, type FacetOption } from "./facet-mappings"
+import { categoryFilterPath, documentFacetValues, facetMappingOptions, facetTypes, type FacetType, type FacetOption } from "./facet-mappings"
 
 export type MappingSource = { supplier_id: string; source_value: string }
 export type MappingGroup = { target_value: string | null; sources: MappingSource[] }
@@ -14,6 +14,9 @@ export function validateMappingGroups(type: FacetType, groups: MappingGroup[]) {
   let count = 0
   for (const group of groups) {
     if ((group.target_value !== null && (typeof group.target_value !== "string" || !group.target_value.trim() || group.target_value.length > 80)) || !Array.isArray(group.sources) || !group.sources.length) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Enter a filter name of up to 80 characters")
+    if (type === "category" && group.target_value !== null) {
+      try { categoryFilterPath(group.target_value) } catch (error) { throw new MedusaError(MedusaError.Types.INVALID_DATA, (error as Error).message) }
+    }
     for (const source of group.sources) {
       if (typeof source?.supplier_id !== "string" || !source.supplier_id || typeof source.source_value !== "string" || !source.source_value.trim() || source.source_value.length > 160) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Invalid supplier value")
       const key = facetSourceKey(type, source)
