@@ -25,12 +25,12 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
   const revision = await catalogRevision(req.scope)
   const [{ data }, sources, metadata] = await Promise.all([
-    portalReadCache.get(`product:${revision.source}:${req.params.id}`, 30_000, () => query.graph({
+    portalReadCache.get(`product:${revision.source}:${req.params.id}`, 5 * 60_000, () => query.graph({
     entity: "product",
     fields: ["id", "title", "description", "thumbnail", "images.url", "status", "categories.name", "sales_channels.name", "variants.id", "variants.title", "variants.sku", "variants.inventory_quantity", "variants.prices.amount", "variants.prices.currency_code", "variants.options.value", "variants.options.option.title"],
     filters: { id: req.params.id, status: ProductStatus.PUBLISHED },
     })),
-    portalReadCache.get(`product-source:${revision.source}:${req.params.id}`, 30_000, () => service.listPublishedProductSources({ product_id: req.params.id }, { take: 1 })) as Promise<any[]>,
+    portalReadCache.get(`product-source:${revision.source}:${req.params.id}`, 5 * 60_000, () => service.listPublishedProductSources({ product_id: req.params.id }, { take: 1 })) as Promise<any[]>,
     catalogMetadata(service, revision.settings),
   ])
   const product = data[0]

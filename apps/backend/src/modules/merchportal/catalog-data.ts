@@ -18,7 +18,7 @@ export async function catalogRevision(container: any): Promise<{ source: string;
 }
 
 export async function catalogMetadata(service: any, revision: string) {
-  return portalReadCache.get(`catalog-metadata:${revision}`, 60_000, async () => {
+  return portalReadCache.get(`catalog-metadata:${revision}`, 60 * 60_000, async () => {
     const [rules, suppliers, facetMappings] = await Promise.all([
       service.listPricingRules({ status: "active" }),
       service.listSuppliers({}),
@@ -29,7 +29,7 @@ export async function catalogMetadata(service: any, revision: string) {
 }
 
 export async function catalogSources(container: any, revision: string): Promise<any[]> {
-  return portalSourceCache.get(`catalog-sources:${revision}`, 10 * 60_000, async () => {
+  return portalSourceCache.get(`catalog-sources:${revision}`, 60 * 60_000, async () => {
     const knex = container.resolve(ContainerRegistrationKeys.PG_CONNECTION) as any
     return knex("merchportal_published_product_source")
       .select("id", "product_id", "supplier_id", "catalog_preview", "cost_by_sku")

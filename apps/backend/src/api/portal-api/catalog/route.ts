@@ -1,15 +1,12 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
-import { ContainerRegistrationKeys, ProductStatus } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
-import { lowestPlainProductPrice, plainProductPriceBreaks } from "../../../modules/merchportal/plain-pricing"
 import { cachePortalCatalogFacets, cachePortalCatalogResponse, portalCatalogFacetCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
-import { catalogCodeMatches, catalogFacets, catalogSearchText, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
-import { makitoDocumentCategories } from "../../../modules/merchportal/makito-categories"
-import { applyFacetMappings, facetMappingIndex } from "../../../modules/merchportal/facet-mappings"
+import { catalogCodeMatches, catalogFacets, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 import { catalogSearchScores } from "../../../modules/merchportal/catalog-search"
 import { compareSupplierPriority } from "../../../modules/merchportal/supplier-priority"
-import { catalogMetadata, catalogRevision, catalogSources } from "../../../modules/merchportal/catalog-data"
-import { portalPreparedCatalogCache, portalReadCache } from "../../../modules/merchportal/read-cache"
+import { catalogMetadata, catalogRevision } from "../../../modules/merchportal/catalog-data"
+import { portalReadCache } from "../../../modules/merchportal/read-cache"
+import { preparedCatalog } from "../../../modules/merchportal/catalog-prepared"
 import { catalogCandidates } from "../../../modules/merchportal/catalog-index"
 
 function queryText(value: unknown) {
@@ -45,148 +42,18 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   }
 
   const revision = await catalogRevision(req.scope)
-  const { rules, suppliers, facetMappings } = await catalogMetadata(service, revision.settings)
-  const metadataMs = performance.now() - started
-  const mappingIndex = facetMappingIndex(facetMappings)
-  const rulesByScope = new Map<string, any>(rules.map((rule: any) => [rule.scope_key, rule]))
-  const supplierCodes = new Map<string, string>(suppliers.map((supplier: any) => [supplier.id, supplier.code]))
-  const supplierPriorities = new Map<string, number>(suppliers.map((supplier: any) => [supplier.id, supplier.catalog_priority]))
-  const ruleForSource = (source: any) => rulesByScope.get(`organization:${membership[0].organization_id}`) || rulesByScope.get(`supplier:${supplierCodes.get(source?.supplier_id)}`) || rulesByScope.get("global")
   const cacheKey = `${membership[0].organization_id}:${revision.source}:${revision.settings}`
   removeExpiredPortalCatalogCacheEntries()
-  const safeProducts: any[] = await portalPreparedCatalogCache.get(cacheKey, 10 * 60_000, async () => {
-    let safeProducts: any[]
-    const indexedSources = await catalogSources(req.scope, revision.source)
-    const indexed = indexedSources.filter((source: any) => source.catalog_preview)
-    if (indexed.length && indexed.length === indexedSources.length) {
-      safeProducts = indexed.map((source: any) => {
-        const document = source.catalog_preview as any
-        const makitoCategories = supplierCodes.get(source.supplier_id) === "makito" ? makitoDocumentCategories(document) : null
-        const costs = (source.cost_by_sku || {}) as Record<string, number>
-        const rule = ruleForSource(source)
-        const variants = (document.variants || []).map((variant: any) => {
-          const cost = variant.sku && costs[variant.sku] !== undefined ? Number(costs[variant.sku]) : undefined
-          const price_breaks = plainProductPriceBreaks(cost, variant.price_breaks, rule)
-          const lowest = lowestPlainProductPrice(price_breaks)
-          return {
-            ...variant,
-            price_eur: lowest?.price_eur,
-            price_from_quantity: lowest?.quantity,
-            has_price_tiers: price_breaks.length > 1,
-          }
-        })
-        const prices = variants.map((variant: any) => variant.price_eur).filter(Number.isFinite)
-        const lowestVariant = variants.find((variant: any) => variant.price_eur === Math.min(...prices))
-        return {
-          id: document.id,
-          supplier_id: source.supplier_id,
-          supplier_code: supplierCodes.get(source.supplier_id),
-          name: document.name,
-          description: document.short_description || document.description,
-          sku: variants[0]?.sku,
-          image_url: document.image_url,
-          category: makitoCategories?.primary.at(-1) || document.category,
-          category_hierarchy: makitoCategories?.levels.length ? makitoCategories.levels : document.category_hierarchy || [document.category].filter(Boolean),
-          colors: document.colors || [],
-          materials: document.materials || [],
-          brand: document.brand,
-          lead_time: document.lead_time,
-          sustainable: Boolean(document.sustainable),
-          print_methods: document.print_methods || [],
-          keywords: document.keywords || [],
-          price_eur: prices.length ? Math.min(...prices) : undefined,
-          price_from_quantity: lowestVariant?.price_from_quantity,
-          has_price_tiers: lowestVariant?.has_price_tiers,
-          max_price_eur: prices.length ? Math.max(...prices) : undefined,
-          stock_quantity: document.stock_quantity,
-          color_option_count: new Set(variants.map((variant: any) => variant.color).filter(Boolean)).size,
-          color_options: variants.filter((variant: any) => variant.color).map((variant: any) => ({ name: variant.color, color_hex: variant.color_hex, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, price_from_quantity: variant.price_from_quantity, has_price_tiers: variant.has_price_tiers, stock_quantity: variant.stock_quantity, next_arrival: variant.future_stock?.[0] })),
-          filter_variants: variants.map((variant: any) => ({ sku: variant.sku, color: variant.color, color_group: variant.color_group, size: variant.size, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })),
-        }
-      })
-    } else {
-      const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
-      const { data } = await query.graph({
-        entity: "product",
-        fields: ["id", "title", "description", "thumbnail", "external_id", "images.url", "categories.name", "sales_channels.name", "variants.id", "variants.title", "variants.sku", "variants.inventory_quantity", "variants.prices.amount", "variants.prices.currency_code", "variants.options.value", "variants.options.option.title"],
-        filters: { status: ProductStatus.PUBLISHED },
-        pagination: { take: 50000 },
-      })
-      const nativeProducts = data.filter((product: any) => product.external_id?.startsWith("mp_") && product.sales_channels?.some((channel: any) => channel.name === "MerchPortal Malta"))
-      const sources = nativeProducts.length
-        ? await service.listPublishedProductSources({
-            product_id: nativeProducts.map((product: any) => product.id),
-          })
-        : []
-      const sourceByProduct = new Map<string, any>(sources.map((source: any) => [source.product_id, source]))
-      safeProducts = nativeProducts.map((product: any) => {
-        const source = sourceByProduct.get(product.id)
-        const rule = ruleForSource(source)
-        const document = source?.catalog_document || {}
-        const makitoCategories = supplierCodes.get(source?.supplier_id) === "makito" ? makitoDocumentCategories(document) : null
-        const costs = (source?.cost_by_sku || {}) as Record<string, number>
-        const variants = (product.variants || []).map((variant: any) => {
-          const nativePrice = (variant.prices || []).find((price: any) => price.currency_code === "eur")?.amount
-          const fallbackPrice = Number(nativePrice)
-          const cost = variant.sku ? Number(costs[variant.sku]) : undefined
-          const colors = (variant.options || []).filter((option: any) => option.option?.title === "Color").map((option: any) => option.value)
-          const indexedVariant = (document.variants || []).find((item: any) => item.sku === variant.sku)
-          const priceBreaks = plainProductPriceBreaks(Number.isFinite(cost) ? cost : undefined, indexedVariant?.price_breaks, rule)
-          const lowest = lowestPlainProductPrice(priceBreaks)
-          return {
-            id: variant.id,
-            title: variant.title,
-            sku: variant.sku,
-            stock_quantity: Number.isFinite(indexedVariant?.stock_quantity) ? indexedVariant.stock_quantity : variant.inventory_quantity,
-            future_stock: indexedVariant?.future_stock || [],
-            price_eur: lowest?.price_eur ?? (Number.isFinite(fallbackPrice) ? fallbackPrice : undefined),
-            price_from_quantity: lowest?.quantity,
-            has_price_tiers: priceBreaks.length > 1,
-            colors,
-            color: indexedVariant?.color || colors[0],
-            color_group: indexedVariant?.color_group,
-            size: indexedVariant?.size,
-            color_hex: indexedVariant?.color_hex,
-            images: indexedVariant?.images || [],
-          }
-        })
-        const prices = variants.map((variant: any) => variant.price_eur).filter(Number.isFinite)
-        const lowestVariant = variants.find((variant: any) => variant.price_eur === Math.min(...prices))
-        const stock = variants.map((variant: any) => Number(variant.stock_quantity)).filter(Number.isFinite)
-        return {
-          id: product.id,
-          supplier_id: source?.supplier_id,
-          supplier_code: supplierCodes.get(source?.supplier_id),
-          name: product.title,
-          description: source?.catalog_document?.short_description || product.description,
-          sku: variants[0]?.sku,
-          image_url: product.thumbnail || product.images?.[0]?.url || null,
-          category: makitoCategories?.primary.at(-1) || product.categories?.[0]?.name,
-          category_hierarchy: makitoCategories?.levels.length ? makitoCategories.levels : document.category_hierarchy || [product.categories?.[0]?.name].filter(Boolean),
-          colors: [...new Set(variants.map((variant: any) => variant.color_group || variant.color).filter(Boolean))],
-          materials: document.materials || [],
-          brand: document.brand,
-          keywords: document.keywords || [],
-          filter_variants: variants.map((variant: any) => ({ sku: variant.sku, color: variant.color, color_group: variant.color_group, size: variant.size, price_eur: variant.price_eur, stock_quantity: variant.stock_quantity })),
-          color_option_count: new Set(variants.map((variant: any) => variant.color).filter(Boolean)).size,
-          color_options: variants.filter((variant: any) => variant.color).map((variant: any) => ({ name: variant.color, color_hex: variant.color_hex, image_url: variant.images?.[0], sku: variant.sku, price_eur: variant.price_eur, price_from_quantity: variant.price_from_quantity, has_price_tiers: variant.has_price_tiers, stock_quantity: variant.stock_quantity, next_arrival: variant.future_stock?.[0] })),
-          price_eur: prices.length ? Math.min(...prices) : undefined,
-          price_from_quantity: lowestVariant?.price_from_quantity,
-          has_price_tiers: lowestVariant?.has_price_tiers,
-          stock_quantity: stock.length ? stock.reduce((total: number, amount: number) => total + amount, 0) : undefined,
-          lead_time: source?.lead_time || undefined,
-          sustainable: Boolean(source?.sustainable),
-          print_methods: Array.isArray(source?.print_methods) ? source.print_methods : [],
-        }
-      })
-    }
-
-    safeProducts = safeProducts.map((product) => {
-      const mapped = product.supplier_id ? applyFacetMappings(product, product.supplier_id, mappingIndex) : product
-      return { ...mapped, search_text: catalogSearchText(mapped) }
-    })
-    return safeProducts
-  })
+  const responseKey = `${cacheKey}:${JSON.stringify(req.query)}`
+  const cachedResponse = portalCatalogResponseCache.get(responseKey)
+  if (cachedResponse && cachedResponse.expires > Date.now()) {
+    res.setHeader("Server-Timing", `total;dur=${(performance.now() - started).toFixed(1)}`)
+    return res.json(cachedResponse.response)
+  }
+  const { suppliers } = await catalogMetadata(service, revision.settings)
+  const metadataMs = performance.now() - started
+  const supplierPriorities = new Map<string, number>(suppliers.map((supplier: any) => [supplier.id, supplier.catalog_priority]))
+  const safeProducts = await preparedCatalog(req.scope, service, membership[0].organization_id, revision)
   const filters: CatalogFilters = {
     search: queryText(req.query.q),
     categories: queryValues(req.query.category),
@@ -203,12 +70,6 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     sustainable: req.query.sustainable === "true",
   }
   const catalogMs = performance.now() - started - metadataMs
-  const responseKey = `${cacheKey}:${JSON.stringify(req.query)}`
-  const cachedResponse = portalCatalogResponseCache.get(responseKey)
-  if (cachedResponse && cachedResponse.expires > Date.now()) {
-    res.setHeader("Server-Timing", `metadata;dur=${metadataMs.toFixed(1)},catalog;dur=${catalogMs.toFixed(1)},total;dur=${(performance.now() - started).toFixed(1)}`)
-    return res.json(cachedResponse.response)
-  }
   let searchScores: Map<string, number> | undefined
   if (filters.search) {
     const codeMatches = catalogCodeMatches(safeProducts, filters.search)
@@ -224,11 +85,19 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   }
   const facetKey = `${cacheKey}:${JSON.stringify({ ...filters, searchMatches: undefined })}:${searchScores ? "indexed" : "literal"}`
   const cachedFacets = portalCatalogFacetCache.get(facetKey)
-  const facets = cachedFacets && cachedFacets.expires > Date.now()
+  const facets = req.query.view === "products" ? undefined : cachedFacets && cachedFacets.expires > Date.now()
     ? cachedFacets.facets
-    : catalogFacets(catalogCandidates(safeProducts, filters, true), filters)
-  if (!cachedFacets || cachedFacets.expires <= Date.now()) cachePortalCatalogFacets(facetKey, facets)
+    : await portalReadCache.get(`facets:${facetKey}`, 10 * 60_000, async () => catalogFacets(catalogCandidates(safeProducts, filters, true), filters))
+  if (facets && (!cachedFacets || cachedFacets.expires <= Date.now())) cachePortalCatalogFacets(facetKey, facets)
   const facetsMs = performance.now() - started - metadataMs - catalogMs
+  if (req.query.view === "facets") {
+    const response = { facets: req.query.compact === "true"
+      ? Object.fromEntries(Object.entries(facets!).map(([key, value]) => [key, Array.isArray(value) ? value.map((item: any) => [item.value, item.count]) : value]))
+      : facets }
+    cachePortalCatalogResponse(responseKey, response)
+    res.setHeader("Server-Timing", `metadata;dur=${metadataMs.toFixed(1)},catalog;dur=${catalogMs.toFixed(1)},facets;dur=${facetsMs.toFixed(1)},total;dur=${(performance.now() - started).toFixed(1)}`)
+    return res.json(response)
+  }
   const filtered = catalogCandidates(safeProducts, filters).filter((product) => matchesCatalogFilters(product, filters)) as any[]
   const sort = queryText(req.query.sort)
   const sortedPrices = sort === "price_asc" || sort === "price_desc"
@@ -269,11 +138,14 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
       seenColors.add(color)
       return true
     }).slice(0, 12)
-    return { ...product, color_options: options }
+    if (req.query.compact !== "true") return { ...product, color_options: options }
+    // Only fields rendered by CatalogCard. Search/filter metadata stays server-side.
+    const { id, supplier_code, name, description, sku, image_url, category, brand, sustainable, price_eur, price_from_quantity, has_price_tiers, stock_quantity, color_option_count } = product
+    return { id, supplier_code, name, description, sku, image_url, category, brand, sustainable, price_eur, price_from_quantity, has_price_tiers, stock_quantity, color_option_count, color_options: options }
   })
   const response = {
     products,
-    facets,
+    ...(facets ? { facets } : {}),
     total: filtered.length,
     page,
     page_size: pageSize,

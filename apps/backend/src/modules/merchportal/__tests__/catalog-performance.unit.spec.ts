@@ -7,6 +7,7 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { catalogRevision, catalogSources } from "../catalog-data"
 import { clearPortalCatalogCache } from "../catalog-cache"
 import { relatedProductSources } from "../related-products"
+import { warmActiveCatalogs } from "../catalog-prepared"
 
 const makeSource = (id: string, supplier: string, sku: string, cost: number) => ({
   id: `source-${id}`, product_id: id, supplier_id: supplier, cost_by_sku: { [sku]: cost },
@@ -73,6 +74,42 @@ describe("read-only performance paths", () => {
     await catalogGet(request("company-a", { q: "92147" }) as any, changed as any)
     expect(changed.json.mock.calls[0][0].products[0].price_eur).toBe(36)
     expect(service.listPricingRules).toHaveBeenCalledTimes(2)
+  })
+
+  it("returns identical cards and filter counts through the split compact endpoints", async () => {
+    const combined = response()
+    const products = response()
+    const facets = response()
+    await catalogGet(request("company-a", { color: "Black" }) as any, combined as any)
+    await catalogGet(request("company-a", { color: "Black", view: "products", compact: "true" }) as any, products as any)
+    await catalogGet(request("company-a", { color: "Black", view: "facets", compact: "true" }) as any, facets as any)
+    const full = combined.json.mock.calls[0][0]
+    const cards = products.json.mock.calls[0][0]
+    expect(cards.facets).toBeUndefined()
+    expect(cards.total).toBe(full.total)
+    expect(cards.products.map((item: any) => [item.id, item.price_eur, item.price_from_quantity, item.color_options, item.stock_quantity, item.description])).toEqual(full.products.map((item: any) => [item.id, item.price_eur, item.price_from_quantity, item.color_options, item.stock_quantity, item.description]))
+    expect(cards.products[0].keywords).toBeUndefined()
+    const compact = facets.json.mock.calls[0][0].facets
+    expect(compact.categories.map(([value, count]: [string, number]) => ({ value, count }))).toEqual(full.facets.categories)
+    expect(compact.colors.map(([value, count]: [string, number]) => ({ value, count }))).toEqual(full.facets.colors)
+    expect(compact.availability).toEqual(full.facets.availability)
+    expect(JSON.stringify(cards).length).toBeLessThan(JSON.stringify(full).length)
+  })
+
+  it("warms changed company prices without serving a different company's markup", async () => {
+    await catalogGet(request("company-a") as any, response() as any)
+    jest.mocked(catalogRevision).mockResolvedValue({ source: "s1", settings: "r2" })
+    service.listPricingRules.mockResolvedValue([{ scope_key: "organization:company-a", markup_percentage: 40 }, { scope_key: "organization:company-b", markup_percentage: 50 }])
+    await warmActiveCatalogs()
+    const a = response()
+    const b = response()
+    await catalogGet(request("company-a", { view: "products" }) as any, a as any)
+    await catalogGet(request("company-b", { view: "products" }) as any, b as any)
+    expect(a.json.mock.calls[0][0].products[1].price_eur).toBe(14)
+    expect(b.json.mock.calls[0][0].products[1].price_eur).toBe(15)
+    const revoked = response()
+    await catalogGet(request("revoked", { view: "facets" }) as any, revoked as any)
+    expect(revoked.status).toHaveBeenCalledWith(403)
   })
 
   it("keeps detail pricing company-specific even when sharing raw product and decoration reads", async () => {

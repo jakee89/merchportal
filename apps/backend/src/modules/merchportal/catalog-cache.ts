@@ -23,12 +23,12 @@ export function removeExpiredPortalCatalogCacheEntries() {
 
 export function cachePortalCatalogResponse(key: string, response: Record<string, unknown>) {
   if (portalCatalogResponseCache.size >= 100) portalCatalogResponseCache.delete(portalCatalogResponseCache.keys().next().value!)
-  portalCatalogResponseCache.set(key, { expires: Date.now() + 30_000, response })
+  portalCatalogResponseCache.set(key, { expires: Date.now() + 5 * 60_000, response })
 }
 
 export function cachePortalCatalogFacets(key: string, facets: Record<string, unknown>) {
   if (portalCatalogFacetCache.size >= 100) portalCatalogFacetCache.delete(portalCatalogFacetCache.keys().next().value!)
-  portalCatalogFacetCache.set(key, { expires: Date.now() + 60_000, facets })
+  portalCatalogFacetCache.set(key, { expires: Date.now() + 10 * 60_000, facets })
 }
 
 export function clearPortalCatalogCache() {

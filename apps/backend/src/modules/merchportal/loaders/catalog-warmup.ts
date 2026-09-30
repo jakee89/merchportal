@@ -1,6 +1,7 @@
 import type { LoaderOptions } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { catalogRevision, catalogSources } from "../catalog-data"
+import { warmActiveCatalogs } from "../catalog-prepared"
 
 export default async function catalogWarmup({ container }: LoaderOptions) {
   if (process.env.NODE_ENV !== "production" || process.env.MEDUSA_WORKER_MODE === "worker") return
@@ -14,6 +15,7 @@ export default async function catalogWarmup({ container }: LoaderOptions) {
     try {
       const revision = await catalogRevision(scope)
       await catalogSources(scope, revision.source)
+      await warmActiveCatalogs()
     } catch {
       // Warm-up is optional and must never prevent startup, migrations or sign-in.
       container.resolve(ContainerRegistrationKeys.LOGGER).warn("Catalogue warm-up unavailable; requests will load it on demand")

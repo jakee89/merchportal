@@ -5,14 +5,15 @@ import { useRouter } from "next/navigation"
 import { useEffect, useRef, useState, useTransition } from "react"
 import styles from "../../portal-shell.module.css"
 
-type Facet = { value: string; count: number }
-type Facets = { categories: Facet[]; colors: Facet[]; sizes: Facet[]; materials: Facet[]; brands: Facet[]; lead_times: Facet[]; print_methods: Facet[]; availability: { in_stock: number; out_of_stock: number; sustainable: number } }
+type Facet = [value: string, count: number]
+export type Facets = { categories: Facet[]; colors: Facet[]; sizes: Facet[]; materials: Facet[]; brands: Facet[]; lead_times: Facet[]; print_methods: Facet[]; availability: { in_stock: number; out_of_stock: number; sustainable: number } }
 
 export default function CatalogFilters({ facets, selected, activeCount, clearHref }: { facets: Facets; selected: Record<string, string[]>; activeCount: number; clearHref: string }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [localSelected, setLocalSelected] = useState(selected)
   const [optionSearch, setOptionSearch] = useState<Record<string, string>>({})
+  const [visibleOptions, setVisibleOptions] = useState<Record<string, number>>({})
   const [pending, startTransition] = useTransition()
   const pendingQuery = useRef<URLSearchParams | null>(null)
   const priceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
@@ -55,8 +56,14 @@ export default function CatalogFilters({ facets, selected, activeCount, clearHre
   }
   const group = (title: string, name: string, items: Facet[]) => items.length ? <fieldset className={styles.facetGroup}>
     <legend>{title}</legend>
-    {items.length > 10 && <input className={styles.facetSearch} type="search" aria-label={`Find ${title.toLowerCase()}`} placeholder={`Find ${title.toLowerCase()}…`} value={optionSearch[name] || ""} onChange={(event) => setOptionSearch((current) => ({ ...current, [name]: event.target.value }))} />}
-    <div className={styles.facetOptions}>{items.filter((item) => item.value.toLocaleLowerCase().includes((optionSearch[name] || "").toLocaleLowerCase())).map((item) => <label key={item.value}><input type="checkbox" checked={localSelected[name]?.includes(item.value) || false} onChange={(event) => choose(name, item.value, event.target.checked)} /><span>{item.value}</span><small>{item.count.toLocaleString()}</small></label>)}</div>
+    {items.length > 10 && <input className={styles.facetSearch} type="search" aria-label={`Find ${title.toLowerCase()}`} placeholder={`Find ${title.toLowerCase()}…`} value={optionSearch[name] || ""} onChange={(event) => {
+      setOptionSearch((current) => ({ ...current, [name]: event.target.value }))
+      setVisibleOptions((current) => ({ ...current, [name]: 40 }))
+    }} />}
+    <div className={styles.facetOptions} onScroll={(event) => {
+      const element = event.currentTarget
+      if (element.scrollHeight - element.scrollTop - element.clientHeight < 100) setVisibleOptions((current) => ({ ...current, [name]: Math.min(items.length, (current[name] || 40) + 40) }))
+    }}>{items.filter(([value]) => value.toLocaleLowerCase().includes((optionSearch[name] || "").toLocaleLowerCase())).slice(0, visibleOptions[name] || 40).map(([value, count]) => <label key={value}><input type="checkbox" checked={localSelected[name]?.includes(value) || false} onChange={(event) => choose(name, value, event.target.checked)} /><span>{value}</span><small>{count.toLocaleString()}</small></label>)}</div>
   </fieldset> : null
   return <aside className={styles.filterColumn}>
     <button className={styles.mobileFilterButton} type="button" aria-expanded={open} onClick={() => setOpen(!open)}>Filters{activeCount ? ` (${activeCount})` : ""}</button>

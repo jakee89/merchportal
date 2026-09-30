@@ -7,18 +7,24 @@ import { getAuthHeaders } from "@lib/data/cookies"
 import { retrieveCustomer } from "@lib/data/customer"
 import styles from "../../portal-shell.module.css"
 import CatalogCard, { type CatalogProduct } from "./catalog-card"
-import CatalogFilters from "./catalog-filters"
+import CatalogFilters, { type Facets } from "./catalog-filters"
 import QuoteCartLink from "./quote-cart-link"
 
 type PortalMe = { membership: { role: string } | null; organization: { name: string; primary_color: string } | null }
-type Facet = { value: string; count: number }
-type Facets = { categories: Facet[]; colors: Facet[]; sizes: Facet[]; materials: Facet[]; brands: Facet[]; lead_times: Facet[]; print_methods: Facet[]; availability: { in_stock: number; out_of_stock: number; sustainable: number } }
 type Search = Record<string, string | string[] | undefined>
 type CatalogResponse = { products: CatalogProduct[]; facets: Facets; total: number; page: number; page_size: number; page_count: number }
 const filterKeys = ["category", "color", "size", "material", "brand", "lead_time", "print_method", "min_price", "max_price", "in_stock", "out_of_stock", "sustainable"]
 
 function values(input: string | string[] | undefined) {
   return (Array.isArray(input) ? input : input ? [input] : []).filter(Boolean)
+}
+
+async function StreamedFilters({ query, headers, selected, activeCount, clearHref }: { query: string; headers: Record<string, string>; selected: Record<string, string[]>; activeCount: number; clearHref: string }) {
+  const filters = new URLSearchParams(query)
+  filters.delete("page")
+  filters.delete("sort")
+  const result = await sdk.client.fetch<{ facets: Facets }>(`/portal-api/catalog?${filters}&view=facets&compact=true`, { headers, cache: "no-store" })
+  return <CatalogFilters facets={result.facets} selected={selected} activeCount={activeCount} clearHref={clearHref} />
 }
 
 export default async function AccountPage({ searchParams }: { searchParams: Promise<Search> }) {
@@ -28,7 +34,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   for (const key of [...filterKeys, "q", "sort", "page"]) values(search[key]).forEach((value) => query.append(key, value))
   const [me, catalog] = await Promise.all([
     sdk.client.fetch<PortalMe>("/portal-api/me", { headers, cache: "no-store" }),
-    sdk.client.fetch<CatalogResponse>(`/portal-api/catalog?${query}`, { headers, cache: "no-store" }),
+    sdk.client.fetch<CatalogResponse>(`/portal-api/catalog?${query}&view=products&compact=true`, { headers, cache: "no-store" }),
   ])
   if (!me.organization) redirect("/portal/login")
   const selected = Object.fromEntries([...filterKeys, "q", "sort"].map((key) => [key, values(search[key])]))
@@ -60,7 +66,9 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
       </Form>
       {active.length > 0 && <div className={styles.activeFilters}>{filterKeys.flatMap((key) => selected[key].map((value) => <Link key={`${key}-${value}`} href={hrefWithout(key, value)}>{value} ×</Link>))}<Link href={clearHref}>Clear all</Link></div>}
       <div className={styles.catalogLayout}>
-        <CatalogFilters facets={catalog.facets} selected={selected} activeCount={active.length} clearHref={clearHref} />
+        <Suspense fallback={<aside className={styles.filterColumn} aria-busy="true"><button className={styles.mobileFilterButton} disabled>Filters</button><div className={styles.catalogFilters}><div className={styles.filterHeading}><strong>Filters</strong><Link href={clearHref}>Clear all</Link></div><span className={styles.filterUpdating} role="status">Loading filters…</span></div></aside>}>
+          <StreamedFilters query={query.toString()} headers={headers} selected={selected} activeCount={active.length} clearHref={clearHref} />
+        </Suspense>
         <section className={styles.catalogResults}>
           <div className={styles.resultsHeading}><strong>{catalog.total.toLocaleString()} products</strong><span>Page {catalog.page} of {catalog.page_count}</span></div>
           {catalog.products.length ? <div className={styles.catalogGrid}>{catalog.products.map((product, index) => <CatalogCard key={`${product.id}:${optionSelectionKey}`} product={product} backend={backend} priority={index < 2} />)}</div> : <div className={styles.empty}><h2>No products match these filters</h2><p>Clear some filters and try again.</p></div>}
