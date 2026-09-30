@@ -1,6 +1,21 @@
-import { cachedMakitoImage, loadMakitoImage } from "../makito-image-cache"
+import { cachedMakitoImage, loadMakitoImage, loadSupplierImage } from "../makito-image-cache"
 
 describe("Makito image cache", () => {
+  it("also shares downloads for other suppliers and never caches failures or PDFs", async () => {
+    const url = "https://cdn.hideacontent.com/public/test/cache.jpg"
+    const fetchImage = jest.fn(async () => new Response(new Uint8Array([1, 2]), { headers: { "Content-Type": "image/jpeg" } }))
+    await Promise.all([loadSupplierImage(url, fetchImage), loadSupplierImage(url, fetchImage)])
+    expect(fetchImage).toHaveBeenCalledTimes(1)
+    const failed = "https://cdn.hideacontent.com/public/test/fail.jpg"
+    const unavailable = jest.fn(async () => new Response(null, { status: 404 }))
+    await loadSupplierImage(failed, unavailable)
+    await loadSupplierImage(failed, unavailable)
+    expect(unavailable).toHaveBeenCalledTimes(2)
+    const pdf = "https://cdn.hideacontent.com/public/test/document.pdf"
+    const response = await loadSupplierImage(pdf, async () => new Response("pdf", { headers: { "Content-Type": "application/pdf" } }))
+    expect(await response.response?.text()).toBe("pdf")
+    expect(cachedMakitoImage(pdf)).toBeNull()
+  })
   it("shares simultaneous downloads and serves later requests from memory", async () => {
     const url = "https://apis.makito.es/catalog/assets/test/shared.jpg"
     const fetchImage = jest.fn(async () => new Response(Uint8Array.from([0xff, 0xd8, 0xff]), {

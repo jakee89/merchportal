@@ -1277,3 +1277,9 @@
   .printLine,
   .dimensionInputs { grid-template-columns: 1fr; }
 }
+/* Loading placeholders avoid layout jumps without inventing stock or prices. */
+.loadingVisual { min-height: 260px; aspect-ratio: 1; background: #e9eff5; border-radius: 20px; }
+.loadingLine { height: 20px; margin: 18px 0; width: 80%; background: #e9eff5; border-radius: 6px; }
+.loadingLine:nth-child(even) { width: 55%; }
+.loadingProduct { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; }
+@media (max-width: 800px) { .loadingProduct { grid-template-columns: 1fr; } }

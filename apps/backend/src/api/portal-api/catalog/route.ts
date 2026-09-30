@@ -1,16 +1,16 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
-import { createHash } from "node:crypto"
 import { ContainerRegistrationKeys, ProductStatus } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
 import { lowestPlainProductPrice, plainProductPriceBreaks } from "../../../modules/merchportal/plain-pricing"
-import { cachePortalCatalogFacets, cachePortalCatalogResponse, portalCatalogCache, portalCatalogFacetCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
+import { cachePortalCatalogFacets, cachePortalCatalogResponse, portalCatalogFacetCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
 import { catalogCodeMatches, catalogFacets, catalogSearchText, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 import { makitoDocumentCategories } from "../../../modules/merchportal/makito-categories"
-import { applyFacetMappings, facetMappingIndex, listAllFacetMappings } from "../../../modules/merchportal/facet-mappings"
+import { applyFacetMappings, facetMappingIndex } from "../../../modules/merchportal/facet-mappings"
 import { catalogSearchScores } from "../../../modules/merchportal/catalog-search"
 import { compareSupplierPriority } from "../../../modules/merchportal/supplier-priority"
-
-const catalogSourceFields = ["id", "product_id", "supplier_id", "catalog_preview", "cost_by_sku"]
+import { catalogMetadata, catalogRevision, catalogSources } from "../../../modules/merchportal/catalog-data"
+import { portalPreparedCatalogCache, portalReadCache } from "../../../modules/merchportal/read-cache"
+import { catalogCandidates } from "../../../modules/merchportal/catalog-index"
 
 function queryText(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
@@ -31,6 +31,7 @@ function queryValues(value: unknown) {
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   const started = performance.now()
   const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
+  if (!req.auth_context?.actor_id) return res.status(401).json({ message: "Sign in to view the catalog" })
   const membership = await service.listMemberships(
     {
       actor_id: req.auth_context?.actor_id,
@@ -43,28 +44,19 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     return res.status(403).json({ message: "Join a company before viewing the catalog" })
   }
 
-  const [rules, suppliers, completedJobs, facetMappings] = await Promise.all([
-    service.listPricingRules({ status: "active" }),
-    service.listSuppliers({}),
-    service.listImportJobs({ status: "completed" }, { take: 100, order: { completed_at: "DESC" } }),
-    listAllFacetMappings(service),
-  ])
+  const revision = await catalogRevision(req.scope)
+  const { rules, suppliers, facetMappings } = await catalogMetadata(service, revision.settings)
   const metadataMs = performance.now() - started
   const mappingIndex = facetMappingIndex(facetMappings)
   const rulesByScope = new Map<string, any>(rules.map((rule: any) => [rule.scope_key, rule]))
   const supplierCodes = new Map<string, string>(suppliers.map((supplier: any) => [supplier.id, supplier.code]))
   const supplierPriorities = new Map<string, number>(suppliers.map((supplier: any) => [supplier.id, supplier.catalog_priority]))
   const ruleForSource = (source: any) => rulesByScope.get(`organization:${membership[0].organization_id}`) || rulesByScope.get(`supplier:${supplierCodes.get(source?.supplier_id)}`) || rulesByScope.get("global")
-  const latestChange = completedJobs.find((job: any) => job.log?.catalog_refreshed === true || (job.log?.catalog_refreshed === undefined && (job.created_count > 0 || job.updated_count > 0)))
-  const mappingRevision = createHash("sha256").update(JSON.stringify(facetMappings.map((item: any) => [item.id, item.target_value]).sort((a: string[], b: string[]) => a[0].localeCompare(b[0])))).digest("hex").slice(0, 12)
-  const cacheKey = `${membership[0].organization_id}:${JSON.stringify(rules.map((rule: any) => [rule.scope_key, rule.markup_percentage, rule.quantity_tiers]))}:${latestChange?.id || "initial"}:${mappingRevision}:${JSON.stringify(suppliers.map((supplier: any) => [supplier.id, supplier.catalog_priority]))}`
+  const cacheKey = `${membership[0].organization_id}:${revision.source}:${revision.settings}`
   removeExpiredPortalCatalogCacheEntries()
-  const cached = portalCatalogCache.get(cacheKey)
-  let safeProducts: any[]
-  if (cached && cached.expires > Date.now()) {
-    safeProducts = cached.products
-  } else {
-    const indexedSources = await service.listPublishedProductSources({}, { take: 50000, select: catalogSourceFields })
+  const safeProducts: any[] = await portalPreparedCatalogCache.get(cacheKey, 10 * 60_000, async () => {
+    let safeProducts: any[]
+    const indexedSources = await catalogSources(req.scope, revision.source)
     const indexed = indexedSources.filter((source: any) => source.catalog_preview)
     if (indexed.length && indexed.length === indexedSources.length) {
       safeProducts = indexed.map((source: any) => {
@@ -193,11 +185,8 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
       const mapped = product.supplier_id ? applyFacetMappings(product, product.supplier_id, mappingIndex) : product
       return { ...mapped, search_text: catalogSearchText(mapped) }
     })
-    portalCatalogCache.set(cacheKey, {
-      expires: Date.now() + 10 * 60_000,
-      products: safeProducts,
-    })
-  }
+    return safeProducts
+  })
   const filters: CatalogFilters = {
     search: queryText(req.query.q),
     categories: queryValues(req.query.category),
@@ -226,7 +215,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
     if (codeMatches) filters.searchMatches = codeMatches
     else {
       try {
-        searchScores = await catalogSearchScores(req.scope, filters.search)
+        searchScores = await portalReadCache.get(`search:${revision.source}:${filters.search}`, 30_000, () => catalogSearchScores(req.scope, filters.search))
         if (searchScores) filters.searchMatches = new Set(searchScores.keys())
       } catch (error) {
         console.error("Catalog indexed search unavailable; using text search", error)
@@ -237,10 +226,10 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const cachedFacets = portalCatalogFacetCache.get(facetKey)
   const facets = cachedFacets && cachedFacets.expires > Date.now()
     ? cachedFacets.facets
-    : catalogFacets(safeProducts, filters)
+    : catalogFacets(catalogCandidates(safeProducts, filters, true), filters)
   if (!cachedFacets || cachedFacets.expires <= Date.now()) cachePortalCatalogFacets(facetKey, facets)
   const facetsMs = performance.now() - started - metadataMs - catalogMs
-  const filtered = safeProducts.filter((product) => matchesCatalogFilters(product, filters))
+  const filtered = catalogCandidates(safeProducts, filters).filter((product) => matchesCatalogFilters(product, filters)) as any[]
   const sort = queryText(req.query.sort)
   const sortedPrices = sort === "price_asc" || sort === "price_desc"
     ? new Map(filtered.map((product) => {

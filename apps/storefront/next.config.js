@@ -28,7 +28,8 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   images: {
-    unoptimized: true,
+    formats: ["image/webp"],
+    minimumCacheTTL: 86400,
     remotePatterns: [
       {
         protocol: "http",

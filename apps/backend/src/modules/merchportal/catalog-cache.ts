@@ -1,3 +1,5 @@
+import { portalPreparedCatalogCache, portalReadCache, portalSourceCache } from "./read-cache"
+
 type CatalogCacheEntry = { expires: number; products: any[] }
 type CatalogResponseCacheEntry = { expires: number; response: Record<string, unknown> }
 type CatalogFacetCacheEntry = { expires: number; facets: Record<string, unknown> }
@@ -30,6 +32,9 @@ export function cachePortalCatalogFacets(key: string, facets: Record<string, unk
 }
 
 export function clearPortalCatalogCache() {
+  portalReadCache.clear()
+  portalPreparedCatalogCache.clear()
+  portalSourceCache.clear()
   portalCatalogCache.clear()
   portalCatalogResponseCache.clear()
   portalCatalogFacetCache.clear()

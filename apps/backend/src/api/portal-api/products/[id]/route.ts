@@ -3,14 +3,17 @@ import { ContainerRegistrationKeys, MedusaError, ProductStatus } from "@medusajs
 import { MERCHPORTAL_MODULE } from "../../../../modules/merchportal"
 import { markedUpUnitPrice, sellingPrice } from "../../../../modules/merchportal/catalog-rules"
 import { makitoDocumentCategories } from "../../../../modules/merchportal/makito-categories"
-import { markupForQuantity, resolveMarkupRule } from "../../../../workflows/manage-pricing-rules"
+import { markupForQuantity } from "../../../../workflows/manage-pricing-rules"
 import { saveProductConfigurationWorkflow } from "../../../../workflows/save-product-configuration"
 import { relatedProductSources } from "../../../../modules/merchportal/related-products"
 import { lowestProductPrice, plainProductPriceBreaks } from "../../../../modules/merchportal/plain-pricing"
 import { productDecorationImages } from "../../../../modules/merchportal/decoration-images"
+import { catalogMetadata, catalogRevision } from "../../../../modules/merchportal/catalog-data"
+import { portalReadCache } from "../../../../modules/merchportal/read-cache"
 
 async function context(req: AuthenticatedMedusaRequest) {
   const actorId = req.auth_context?.actor_id
+  if (!actorId) throw new MedusaError(MedusaError.Types.UNAUTHORIZED, "Active company membership required")
   const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
   const memberships = await service.listMemberships({ actor_id: actorId, actor_type: "customer", status: "active" }, { take: 1 })
   if (!actorId || !memberships.length) throw new MedusaError(MedusaError.Types.UNAUTHORIZED, "Active company membership required")
@@ -20,22 +23,36 @@ async function context(req: AuthenticatedMedusaRequest) {
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   const { service, membership } = await context(req)
   const query = req.scope.resolve(ContainerRegistrationKeys.QUERY)
-  const { data } = await query.graph({
+  const revision = await catalogRevision(req.scope)
+  const [{ data }, sources, metadata] = await Promise.all([
+    portalReadCache.get(`product:${revision.source}:${req.params.id}`, 30_000, () => query.graph({
     entity: "product",
     fields: ["id", "title", "description", "thumbnail", "images.url", "status", "categories.name", "sales_channels.name", "variants.id", "variants.title", "variants.sku", "variants.inventory_quantity", "variants.prices.amount", "variants.prices.currency_code", "variants.options.value", "variants.options.option.title"],
     filters: { id: req.params.id, status: ProductStatus.PUBLISHED },
-  })
+    })),
+    portalReadCache.get(`product-source:${revision.source}:${req.params.id}`, 30_000, () => service.listPublishedProductSources({ product_id: req.params.id }, { take: 1 })) as Promise<any[]>,
+    catalogMetadata(service, revision.settings),
+  ])
   const product = data[0]
   if (!product || !product.sales_channels?.some((item: any) => item.name === "MerchPortal Malta")) throw new MedusaError(MedusaError.Types.NOT_FOUND, "Product not found")
-  const sources = await service.listPublishedProductSources({ product_id: product.id }, { take: 1 })
   if (!sources.length) throw new MedusaError(MedusaError.Types.NOT_FOUND, "Product configuration unavailable")
   const source = sources[0]
   const catalogDocument = (source.catalog_document || {}) as any
   const currentSkus = new Set((catalogDocument.variants || []).map((variant: any) => variant.sku))
-  const supplier = (await service.listSuppliers({ id: source.supplier_id }, { take: 1 }))[0]
+  const supplier = metadata.suppliers.find((item: any) => item.id === source.supplier_id)
   const makitoCategories = supplier?.code === "makito" ? makitoDocumentCategories(catalogDocument) : null
-  const rule = await resolveMarkupRule(service, membership.organization_id, supplier?.code)
+  const rulesByScope = new Map<string, any>(metadata.rules.map((item: any) => [item.scope_key, item]))
+  const rule = rulesByScope.get(`organization:${membership.organization_id}`) || rulesByScope.get(`supplier:${supplier?.code}`) || rulesByScope.get("global")
   const markup = markupForQuantity(rule)
+  const loadRelated = async () => {
+    const relatedSources = await portalReadCache.get(`related:${revision.source}:${product.id}`, 60_000, () => relatedProductSources(req.scope, source.supplier_id, product.id, catalogDocument.category))
+    return relatedSources.map((item: any) => {
+      const document = item.catalog_preview || {}
+      const lowest = lowestProductPrice(document.variants || [], item.cost_by_sku || {}, rule)
+      return { id: item.product_id, name: document.name, image_url: document.image_url, price_eur: lowest?.price_eur, price_from_quantity: lowest?.quantity, has_price_tiers: lowest?.has_price_tiers }
+    })
+  }
+  if (req.query?.related_only === "true") return res.json({ related: await loadRelated() })
   const variants = (product.variants || [])
     .filter((variant: any) => !currentSkus.size || currentSkus.has(variant.sku))
     .map((variant: any) => {
@@ -61,7 +78,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
         color_hex: indexedVariant?.color_hex,
       }
     })
-  const decorationMethods = await productDecorationImages(service, source, supplier?.code)
+  const decorationMethods = await portalReadCache.get(`decoration:${revision.source}:${product.id}`, 60_000, () => productDecorationImages(service, source, supplier?.code))
   const decorationOptions = decorationMethods.map((method: any) => ({
         ...method,
         positions: Array.isArray(method.positions)
@@ -109,20 +126,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
             }))
           : [],
       }))
-  const relatedSources = await relatedProductSources(req.scope, source.supplier_id, product.id, catalogDocument.category)
-  const related = relatedSources
-    .map((item: any) => {
-      const document = item.catalog_preview || {}
-      const lowest = lowestProductPrice(document.variants || [], item.cost_by_sku || {}, rule)
-      return {
-        id: item.product_id,
-        name: document.name,
-        image_url: document.image_url,
-        price_eur: lowest?.price_eur,
-        price_from_quantity: lowest?.quantity,
-        has_price_tiers: lowest?.has_price_tiers,
-      }
-    })
+  const related = req.query?.include_related === "false" ? [] : await loadRelated()
   res.json({
     product: {
       id: product.id,

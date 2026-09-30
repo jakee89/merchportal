@@ -1,0 +1,101 @@
+jest.mock("../catalog-data", () => ({ ...jest.requireActual("../catalog-data"), catalogRevision: jest.fn(), catalogSources: jest.fn() }))
+jest.mock("../related-products", () => ({ relatedProductSources: jest.fn() }))
+
+import { GET as catalogGet } from "../../../api/portal-api/catalog/route"
+import { GET as productGet } from "../../../api/portal-api/products/[id]/route"
+import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
+import { catalogRevision, catalogSources } from "../catalog-data"
+import { clearPortalCatalogCache } from "../catalog-cache"
+import { relatedProductSources } from "../related-products"
+
+const makeSource = (id: string, supplier: string, sku: string, cost: number) => ({
+  id: `source-${id}`, product_id: id, supplier_id: supplier, cost_by_sku: { [sku]: cost },
+  catalog_preview: { id, name: id, description: "Test product", category: "Bags", category_hierarchy: ["Bags"], variants: [{ sku, color: "Black", size: "S", stock_quantity: 5, price_breaks: [{ quantity: 1, price_eur: cost }] }] },
+  catalog_document: { category: "Bags", variants: [{ sku, color: "Black", price_breaks: [{ quantity: 1, price_eur: cost }] }] },
+  decoration_options: [{ id: "SCREEN", name: "Screen", price_breaks: [{ quantity: 1, unit_price_eur: 1 }], positions: [] }],
+})
+
+describe("read-only performance paths", () => {
+  let service: any
+  let scope: any
+  let query: any
+  const sources = [makeSource("p-midocean", "midocean", "MO6783-03", 10), makeSource("p-stricker", "stricker", "92147-131", 20)]
+
+  beforeEach(() => {
+    clearPortalCatalogCache()
+    jest.clearAllMocks()
+    jest.mocked(catalogRevision).mockResolvedValue({ source: "s1", settings: "r1" })
+    jest.mocked(catalogSources).mockResolvedValue(sources)
+    jest.mocked(relatedProductSources).mockResolvedValue([sources[1]])
+    service = {
+      listMemberships: jest.fn(async ({ actor_id }) => actor_id === "revoked" ? [] : [{ organization_id: actor_id }]),
+      listPricingRules: jest.fn().mockResolvedValue([{ scope_key: "global", markup_percentage: 30 }, { scope_key: "organization:company-b", markup_percentage: 50 }]),
+      listSuppliers: jest.fn().mockResolvedValue([{ id: "midocean", code: "midocean", catalog_priority: 2 }, { id: "stricker", code: "stricker", catalog_priority: 1 }]),
+      listFacetMappings: jest.fn().mockResolvedValue([]),
+      listPublishedProductSources: jest.fn().mockResolvedValue([sources[0]]),
+    }
+    query = { graph: jest.fn().mockResolvedValue({ data: [{ id: "p-midocean", title: "Product", sales_channels: [{ name: "MerchPortal Malta" }], variants: [{ id: "variant", sku: "MO6783-03", prices: [] }] }] }) }
+    scope = { resolve: (key: string) => key === ContainerRegistrationKeys.QUERY ? query : service }
+  })
+
+  const request = (actor = "company-a", query = {}) => ({ scope, auth_context: { actor_id: actor }, query, params: { id: "p-midocean" } })
+  const response = () => { const res = { json: jest.fn(), setHeader: jest.fn(), status: jest.fn() }; res.status.mockReturnValue(res); return res }
+
+  it("shares catalog loads while preserving supplier ordering, prices and membership checks", async () => {
+    const first = response()
+    const second = response()
+    await Promise.all([catalogGet(request() as any, first as any), catalogGet(request() as any, second as any)])
+    expect(catalogSources).toHaveBeenCalledTimes(1)
+    expect(service.listPricingRules).toHaveBeenCalledTimes(1)
+    expect(first.json.mock.calls[0][0].products.map((item: any) => item.id)).toEqual(["p-stricker", "p-midocean"])
+    expect(first.json.mock.calls[0][0].products[1].price_eur).toBe(13)
+    expect(JSON.stringify(first.json.mock.calls[0][0])).not.toMatch(/cost_by_sku|supplier_id|search_text|filter_variants/)
+    const companyB = response()
+    await catalogGet(request("company-b") as any, companyB as any)
+    expect(companyB.json.mock.calls[0][0].products[1].price_eur).toBe(15)
+    const revoked = response()
+    await catalogGet(request("revoked") as any, revoked as any)
+    expect(revoked.status).toHaveBeenCalledWith(403)
+    expect(service.listMemberships).toHaveBeenCalledTimes(4)
+  })
+
+  it("invalidates catalog results on source and settings changes and keeps exact-code searches strict", async () => {
+    const first = response()
+    await catalogGet(request("company-a", { q: "92147" }) as any, first as any)
+    expect(first.json.mock.calls[0][0].products.map((item: any) => item.id)).toEqual(["p-stricker"])
+    const noMatches = response()
+    await catalogGet(request("company-a", { q: "92149" }) as any, noMatches as any)
+    expect(noMatches.json.mock.calls[0][0].total).toBe(0)
+    jest.mocked(catalogRevision).mockResolvedValue({ source: "s2", settings: "r2" })
+    jest.mocked(catalogSources).mockResolvedValue([makeSource("p-stricker", "stricker", "92147-131", 30)])
+    service.listPricingRules.mockResolvedValue([{ scope_key: "global", markup_percentage: 20 }])
+    const changed = response()
+    await catalogGet(request("company-a", { q: "92147" }) as any, changed as any)
+    expect(changed.json.mock.calls[0][0].products[0].price_eur).toBe(36)
+    expect(service.listPricingRules).toHaveBeenCalledTimes(2)
+  })
+
+  it("keeps detail pricing company-specific even when sharing raw product and decoration reads", async () => {
+    const first = response()
+    await productGet(request("company-a", { include_related: "false" }) as any, first as any)
+    const second = response()
+    await productGet(request("company-b", { include_related: "false" }) as any, second as any)
+    expect(query.graph).toHaveBeenCalledTimes(1)
+    expect(service.listPublishedProductSources).toHaveBeenCalledTimes(1)
+    expect(first.json.mock.calls[0][0].product.variants[0].price_eur).toBe(13)
+    expect(second.json.mock.calls[0][0].product.variants[0].price_eur).toBe(15)
+    expect(first.json.mock.calls[0][0].product.decoration_options[0].price_breaks[0].unit_price_eur).toBe(1.3)
+    expect(second.json.mock.calls[0][0].product.decoration_options[0].price_breaks[0].unit_price_eur).toBe(1.5)
+    expect(relatedProductSources).not.toHaveBeenCalled()
+    const related = response()
+    await productGet(request("company-b", { related_only: "true" }) as any, related as any)
+    expect(related.json.mock.calls[0][0]).toEqual({ related: [{ id: "p-stricker", name: "p-stricker", price_eur: 30, price_from_quantity: 1, has_price_tiers: false, image_url: undefined }] })
+  })
+
+  it("still refuses unauthenticated or revoked users with a warm product cache", async () => {
+    await productGet(request() as any, response() as any)
+    await expect(productGet(request("revoked") as any, response() as any)).rejects.toThrow("Active company membership")
+    await expect(productGet({ ...request(), auth_context: {} } as any, response() as any)).rejects.toThrow("Active company membership")
+    expect(query.graph).toHaveBeenCalledTimes(1)
+  })
+})

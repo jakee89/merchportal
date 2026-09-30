@@ -4,7 +4,7 @@ import { supplierImageUrl, supplierMediaType } from "../../../modules/merchporta
 import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
 import { resolveSupplierCredential } from "../../../modules/merchportal/supplier-credentials"
 import { makitoToken } from "../../../modules/merchportal/adapters/makito"
-import { loadMakitoImage } from "../../../modules/merchportal/makito-image-cache"
+import { loadSupplierImage } from "../../../modules/merchportal/makito-image-cache"
 import { recordMediaHealth } from "../../../modules/merchportal/catalog-health"
 
 export async function GET(req: MedusaRequest, res: MedusaResponse) {
@@ -33,7 +33,7 @@ export async function GET(req: MedusaRequest, res: MedusaResponse) {
       }
       return response
     }
-    const result = makitoCredential ? await loadMakitoImage(url, fetchImage) : { response: await fetchImage() }
+    const result = await loadSupplierImage(url, fetchImage)
     const upstream = result.response || new Response(result.cached ? Uint8Array.from(result.cached.body) : null, { headers: { "Content-Type": result.cached?.contentType || "" } })
     let contentType = upstream.headers.get("content-type") || ""
     if (!upstream.ok || !upstream.body) {

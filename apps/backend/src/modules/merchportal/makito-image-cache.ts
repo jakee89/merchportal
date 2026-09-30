@@ -21,7 +21,7 @@ export function cachedMakitoImage(url: string) {
   return image
 }
 
-export async function loadMakitoImage(url: string, fetchImage: () => Promise<Response>) {
+export async function loadSupplierImage(url: string, fetchImage: () => Promise<Response>) {
   const cached = cachedMakitoImage(url)
   if (cached) return { cached }
   const existing = pending.get(url)
@@ -91,3 +91,6 @@ export async function loadMakitoImage(url: string, fetchImage: () => Promise<Res
     if (pending.get(url) === promise) pending.delete(url)
   }
 }
+
+// Preserve the original API for callers and existing cache regression tests.
+export const loadMakitoImage = loadSupplierImage

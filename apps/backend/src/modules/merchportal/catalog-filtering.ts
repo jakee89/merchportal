@@ -45,15 +45,43 @@ export function catalogSearchText(product: CatalogEntry) {
   return [product.name, product.description, product.sku, product.category, ...(product.category_hierarchy || []), product.brand, ...(product.keywords || []), ...(product.materials || []), ...(product.colors || []), ...(product.print_methods || []), ...(product.filter_variants || []).flatMap((variant) => [variant.sku, variant.color, variant.color_group, variant.size])].filter(Boolean).join(" ").toLocaleLowerCase()
 }
 
+const codeIndexes = new WeakMap<CatalogEntry[], { skus: string[]; ids: Map<string, Set<string>> }>()
+
 export function catalogCodeMatches(products: CatalogEntry[], input: string): Set<string> | undefined {
   const code = input.trim().toLocaleLowerCase()
   if (code.length < 4 || !/^[a-z0-9]+(?:[-/][a-z0-9]+)*$/u.test(code) || !/\d/u.test(code)) return
-  const matches = (predicate: (sku: string) => boolean) => new Set(products.filter((product) =>
-    product.id && [product.sku, ...(product.filter_variants || []).map((variant) => variant.sku)]
-      .some((sku) => sku && predicate(sku.toLocaleLowerCase())),
-  ).map((product) => product.id!))
-  const exact = matches((sku) => sku === code || sku.startsWith(`${code}-`) || sku.startsWith(`${code}/`))
-  return exact.size ? exact : matches((sku) => sku.startsWith(code))
+  let index = codeIndexes.get(products)
+  if (!index) {
+    const ids = new Map<string, Set<string>>()
+    for (const product of products) {
+      if (!product.id) continue
+      for (const value of [product.sku, ...(product.filter_variants || []).map((variant) => variant.sku)]) {
+        if (!value) continue
+        const sku = value.toLocaleLowerCase()
+        if (!ids.has(sku)) ids.set(sku, new Set())
+        ids.get(sku)!.add(product.id)
+      }
+    }
+    index = { skus: [...ids.keys()].sort(), ids }
+    codeIndexes.set(products, index)
+  }
+  let low = 0
+  let high = index.skus.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    if (index.skus[middle] < code) low = middle + 1
+    else high = middle
+  }
+  const exact = new Set<string>()
+  const prefix = new Set<string>()
+  for (let offset = low; offset < index.skus.length && index.skus[offset].startsWith(code); offset++) {
+    const sku = index.skus[offset]
+    for (const id of index.ids.get(sku)!) {
+      prefix.add(id)
+      if (sku === code || sku.startsWith(`${code}-`) || sku.startsWith(`${code}/`)) exact.add(id)
+    }
+  }
+  return exact.size ? exact : prefix
 }
 
 function colorKey(value: string) {

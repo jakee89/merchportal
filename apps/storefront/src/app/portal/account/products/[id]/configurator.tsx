@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import styles from "../../../../portal-shell.module.css"
 import Link from "next/link"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { previewPortalConfiguration, savePortalConfiguration, uploadPortalArtwork } from "../actions"
 import { decorationImage } from "@lib/util/decoration-image"
@@ -74,7 +75,7 @@ function mediaUrl(backend: string, value?: string) {
   return /^https?:\/\//i.test(value) ? value : `${backend.replace(/\/$/, "")}${value}`
 }
 
-function SafeImage({ src, alt, className, fallbackSrc }: { src?: string; alt: string; className?: string; fallbackSrc?: string }) {
+function SafeImage({ src, alt, className, fallbackSrc, priority = false, sizes = "(max-width: 640px) 50vw, 260px" }: { src?: string; alt: string; className?: string; fallbackSrc?: string; priority?: boolean; sizes?: string }) {
   const [failed, setFailed] = useState(false)
   const [fallbackFailed, setFallbackFailed] = useState(false)
   useEffect(() => setFailed(false), [src])
@@ -82,7 +83,7 @@ function SafeImage({ src, alt, className, fallbackSrc }: { src?: string; alt: st
   const usingFallback = !src || failed
   const displayed = usingFallback ? fallbackSrc : src
   if (!displayed || fallbackFailed) return <span className={styles.imageUnavailable}>Image unavailable</span>
-  return <img className={className} src={displayed} alt={usingFallback ? `${alt} product photo; print guide unavailable` : alt} loading="lazy" onError={() => usingFallback ? setFallbackFailed(true) : setFailed(true)} />
+  return <Image className={className} src={displayed} alt={usingFallback ? `${alt} product photo; print guide unavailable` : alt} width={1000} height={1000} sizes={sizes} priority={priority} unoptimized={!displayed.startsWith("/portal/media/")} onError={() => usingFallback ? setFallbackFailed(true) : setFailed(true)} />
 }
 
 function colourMode(method?: Method) {
@@ -245,8 +246,8 @@ export default function Configurator({ productId, productName, productImages, ba
   return <>
     <section className={styles.productHero}>
       <div className={styles.productGallery}>
-        <button type="button" className={styles.detailVisual} onClick={() => activeImage && window.open(mediaUrl(backend, activeImage), "_blank")} aria-label="Open full-size product image"><SafeImage src={mediaUrl(backend, activeImage)} alt={productName} /></button>
-        {gallery.length > 1 && <div className={styles.thumbnails}>{gallery.map((image, index) => <button className={image === activeImage ? styles.activeThumbnail : ""} type="button" key={`${image}-${index}`} onClick={() => setActiveImage(image)}><SafeImage src={mediaUrl(backend, image)} alt={`${productName} view ${index + 1}`} /></button>)}</div>}
+        <button type="button" className={styles.detailVisual} onClick={() => activeImage && window.open(mediaUrl(backend, activeImage), "_blank")} aria-label="Open full-size product image"><SafeImage src={mediaUrl(backend, activeImage)} alt={productName} priority sizes="(max-width: 800px) 100vw, 50vw" /></button>
+        {gallery.length > 1 && <div className={styles.thumbnails}>{gallery.map((image, index) => <button className={image === activeImage ? styles.activeThumbnail : ""} type="button" key={`${image}-${index}`} onClick={() => setActiveImage(image)}><SafeImage src={mediaUrl(backend, image)} alt={`${productName} view ${index + 1}`} sizes="120px" /></button>)}</div>}
       </div>
       <div className={styles.productBuyPanel}>
         <h2>Choose colour and option</h2>

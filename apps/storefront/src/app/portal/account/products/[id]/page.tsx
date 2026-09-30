@@ -1,25 +1,19 @@
 import Link from "next/link"
+import { Suspense } from "react"
 import { notFound, redirect } from "next/navigation"
 import { sdk } from "@lib/config"
 import { getAuthHeaders } from "@lib/data/cookies"
 import styles from "../../../../portal-shell.module.css"
-import ProductImage from "../../product-image"
 import Configurator, { type InitialConfiguration } from "./configurator"
 import PrintingOptions from "./printing-options"
 import QuoteCartLink from "../../quote-cart-link"
+import RelatedProducts from "./related-products"
 
 type Product = {
   id: string; name: string; description?: string; short_description?: string; code?: string; category?: string; category_hierarchy: string[]; brand?: string; sustainable: boolean; images: string[]
   specifications: Array<{ label: string; value: string }>; downloads: Array<{ name: string; url: string }>; related: Array<{ id: string; name: string; image_url?: string; price_eur?: number; price_from_quantity?: number; has_price_tiers?: boolean }>
   variants: Array<{ id: string; sku?: string; title: string; color: string; size?: string; images: string[]; stock_quantity?: number; price_eur?: number; price_breaks?: Array<{ quantity: number; price_eur: number }>; future_stock?: Array<{ date: string; quantity: number }>; color_code?: string; ean?: string; pantone?: string; dimensions?: string }>
   decoration_options: Array<{ id: string; name: string; positions: Array<{ id: string; name: string; max_width_mm?: number; max_height_mm?: number; max_colours?: number; handling_price_eur?: number; image_url?: string; images?: Array<{ variant_color?: string; variant_sku?: string; url: string }>; size_options?: Array<{ id: string; label: string; width_mm: number; height_mm: number; pricing_code?: string; variant_sku?: string }> }>; price_breaks: Array<{ quantity: number; unit_price_eur: number; next_colour_price_eur?: number }>; price_ranges?: Array<{ area_from_cm2?: number; area_to_cm2?: number; price_breaks: Array<{ quantity: number; unit_price_eur: number; next_colour_price_eur?: number }> }>; setup_price_eur?: number; handling_price_breaks?: Array<{ quantity: number; unit_price_eur: number }>; pricing_type?: string; next_colour_cost_indicator?: boolean; colour_mode?: "full_colour" | "spot_colour" | "colourless"; price_tables?: Array<{ code: string; option_code?: string; variant_sku?: string; max_colours?: number; max_area_cm2?: number; max_stitches?: number; price_by_color: boolean; price_by_area: boolean; price_by_stitches?: boolean; price_breaks: Array<{ quantity: number; unit_price_eur: number; next_colour_price_eur?: number }> }> }>
-}
-
-function mediaUrl(backend: string, value?: string) {
-  if (!value) return
-  if (value.startsWith("/media/")) return `/portal${value}`
-  try { const parsed = new URL(value); if (parsed.pathname.startsWith("/media/")) return `/portal${parsed.pathname}` } catch {}
-  return /^https?:\/\//i.test(value) ? value : `${backend.replace(/\/$/, "")}${value}`
 }
 
 export default async function ProductPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ sku?: string; edit?: string }> }) {
@@ -29,8 +23,14 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
   const loginUrl = `/portal/login?returnTo=${encodeURIComponent(returnTo)}`
   if (!("authorization" in headers)) redirect(loginUrl)
   let product: Product
+  let initialConfiguration: InitialConfiguration | undefined
   try {
-    product = (await sdk.client.fetch<{ product: Product }>(`/portal-api/products/${id}`, { headers, cache: "no-store" })).product
+    const [detail, configuration] = await Promise.all([
+      sdk.client.fetch<{ product: Product }>(`/portal-api/products/${encodeURIComponent(id)}?include_related=false`, { headers, cache: "no-store" }),
+      edit ? sdk.client.fetch<{ configuration: InitialConfiguration }>(`/portal-api/quotes/items/${encodeURIComponent(edit)}`, { headers, cache: "no-store" }) : Promise.resolve(undefined),
+    ])
+    product = detail.product
+    initialConfiguration = configuration?.configuration
   } catch (error) {
     const failed = error as { status?: number; statusCode?: number; response?: { status?: number } }
     const status = failed?.status || failed?.statusCode || failed?.response?.status
@@ -39,10 +39,9 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
     throw error
   }
   const backend = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
-  const initialConfiguration = edit ? (await sdk.client.fetch<{ configuration: InitialConfiguration }>(`/portal-api/quotes/items/${encodeURIComponent(edit)}`, { headers, cache: "no-store" })).configuration : undefined
   if (initialConfiguration && initialConfiguration.product_id !== product.id) notFound()
   return <div className={styles.page}>
-    <header className={styles.topbar}><Link href="/portal/account" className={styles.brand}><span className={styles.mark}>M</span>MerchPortal</Link><div className={styles.headerActions}><Link className={styles.secondary} href="/portal/account">Back to catalogue</Link><QuoteCartLink /></div></header>
+    <header className={styles.topbar}><Link href="/portal/account" className={styles.brand}><span className={styles.mark}>M</span>MerchPortal</Link><div className={styles.headerActions}><Link className={styles.secondary} href="/portal/account">Back to catalogue</Link><Suspense fallback={<Link href="/portal/account/quotes">Quote cart</Link>}><QuoteCartLink /></Suspense></div></header>
     <main className={styles.productMain}>
       <nav className={styles.breadcrumbs} aria-label="Breadcrumb"><Link href="/portal/account">Catalogue</Link>{product.category_hierarchy?.map((item, index) => <span key={`${item}-${index}`}>/ <Link href={`/portal/account?category=${encodeURIComponent(item)}`}>{item}</Link></span>)}</nav>
       <header className={styles.productTitle}><div><div className={styles.badges}>{product.category && <span>{product.category}</span>}{product.sustainable && <span className={styles.ecoBadge}>Sustainable</span>}</div><h1>{product.name}</h1><p>{[product.brand, product.code ? `Code ${product.code}` : ""].filter(Boolean).join(" · ")}</p></div></header>
@@ -54,7 +53,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
         <section><h2>Printing options</h2>{product.decoration_options.length ? <PrintingOptions methods={product.decoration_options} backend={backend} variants={product.variants} initialSku={initialConfiguration ? product.variants.find((variant) => variant.id === initialConfiguration.variant_id)?.sku : sku} /> : <p>No customisation information available.</p>}</section>
         {product.downloads?.length > 0 && <section><h2>Downloads</h2><div className={styles.downloads}>{product.downloads.map((item) => <a key={item.url} href={item.url} target="_blank" rel="noreferrer">{item.name} ↗</a>)}</div></section>}
       </div>
-      {product.related?.length > 0 && <section className={styles.related}><h2>Similar products</h2><div className={styles.relatedGrid}>{product.related.map((item) => <article key={item.id}><Link href={`/portal/account/products/${item.id}`}><ProductImage src={mediaUrl(backend, item.image_url)} name={item.name} /><strong>{item.name}</strong><span>{item.price_eur === undefined ? "Price on request" : `${item.has_price_tiers ? "From " : ""}€${item.price_eur.toFixed(2)}/unit`}</span>{item.price_eur !== undefined && item.price_from_quantity && item.price_from_quantity > 1 && <span>at {item.price_from_quantity.toLocaleString()} units · plain product · excl. VAT</span>}</Link></article>)}</div></section>}
+      <Suspense fallback={<section className={styles.related} aria-busy="true"><h2>Similar products</h2><p>Loading recommendations…</p></section>}><RelatedProducts id={id} headers={headers} /></Suspense>
     </main>
   </div>
 }

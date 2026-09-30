@@ -1,4 +1,5 @@
 jest.mock("../related-products", () => ({ relatedProductSources: jest.fn().mockResolvedValue([]) }))
+jest.mock("../catalog-data", () => ({ ...jest.requireActual("../catalog-data"), catalogRevision: jest.fn().mockResolvedValue({ source: "test", settings: "test" }) }))
 
 import { GET } from "../../../api/portal-api/products/[id]/route"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
@@ -6,8 +7,10 @@ import { supplierImageToken } from "../media"
 import { productDecorationImages } from "../decoration-images"
 import { strickerPositionImages, validateDecorationChoice } from "../decoration"
 import { supplierAssetUrl } from "../normalization"
+import { clearPortalCatalogCache } from "../catalog-cache"
 
 describe("existing product decoration images", () => {
+  beforeEach(() => clearPortalCatalogCache())
   it("prefers Stricker's real colour-specific location guides over shared pink area images", async () => {
     const rows = ["102", "124"].map((colour) => ({
       Sku: `91693-${colour}`, ColorDesc1: colour === "124" ? "Light blue" : "Pink",
@@ -50,6 +53,7 @@ describe("existing product decoration images", () => {
       listPublishedProductSources: jest.fn().mockResolvedValue([source]),
       listSuppliers: jest.fn().mockResolvedValue([{ id: "stricker", code: "stricker" }]),
       listPricingRules: jest.fn().mockResolvedValue([]),
+      listFacetMappings: jest.fn().mockResolvedValue([]),
       listRawSupplierRecords: jest.fn().mockResolvedValue(skus.map((sku) => ({ payload: { Reference: sku, Component1: "Umbrella", Location1: "Panel 1", Area1Image: `${sku}.png` } }))),
     }
     const query = { graph: async () => ({ data: [{ id: "p", sales_channels: [{ name: "MerchPortal Malta" }], variants: skus.map((sku, index) => ({ id: `v${index}`, sku, prices: [{ currency_code: "eur", amount: 2 }] })) }] }) }
