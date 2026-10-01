@@ -21,7 +21,9 @@ function queryNumber(value: unknown) {
 }
 
 function queryValues(value: unknown) {
-  const values = Array.isArray(value) ? value : typeof value === "string" ? value.split(",") : []
+  // Multi-select uses repeated query parameters. Commas belong to supplier
+  // labels (e.g. "Bar, Wine And Hotel"), not to a CSV selection list.
+  const values = Array.isArray(value) ? value : typeof value === "string" ? [value] : []
   return values.map((item) => String(item).trim()).filter(Boolean)
 }
 

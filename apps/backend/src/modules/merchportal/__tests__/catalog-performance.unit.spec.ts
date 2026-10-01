@@ -42,6 +42,49 @@ describe("read-only performance paths", () => {
   const request = (actor = "company-a", query = {}) => ({ scope, auth_context: { actor_id: actor }, query, params: { id: "p-midocean" } })
   const response = () => { const res = { json: jest.fn(), setHeader: jest.fn(), status: jest.fn() }; res.status.mockReturnValue(res); return res }
 
+  it("treats comma-containing filter labels as whole values and preserves parent, child and multi-select results", async () => {
+    const parent = "Bar, Wine And Hotel"
+    const first = makeSource("wine", "stricker", "WINE-01", 10)
+    const second = makeSource("hotel", "stricker", "HOTEL-01", 20)
+    const unrelated = makeSource("bar-only", "stricker", "BAR-01", 15)
+    const bag = makeSource("bag", "stricker", "BAG-01", 5)
+    for (const [source, child] of [[first, "Glasses, Jugs And Cups"], [second, "Hotel"]] as const) {
+      source.catalog_preview = {
+        ...source.catalog_preview,
+        category: child,
+        category_hierarchy: [parent, child],
+        category_paths: [[parent, child]],
+        materials: ["Cotton, Polyester"],
+        brand: "Brand, Collection",
+        lead_time: "2, 3 weeks",
+        print_methods: ["Print, Transfer"],
+        variants: [{ ...source.catalog_preview.variants[0], color: "Black, White", size: "100, 200 mm" }],
+      } as any
+    }
+    unrelated.catalog_preview.category = "Bar"
+    unrelated.catalog_preview.category_hierarchy = ["Bar"]
+    jest.mocked(catalogSources).mockResolvedValue([first, second, unrelated, bag])
+    const initial = response()
+    await catalogGet(request("company-a", { view: "facets", compact: "true" }) as any, initial as any)
+    const branch = initial.json.mock.calls[0][0].facets.category_tree.roots.find((root: any) => root.value === parent)
+    expect(branch.count).toBe(2)
+    const cases: Array<[Record<string, unknown>, string[]]> = [
+      [{ category: parent }, ["hotel", "wine"]],
+      [{ category: `${parent} > Glasses, Jugs And Cups` }, ["wine"]],
+      [{ category: [parent, "Bags"] }, ["bag", "hotel", "wine"]],
+      [{ category: "Bar" }, ["bar-only"]],
+      ...Object.entries({ color: "Black, White", size: "100, 200 mm", material: "Cotton, Polyester", brand: "Brand, Collection", lead_time: "2, 3 weeks", print_method: "Print, Transfer" }).map(([key, value]): [Record<string, unknown>, string[]] => [{ [key]: value }, ["hotel", "wine"]]),
+    ]
+    for (const [filters, expected] of cases) {
+      const result = response()
+      await catalogGet(request("company-a", { ...filters, view: "products", compact: "true" }) as any, result as any)
+      const body = result.json.mock.calls[0][0]
+      expect(body.products.map((product: any) => product.id).sort()).toEqual(expected)
+      expect(body.total).toBe(expected.length)
+      if (filters.category === parent) expect(body.total).toBe(branch.count)
+    }
+  })
+
   it("excludes stored Makito marking branches even with saved mappings, preserving print filters and products", async () => {
     const mixed = makeSource("makito-mixed", "makito", "6009", 10)
     const markingOnly = makeSource("makito-marking-only", "makito", "6010", 10)
