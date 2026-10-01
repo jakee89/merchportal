@@ -3,6 +3,8 @@ import { ContainerRegistrationKeys, MedusaError } from "@medusajs/framework/util
 import { MERCHPORTAL_MODULE } from "."
 import { clearPortalCatalogCache } from "./catalog-cache"
 import { categoryFilterPath, documentFacetValues, facetMappingOptions, facetTypes, type FacetType, type FacetOption } from "./facet-mappings"
+import { facetProtections, protectionKey, storedProtections } from "./facet-protection"
+import { isProtectedTarget, mappingPreview, targetKey, taxonomyAttention } from "./facet-taxonomy-rules"
 
 export type MappingSource = { supplier_id: string; source_value: string }
 export type MappingGroup = { target_value: string | null; sources: MappingSource[] }
@@ -48,9 +50,12 @@ export async function facetDashboard(service: any) {
     service.listFacetOperations({ kind: "ai_review" }, { take: 5, order: { created_at: "DESC" } }),
   ])
   const seenByKey = new Map<string, any>(seen.map((item: any) => [facetSourceKey(item.facet_type, item), item]))
+  const protections = await facetProtections(service)
   const latest = new Map<string, any>()
   for (const job of jobs) if (!job.log?.dry_run && !latest.has(job.supplier_id)) latest.set(job.supplier_id, job)
   return {
+    protections,
+    attention: taxonomyAttention(options),
     options: options.map((option) => {
       const firstSeen = seenByKey.get(facetSourceKey(option.facet_type, option))?.first_seen_at
       const job = latest.get(option.supplier_id)
@@ -81,6 +86,8 @@ export async function applyFacetChange(container: any, actorId: string, type: Fa
   await knex.transaction(async (tx: any) => {
     await tx.raw("select pg_advisory_xact_lock(hashtext('merchportal:facet-mappings'))")
     const current = await tx("merchportal_facet_mapping").where({ facet_type: type }).whereNull("deleted_at")
+    const protections = storedProtections(await tx("merchportal_setting").where({ key: protectionKey }).whereNull("deleted_at").first())
+    const canonical = new Map<string, string>(current.map((row: any) => [targetKey(row.target_value), row.target_value]))
     const byKey = new Map<string, any>(current.map((row: any) => [facetSourceKey(type, row), row]))
     const entries: any[] = []
     const inserts: any[] = []
@@ -88,9 +95,12 @@ export async function applyFacetChange(container: any, actorId: string, type: Fa
       const key = facetSourceKey(type, source)
       const existing = byKey.get(key)
       const before = existing?.target_value || null
-      const after = group.target_value?.trim() || null
+      const requested = group.target_value?.trim() || null
+      const after = requested ? canonical.get(targetKey(requested)) || requested : null
+      if (after) canonical.set(targetKey(after), after)
       if (baseline && (!baseline.has(key) || baseline.get(key) !== before)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "Mappings changed during this review. Generate a fresh review before applying")
       if (before === after) continue
+      if (isProtectedTarget(type, before, protections)) throw new MedusaError(MedusaError.Types.INVALID_DATA, `Unlock ${before} before changing its structure`)
       const mappingId = existing?.id || `fm_${randomUUID()}`
       if (existing) await tx("merchportal_facet_mapping").where({ id: mappingId }).update({ target_value: after || before, deleted_at: after ? null : new Date(), updated_at: new Date() })
       else if (after) inserts.push({ id: mappingId, supplier_id: source.supplier_id, facet_type: type, source_value: source.source_value.trim(), target_value: after })
@@ -116,7 +126,9 @@ export async function undoFacetChange(container: any, id: string) {
     await tx.raw("select pg_advisory_xact_lock(hashtext('merchportal:facet-mappings'))")
     const operation = await tx("merchportal_facet_operation").where({ id, kind: "change", status: "applied" }).whereNull("deleted_at").first()
     if (!operation) throw new MedusaError(MedusaError.Types.INVALID_DATA, "This change cannot be undone")
+    const protections = storedProtections(await tx("merchportal_setting").where({ key: protectionKey }).whereNull("deleted_at").first())
     for (const entry of operation.data.entries) {
+      if (isProtectedTarget(operation.facet_type, entry.after, protections)) throw new MedusaError(MedusaError.Types.INVALID_DATA, `Unlock ${entry.after} before undoing this change`)
       const mapping = await tx("merchportal_facet_mapping").where({ id: entry.mapping_id }).first()
       const newer = await tx("merchportal_facet_mapping").where({ supplier_id: entry.supplier_id, facet_type: operation.facet_type }).whereNull("deleted_at").whereRaw("lower(trim(source_value)) = ?", [entry.source_value.trim().toLocaleLowerCase()]).first()
       if ((newer?.target_value || null) !== entry.after || (newer && newer.id !== entry.mapping_id)) throw new MedusaError(MedusaError.Types.INVALID_DATA, "A later edit changed this map. Undo newer changes first")
@@ -126,4 +138,30 @@ export async function undoFacetChange(container: any, id: string) {
     await tx("merchportal_facet_operation").where({ id }).update({ status: "undone", updated_at: new Date() })
   })
   clearPortalCatalogCache()
+}
+
+export async function previewFacetChange(container: any, type: FacetType, groups: MappingGroup[]) {
+  validateMappingGroups(type, groups)
+  const service = container.resolve(MERCHPORTAL_MODULE) as any
+  const [options, protections, suppliers] = await Promise.all([facetMappingOptions(service), facetProtections(service), service.listSuppliers({})])
+  const codes = new Map<string, string>(suppliers.map((supplier: any) => [supplier.id, supplier.code]))
+  const touched = new Set(groups.flatMap((group) => group.sources.map((source) => facetSourceKey(type, source))))
+  const preview = mappingPreview(type, options, groups)
+  const planned = new Map(groups.flatMap((group) => group.sources.map((source) => [facetSourceKey(type, source), group.target_value] as const)))
+  const locked = options.filter((option) => option.facet_type === type && touched.has(facetSourceKey(type, option)) && isProtectedTarget(type, option.target_value, protections) && targetKey(planned.get(facetSourceKey(type, option)) || "") !== targetKey(option.target_value!)).map((option) => option.target_value!)
+  const affected = new Set<string>()
+  const products: Array<{ id: string; name: string }> = []
+  for (let skip = 0; ; skip += 1000) {
+    const batch = await service.listPublishedProductSources({}, { take: 1000, skip, select: ["supplier_id", "product_id", "catalog_preview"] })
+    for (const source of batch) {
+      const document = source.catalog_preview || {}
+      if (!documentFacetValues(document, codes.get(source.supplier_id)).some(([facet, value]) => facet === type && touched.has(facetSourceKey(type, { supplier_id: source.supplier_id, source_value: value })))) continue
+      const id = document.id || source.product_id
+      if (!id || affected.has(id)) continue
+      affected.add(id)
+      if (products.length < 8) products.push({ id, name: document.name || "Product" })
+    }
+    if (batch.length < 1000) break
+  }
+  return { ...preview, affected_products: affected.size, products, blocked: [...new Set(locked)].map((name) => `Unlock ${name} before changing its structure`) }
 }

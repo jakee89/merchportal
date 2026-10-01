@@ -1,4 +1,4 @@
-import { colorLabel, type CatalogEntry, type CatalogFilters } from "./catalog-filtering"
+import { categoryValues, colorLabel, type CatalogEntry, type CatalogFilters } from "./catalog-filtering"
 
 type Index = { products: Map<string, CatalogEntry>; order: Map<string, number>; values: Map<string, Map<string, Set<string>>> }
 const indexes = new WeakMap<CatalogEntry[], Index>()
@@ -14,7 +14,7 @@ function indexFor(products: CatalogEntry[]) {
     index.order.set(product.id, index.order.size)
     const variants = product.filter_variants?.length ? product.filter_variants : [{ color: product.colors?.[0] }]
     const fields: Record<string, string[]> = {
-      categories: product.category_hierarchy || [product.category || ""],
+      categories: categoryValues(product),
       materials: product.materials || [],
       brands: [product.brand || ""],
       leadTimes: [product.lead_time || ""],

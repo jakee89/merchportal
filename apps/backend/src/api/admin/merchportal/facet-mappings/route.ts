@@ -2,10 +2,11 @@ import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/frame
 import { MedusaError } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../../../../modules/merchportal"
 import { facetTypes, type FacetType } from "../../../../modules/merchportal/facet-mappings"
-import { applyFacetChange, facetDashboard, renameFacetMap, suggestedFacetGroups, undoFacetChange } from "../../../../modules/merchportal/facet-tools"
+import { applyFacetChange, facetDashboard, previewFacetChange, renameFacetMap, suggestedFacetGroups, undoFacetChange } from "../../../../modules/merchportal/facet-tools"
+import { protectFacetGroup } from "../../../../modules/merchportal/facet-protection"
 import { requireStaff } from "../auth"
 
-type Body = { action?: "rename" | "undo" | "groups"; change_id?: string; from?: string; groups?: any[]; facet_type: FacetType; sources: Array<{ supplier_id: string; source_value: string }>; target_value: string }
+type Body = { action?: "rename" | "undo" | "groups" | "preview" | "protect"; locked?: boolean; change_id?: string; from?: string; groups?: any[]; facet_type: FacetType; sources: Array<{ supplier_id: string; source_value: string }>; target_value: string }
 
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   await requireStaff(req)
@@ -17,6 +18,11 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
 export async function POST(req: AuthenticatedMedusaRequest<Body>, res: MedusaResponse) {
   const staff = await requireStaff(req)
   const input = req.body
+  if (input?.action === "preview") return res.json({ preview: await previewFacetChange(req.scope, input.facet_type, input.groups || []) })
+  if (input?.action === "protect") {
+    await protectFacetGroup(req.scope, staff.actor_id, input.facet_type, input.target_value, input.locked!)
+    return GET(req, res)
+  }
   if (input?.action === "undo" && typeof input.change_id === "string") {
     await undoFacetChange(req.scope, input.change_id)
     return GET(req, res)

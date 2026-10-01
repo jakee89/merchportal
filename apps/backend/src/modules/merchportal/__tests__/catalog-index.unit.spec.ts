@@ -14,6 +14,19 @@ const products: CatalogEntry[] = Array.from({ length: 300 }, (_, index) => ({
 }))
 
 describe("catalogue candidate index", () => {
+  it("scopes a child to its parent and counts shared branches once per product", () => {
+    const rows = [
+      { id: "a", name: "A", category_hierarchy: ["Bags", "Travel", "Backpacks"], category_paths: [["Bags", "Backpacks"], ["Bags", "Totes"]] },
+      { id: "b", name: "B", category_hierarchy: ["School", "Backpacks"], category_paths: [["School", "Backpacks"]] },
+    ]
+    const filters = { ...base, categories: ["Bags > Backpacks"] }
+    expect(catalogCandidates(rows, filters).filter((row) => matchesCatalogFilters(row, filters)).map((row) => row.id)).toEqual(["a"])
+    expect(catalogFacets(rows, filters).category_tree.roots).toEqual([
+      { value: "Bags", count: 1, children: [{ value: "Bags > Backpacks", label: "Backpacks", count: 1 }, { value: "Bags > Totes", label: "Totes", count: 1 }] },
+      { value: "School", count: 1, children: [{ value: "School > Backpacks", label: "Backpacks", count: 1 }] },
+    ])
+    expect(catalogFacets([], filters).category_tree.roots[0].children[0].count).toBe(0)
+  })
   it("preserves results and self-excluding facet counts for combined filters", () => {
     for (let index = 0; index < 200; index++) {
       const filters: CatalogFilters = {

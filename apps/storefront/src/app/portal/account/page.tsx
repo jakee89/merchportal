@@ -9,6 +9,7 @@ import styles from "../../portal-shell.module.css"
 import CatalogCard, { type CatalogProduct } from "./catalog-card"
 import CatalogFilters, { type Facets } from "./catalog-filters"
 import QuoteCartLink from "./quote-cart-link"
+import { filterLabel } from "./filter-label"
 
 type PortalMe = { membership: { role: string } | null; organization: { name: string; primary_color: string } | null }
 type Search = Record<string, string | string[] | undefined>
@@ -64,7 +65,7 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
         <select name="sort" defaultValue={values(search.sort)[0]} aria-label="Sort products"><option value="">Recommended</option><option value="price_asc">Lowest price</option><option value="price_desc">Highest price</option><option value="name_asc">Name A–Z</option><option value="name_desc">Name Z–A</option></select>
         <button className={styles.primary} type="submit">Search</button>
       </Form>
-      {active.length > 0 && <div className={styles.activeFilters}>{filterKeys.flatMap((key) => selected[key].map((value) => <Link key={`${key}-${value}`} href={hrefWithout(key, value)}>{value} ×</Link>))}<Link href={clearHref}>Clear all</Link></div>}
+      {active.length > 0 && <div className={styles.activeFilters}>{filterKeys.flatMap((key) => selected[key].map((value) => <Link key={`${key}-${value}`} aria-label={`Remove ${filterLabel(key, value)}`} href={hrefWithout(key, value)}>{filterLabel(key, value)} ×</Link>))}<Link href={clearHref}>Clear all</Link></div>}
       <div className={styles.catalogLayout}>
         <Suspense fallback={<aside className={styles.filterColumn} aria-busy="true"><button className={styles.mobileFilterButton} disabled>Filters</button><div className={styles.catalogFilters}><div className={styles.filterHeading}><strong>Filters</strong><Link href={clearHref}>Clear all</Link></div><span className={styles.filterUpdating} role="status">Loading filters…</span></div></aside>}>
           <StreamedFilters query={query.toString()} headers={headers} selected={selected} activeCount={active.length} clearHref={clearHref} />

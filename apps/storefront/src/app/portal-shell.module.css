@@ -565,6 +565,10 @@
   padding: 8px;
   width: 100%;
 }
+.categoryRoot { display: flex; align-items: center; gap: 6px; }
+.categoryRoot label { flex: 1; }
+.categoryRoot button { color: #075fbd; width: 20px; min-width: 20px; }
+.categoryChildren { border-left: 1px solid #dce6f0; margin: 8px 0 10px 9px; padding-left: 15px; display: grid; gap: 8px; }
 .facetOptions {
   display: grid;
   gap: 8px;

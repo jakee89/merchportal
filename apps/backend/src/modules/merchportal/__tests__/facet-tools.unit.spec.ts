@@ -1,9 +1,10 @@
 import { applyFacetChange, facetSourceKey, suggestedFacetGroups, undoFacetChange, validateMappingGroups } from "../facet-tools"
 import { validateAiGroups, startFacetReview } from "../facet-ai"
+import { protectFacetGroup } from "../facet-protection"
 
 describe("filter cleanup review", () => {
   function database() {
-    let rows: Record<string, any[]> = { merchportal_facet_mapping: [], merchportal_facet_operation: [] }
+    let rows: Record<string, any[]> = { merchportal_facet_mapping: [], merchportal_facet_operation: [], merchportal_setting: [] }
     const insertSizes: number[] = []
     const knex: any = (table: string) => {
       const filters: Array<(row: any) => boolean> = []
@@ -16,9 +17,9 @@ describe("filter cleanup review", () => {
         insert: async (input: any) => {
           const values = Array.isArray(input) ? input : [input]
           if (table === "merchportal_facet_mapping") insertSizes.push(values.length)
-          rows[table].push(...values.map((row: any) => ({ ...row, data: typeof row.data === "string" ? JSON.parse(row.data) : row.data })))
+          rows[table].push(...values.map((row: any) => ({ ...row, value: typeof row.value === "string" ? JSON.parse(row.value) : row.value, data: typeof row.data === "string" ? JSON.parse(row.data) : row.data })))
         },
-        update: async (values: any) => rows[table].filter(matches).forEach((row) => Object.assign(row, values)),
+        update: async (values: any) => rows[table].filter(matches).forEach((row) => Object.assign(row, values, typeof values.value === "string" ? { value: JSON.parse(values.value) } : {})),
         then: (resolve: any, reject: any) => Promise.resolve(rows[table].filter(matches)).then(resolve, reject),
       }
       return query
@@ -28,9 +29,33 @@ describe("filter cleanup review", () => {
       const before = structuredClone(rows)
       try { return await callback(knex) } catch (error) { rows = before; throw error }
     }
-    const service = { listSuppliers: async () => [{ id: "s" }] }
+    const service = { listSuppliers: async () => [{ id: "s" }], listFacetMappings: async ({ facet_type }: any) => rows.merchportal_facet_mapping.filter((row) => !row.deleted_at && row.facet_type === facet_type) }
     return { container: { resolve: (key: string) => key === "merchportal" ? service : knex }, active: () => rows.merchportal_facet_mapping.filter((row) => !row.deleted_at), operations: () => rows.merchportal_facet_operation, insertSizes }
   }
+
+  it("persists protection, blocks edits and undo, allows new members and staff unlock", async () => {
+    const db = database()
+    const sources = [{ supplier_id: "s", source_value: "Laptop bags" }]
+    const id = await applyFacetChange(db.container, "admin", "category", [{ target_value: "Bags > Backpacks", sources }])
+    await protectFacetGroup(db.container, "admin", "category", "Bags", true)
+    await expect(applyFacetChange(db.container, "admin", "category", [{ target_value: "Travel > Backpacks", sources }])).rejects.toThrow("Unlock")
+    await expect(undoFacetChange(db.container, id)).rejects.toThrow("Unlock")
+    await applyFacetChange(db.container, "admin", "category", [{ target_value: "Bags > Backpacks", sources: [{ supplier_id: "s", source_value: "Rucksacks" }] }])
+    expect(db.active()).toHaveLength(2)
+    await protectFacetGroup(db.container, "admin", "category", "Bags", false)
+    await undoFacetChange(db.container, id)
+    expect(db.active()).toHaveLength(1)
+    await expect(protectFacetGroup(db.container, "admin", "material", "Unknown", true)).rejects.toThrow("Approve")
+  })
+
+  it("reuses one canonical spelling across groups in a bulk operation", async () => {
+    const db = database()
+    await applyFacetChange(db.container, "admin", "material", [
+      { target_value: "Cotton", sources: [{ supplier_id: "s", source_value: "Cotton woven" }] },
+      { target_value: " COTTON ", sources: [{ supplier_id: "s", source_value: "Organic Cotton" }] },
+    ])
+    expect(db.active().map((row) => row.target_value)).toEqual(["Cotton", "Cotton"])
+  })
 
   it("applies large selections in batches and reverses the entire change", async () => {
     const db = database()
