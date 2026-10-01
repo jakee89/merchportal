@@ -425,10 +425,11 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
     const supplier = supplierById.get(group.supplier_id)
     const makitoPaths = supplier?.code === "makito" ? makitoCategoryPaths(payload.categories) : []
     const makitoPrimaryPath = primaryMakitoCategoryPath(makitoPaths)
-    const originalCategory = makitoPrimaryPath.at(-1) || supplierCategory(group.records.map((item) => item.payload))
+    const hasMakitoCategories = supplier?.code === "makito" && Array.isArray(payload.categories) && payload.categories.length > 0
+    const originalCategory = hasMakitoCategories ? makitoPrimaryPath.at(-1) || "Uncategorized" : supplierCategory(group.records.map((item) => item.payload))
     const attributes = productAttributes(group.records.map((item) => item.payload))
     const specifications = productSpecifications(group.records.map((item) => item.payload))
-    const hierarchy = makitoPrimaryPath.length ? makitoPrimaryPath : categoryHierarchy(group.records.map((item) => item.payload))
+    const hierarchy = hasMakitoCategories ? makitoPrimaryPath : categoryHierarchy(group.records.map((item) => item.payload))
     const groupSkus = group.records.flatMap((item) => variantRows((item.payload || {}) as ObjectValue)).map((row) => value(row, ["productSKU", "sku", "SKU", "optionalReference", "reference", "variant_id", "variant_reference"])).filter(Boolean)
     const decorationPayloads = [...new Map([
       ...(decorationIndex.byMaster.get(`${group.supplier_id}:${group.master_id}`) || []),

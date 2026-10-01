@@ -64,7 +64,7 @@ describe("supplier filter mappings", () => {
     const service = {
       listSuppliers: jest.fn().mockResolvedValue([{ id: "makito", code: "makito", display_name: "Makito" }]),
       listPublishedProductSources: jest.fn().mockResolvedValue([{ supplier_id: "makito", catalog_preview: {
-        category_paths: ["Production > PRODUCTS > Backpacks > Travel Bags"],
+        category_paths: ["Production > PRODUCTS > Backpacks > Travel Bags", "Production > Marking Techniques > Digital", "Marking Techniques > Doming"],
         print_methods: ["SILK-SCREEN PRINT"],
       } }]),
       listFacetMappings: jest.fn().mockResolvedValue([]),
@@ -75,6 +75,7 @@ describe("supplier filter mappings", () => {
       expect.objectContaining({ facet_type: "print_method", source_value: "SILK-SCREEN PRINT" }),
     ]))
     expect(options.some((option) => option.source_value === "PRODUCTS")).toBe(false)
+    expect(options.filter((option) => option.facet_type === "category").map((option) => option.source_value)).toEqual(["Backpacks", "Travel Bags"])
   })
 
   it("keeps saved maps visible even when their supplier value has no current products", async () => {

@@ -42,6 +42,23 @@ describe("read-only performance paths", () => {
   const request = (actor = "company-a", query = {}) => ({ scope, auth_context: { actor_id: actor }, query, params: { id: "p-midocean" } })
   const response = () => { const res = { json: jest.fn(), setHeader: jest.fn(), status: jest.fn() }; res.status.mockReturnValue(res); return res }
 
+  it("excludes stored Makito marking branches even with saved mappings, preserving print filters and products", async () => {
+    const mixed = makeSource("makito-mixed", "makito", "6009", 10)
+    const markingOnly = makeSource("makito-marking-only", "makito", "6010", 10)
+    mixed.catalog_preview = { ...mixed.catalog_preview, category_hierarchy: ["Marking Techniques", "Digital", "Bags"], category_paths: [["Marking Techniques", "Digital"], ["Bags", "Backpacks"]], print_methods: ["Digital"] } as any
+    markingOnly.catalog_preview = { ...markingOnly.catalog_preview, category: "Digital", category_hierarchy: ["Marking Techniques", "Digital"], category_paths: [["Marking Techniques", "Digital"]], print_methods: ["Digital"] } as any
+    jest.mocked(catalogSources).mockResolvedValue([mixed, markingOnly])
+    service.listSuppliers.mockResolvedValue([{ id: "makito", code: "makito" }])
+    service.listFacetMappings.mockResolvedValue([{ supplier_id: "makito", facet_type: "category", source_value: "Digital", target_value: "Marking Techniques > Digital" }])
+    const result = response()
+    await catalogGet(request("company-a") as any, result as any)
+    const body = result.json.mock.calls[0][0]
+    expect(body.total).toBe(2)
+    expect(body.facets.category_tree.roots).toEqual([{ value: "Bags", count: 1, children: [{ value: "Bags > Backpacks", label: "Backpacks", count: 1 }] }])
+    expect(body.facets.categories.map((item: any) => item.value)).toEqual(["Backpacks", "Bags"])
+    expect(body.facets.print_methods).toEqual([{ value: "Digital", count: 2 }])
+  })
+
   it("shares catalog loads while preserving supplier ordering, prices and membership checks", async () => {
     const first = response()
     const second = response()
@@ -58,6 +75,18 @@ describe("read-only performance paths", () => {
     await catalogGet(request("revoked") as any, revoked as any)
     expect(revoked.status).toHaveBeenCalledWith(403)
     expect(service.listMemberships).toHaveBeenCalledTimes(4)
+  })
+
+  it("does not restore marking categories from native-product fallback records", async () => {
+    jest.mocked(catalogSources).mockResolvedValue([{ ...sources[0], catalog_preview: undefined }])
+    service.listSuppliers.mockResolvedValue([{ id: "makito", code: "makito" }])
+    service.listPublishedProductSources.mockResolvedValue([{ ...sources[0], supplier_id: "makito", print_methods: ["Digital"], catalog_document: { category: "Digital", category_paths: [["Marking Techniques", "Digital"]], category_hierarchy: ["Marking Techniques", "Digital"] } }])
+    query.graph.mockResolvedValue({ data: [{ id: "p-midocean", external_id: "mp_makito", title: "Bag", categories: [{ name: "Digital" }], sales_channels: [{ name: "MerchPortal Malta" }], variants: [] }] })
+    const result = response()
+    await catalogGet(request("company-a") as any, result as any)
+    expect(result.json.mock.calls[0][0].facets.category_tree.roots).toEqual([])
+    expect(result.json.mock.calls[0][0].facets.print_methods).toEqual([{ value: "Digital", count: 1 }])
+    expect(result.json.mock.calls[0][0].total).toBe(1)
   })
 
   it("invalidates catalog results on source and settings changes and keeps exact-code searches strict", async () => {

@@ -10,6 +10,22 @@ const image = "https://apis.makito.es/catalog/assets/15246/15246003000/principal
 const guide = "https://apis.makito.es/print-config/assets/15246/prod_previsualizacio/5246-A1.jpg"
 
 describe("Makito supplier", () => {
+  it("normalizes product categories without falling back to excluded marking branches", async () => {
+    const payload = { ref: "15246", name: "Komir", categories: ["Production > Marking Techniques > Digital"], category: "Marking Techniques > Digital", variants: [{ variant_reference: "5246ROJS/T", variant_colorcode: "013", variant_name: "Bag Komir Natural", variant_size: "000" }] }
+    const service = {
+      listSuppliers: async () => [{ id: "supplier-1", code: "makito", display_name: "Makito" }],
+      listRawSupplierRecords: async ({ record_type }: any) => record_type === "product" ? [{ supplier_id: "supplier-1", external_id: "15246", payload }] : [],
+      listPublishedProductSources: async () => [],
+    }
+    const [markingOnly] = await normalizeSupplierCatalog({ resolve: () => service } as any, { supplier_code: "makito", take: 10 })
+    expect(markingOnly.category).toBe("Uncategorized")
+    expect(markingOnly.category_hierarchy).toEqual(["Uncategorized"])
+    payload.categories.push("Production > PRODUCTS > Bags > Travel Bags")
+    const [mixed] = await normalizeSupplierCatalog({ resolve: () => service } as any, { supplier_code: "makito", take: 10 })
+    expect(mixed.category_paths).toEqual([["Bags", "Travel Bags"]])
+    expect(mixed.category).toBe("Travel Bags")
+    expect(payload.categories[0]).toContain("Marking Techniques")
+  })
   it("uses supplied variant names and removes apparel sizes from colour labels", () => {
     expect(makitoVariantLabel({ variant_name: "Polo Chaplin Arena L", variant_size: "L" }, "Chaplin")).toBe("Arena")
     const labels = makitoColorLabels([{ supplier_id: "supplier-1", payload: { name: "Komir", variants: [{ variant_colorcode: "013", variant_name: "Bag Komir Natural" }] } }])
