@@ -3,8 +3,8 @@ import { createStep, createWorkflow, StepResponse, WorkflowResponse } from "@med
 import { MedusaError, Modules } from "@medusajs/framework/utils"
 import { createCustomerAccountWorkflow } from "@medusajs/medusa/core-flows"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
-import { loadEmailSettings, sendPortalEmail } from "../modules/merchportal/email-settings"
-import { transactionalEmailHtml } from "../modules/merchportal/transactional-email"
+import { loadEmailSettings } from "../modules/merchportal/email-settings"
+import { sendTemplatedPortalEmail } from "../modules/merchportal/email-templates"
 import { validateQuoteDetails, type QuoteDetails } from "../modules/merchportal/quote-details"
 
 type Input = QuoteDetails & { first_name: string; last_name: string; organization_id?: string }
@@ -56,7 +56,7 @@ const createClientStep = createStep("create-portal-client", async (input: Input,
   const loginUrl = `${origin}/portal/login`
   let emailSent = false
   try {
-    emailSent = await sendPortalEmail(service, details.contact_email, "Your MerchPortal account is ready", `Hello ${firstName},\n\nYour MerchPortal account is ready.\nEmail: ${details.contact_email}\nTemporary password: ${password}\nSign in: ${loginUrl}\n\nPlease change your password using Forgot password after signing in.`, false, transactionalEmailHtml("Your account is ready", `Hello ${firstName}, your business account has been created. Use the temporary password below to sign in, then change it using Forgot password.`, "Sign in to MerchPortal", loginUrl, `Email: ${details.contact_email}\nTemporary password: ${password}`))
+    emailSent = await sendTemplatedPortalEmail(service, "client-invitation", details.contact_email, { first_name: firstName, client_email: details.contact_email, temporary_password: password, login_url: loginUrl }, `Hello ${firstName},\n\nYour MerchPortal account is ready.\nEmail: ${details.contact_email}\nTemporary password: ${password}\nSign in: ${loginUrl}\n\nPlease change your password using Forgot password after signing in.`)
   } catch (error) {
     console.error("Client invite email failed", error instanceof Error ? error.message : "Unknown SMTP error")
   }

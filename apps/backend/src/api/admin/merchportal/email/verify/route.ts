@@ -1,6 +1,7 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { MERCHPORTAL_MODULE } from "../../../../../modules/merchportal"
-import { loadEmailSettings, markEmailSettingsVerified, sendPortalEmail } from "../../../../../modules/merchportal/email-settings"
+import { loadEmailSettings, markEmailSettingsVerified } from "../../../../../modules/merchportal/email-settings"
+import { sendTemplatedPortalEmail } from "../../../../../modules/merchportal/email-templates"
 import { requireStaff } from "../../auth"
 
 export async function POST(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
@@ -16,7 +17,8 @@ export async function POST(req: AuthenticatedMedusaRequest, res: MedusaResponse)
     return
   }
   try {
-    await sendPortalEmail(service, settings.notification_email, "MerchPortal email test", "MerchPortal is connected to your Zoho mailbox. Quote notifications are ready.", true)
+    const portalUrl = (process.env.STOREFRONT_URL || "https://merchportal.customislandgifts.mt").replace(/\/$/u, "")
+    await sendTemplatedPortalEmail(service, "smtp-test", settings.notification_email, { portal_url: portalUrl }, "MerchPortal is connected to your Zoho mailbox. Quote notifications are ready.", true)
     await markEmailSettingsVerified(service)
     res.json({ sent: true, recipient: settings.notification_email })
   } catch {

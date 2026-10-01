@@ -1,7 +1,8 @@
 import type { MedusaContainer } from "@medusajs/framework/types"
 import { Modules } from "@medusajs/framework/utils"
 import { MERCHPORTAL_MODULE } from "../modules/merchportal"
-import { loadEmailSettings, sendPortalEmail } from "../modules/merchportal/email-settings"
+import { loadEmailSettings } from "../modules/merchportal/email-settings"
+import { renderEmailTemplate, sendTemplatedPortalEmail } from "../modules/merchportal/email-templates"
 import { quoteWithItems } from "./quote-cart"
 
 function escapeHtml(value: unknown) {
@@ -50,8 +51,13 @@ export function staffQuoteEmail(quote: any) {
     }).join("")
     return `<section style="border:1px solid #dce6f0;border-radius:12px;padding:16px;margin:14px 0"><div style="display:flex;gap:16px">${image ? `<img src="${escapeHtml(image)}" width="110" height="110" alt="Product" style="object-fit:contain;border-radius:8px">` : ""}<div><strong style="font-size:17px">${escapeHtml(item.product_name)}</strong><p style="margin:7px 0;color:#52657a">${escapeHtml(item.color)}${item.variant_size ? ` · ${escapeHtml(item.variant_size)}` : ""} · ${escapeHtml(item.sku || "No SKU")} · ${escapeHtml(item.quantity)} units</p>${item.variant_dimensions ? `<p style="margin:7px 0">${escapeHtml(item.variant_dimensions)}</p>` : ""}</div></div>${prints}${artworkHtml}</section>`
   }).join("")
-  const html = `<div style="background:#f5f8fc;padding:24px;font-family:Arial,sans-serif;color:#193047"><div style="max-width:760px;margin:auto;background:white;border:1px solid #dce6f0;border-radius:16px;padding:24px"><p style="color:#086bea;font-weight:700;letter-spacing:.12em">MERCHPORTAL · NEW REQUEST</p><h1 style="margin:0 0 18px">Quote request</h1><p><strong>Company:</strong> ${escapeHtml(details.company_name || "Not supplied")}<br><strong>Contact:</strong> ${escapeHtml(details.contact_name || "Not supplied")}<br><strong>Email:</strong> ${escapeHtml(details.contact_email || "Not supplied")}<br><strong>Phone:</strong> ${escapeHtml(details.phone || "Not supplied")}<br><strong>VAT:</strong> ${escapeHtml(details.vat_number || "Not supplied")}</p><p><strong>Billing:</strong> ${escapeHtml(addressText(details.billing_address) || "Not supplied")}<br><strong>Delivery:</strong> ${escapeHtml(addressText(details.delivery_address) || "Not supplied")}</p>${quote.customer_note ? `<p><strong>Client note:</strong> ${escapeHtml(quote.customer_note)}</p>` : ""}<h2>Products · ${quote.items.length}</h2>${cards}<p><a href="${escapeHtml(`${admin}/app/merchportal/quotes`)}" style="display:inline-block;background:#086bea;color:white;padding:12px 18px;border-radius:8px;text-decoration:none">Open quote requests</a></p><p style="font-size:12px;color:#65758a">Artwork links require a staff login. Images may be hidden by your email app until you allow them.</p></div></div>`
-  return { text, html }
+  const variables = {
+    quote_id: String(quote.id), company_name: details.company_name || "Not supplied", contact_name: details.contact_name || "Not supplied",
+    contact_email: details.contact_email || "Not supplied", phone: details.phone || "Not supplied", vat_number: details.vat_number || "Not supplied",
+    billing_address: addressText(details.billing_address) || "Not supplied", delivery_address: addressText(details.delivery_address) || "Not supplied",
+    customer_note: quote.customer_note || "None", item_count: String(quote.items.length), quote_items_html: cards, review_url: `${admin}/app/merchportal/quotes`,
+  }
+  return { text, html: renderEmailTemplate("staff-quote-request", variables).html, variables }
 }
 
 export async function notifyStaffOfQuote(container: MedusaContainer, quote: any) {
@@ -61,13 +67,12 @@ export async function notifyStaffOfQuote(container: MedusaContainer, quote: any)
   try {
     const summary = await quoteWithItems(service, quote)
     const email = staffQuoteEmail(summary)
-    return await sendPortalEmail(
+    return await sendTemplatedPortalEmail(
       service,
+      "staff-quote-request",
       settings.notification_email,
-      `New MerchPortal quote request ${quote.id}`,
+      email.variables,
       email.text,
-      false,
-      email.html,
     )
   } catch (error) {
     console.error("MerchPortal could not send staff quote notification", error instanceof Error ? error.message : "Unknown SMTP error")
@@ -83,11 +88,14 @@ export async function notifyCustomerOfFinalQuote(container: MedusaContainer, quo
     const customers = container.resolve(Modules.CUSTOMER) as any
     const customer = await customers.retrieveCustomer(quote.actor_id)
     if (!customer?.email) return false
-    return await sendPortalEmail(
+    const origin = (process.env.STOREFRONT_URL || "https://merchportal.customislandgifts.mt").replace(/\/$/u, "")
+    const quotesUrl = `${origin}/portal/account/quotes`
+    return await sendTemplatedPortalEmail(
       service,
+      "client-quote-ready",
       customer.email,
-      `Your MerchPortal quote ${quote.id} is ready`,
-      `Your final quote is €${Number(quote.final_total).toFixed(2)} excluding VAT.\n\nOpen https://merchportal.customislandgifts.mt/portal/account/quotes to review it.\n\n${quote.staff_note || ""}`,
+      { quote_id: String(quote.id), final_total: Number(quote.final_total).toFixed(2), quotes_url: quotesUrl, staff_note: quote.staff_note || "" },
+      `Your final quote is €${Number(quote.final_total).toFixed(2)} excluding VAT.\n\nOpen ${quotesUrl} to review it.\n\n${quote.staff_note || ""}`,
     )
   } catch (error) {
     console.error("MerchPortal could not send client quote notification", error instanceof Error ? error.message : "Unknown SMTP error")
