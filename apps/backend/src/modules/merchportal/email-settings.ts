@@ -87,6 +87,6 @@ export async function sendPortalEmail(service: any, recipient: string, subject: 
     greetingTimeout: 12_000,
     socketTimeout: 20_000,
   })
-  await transport.sendMail({ from: settings.from_email, to: recipient, subject, text: message, html })
-  return true
+  const result = await transport.sendMail({ from: settings.from_email, to: recipient, subject, text: message, html })
+  return Array.isArray(result.accepted) && result.accepted.length > 0
 }

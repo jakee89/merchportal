@@ -1,8 +1,8 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
 import { cachePortalCatalogFacets, cachePortalCatalogResponse, portalCatalogFacetCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
-import { catalogCodeMatches, catalogFacets, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
-import { catalogSearchScores } from "../../../modules/merchportal/catalog-search"
+import { catalogFacets, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
+import { searchCatalog } from "../../../modules/merchportal/catalog-search"
 import { compareSupplierPriority } from "../../../modules/merchportal/supplier-priority"
 import { catalogMetadata, catalogRevision } from "../../../modules/merchportal/catalog-data"
 import { portalReadCache } from "../../../modules/merchportal/read-cache"
@@ -72,16 +72,8 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const catalogMs = performance.now() - started - metadataMs
   let searchScores: Map<string, number> | undefined
   if (filters.search) {
-    const codeMatches = catalogCodeMatches(safeProducts, filters.search)
-    if (codeMatches) filters.searchMatches = codeMatches
-    else {
-      try {
-        searchScores = await portalReadCache.get(`search:${revision.source}:${filters.search}`, 30_000, () => catalogSearchScores(req.scope, filters.search))
-        if (searchScores) filters.searchMatches = new Set(searchScores.keys())
-      } catch (error) {
-        console.error("Catalog indexed search unavailable; using text search", error)
-      }
-    }
+    searchScores = await searchCatalog(req.scope, safeProducts, filters.search, cacheKey)
+    filters.searchMatches = new Set(searchScores.keys())
   }
   const facetKey = `${cacheKey}:${JSON.stringify({ ...filters, searchMatches: undefined })}:${searchScores ? "indexed" : "literal"}`
   const cachedFacets = portalCatalogFacetCache.get(facetKey)

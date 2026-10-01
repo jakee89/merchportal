@@ -7,6 +7,7 @@ import styles from "../../portal-shell.module.css"
 import ProductImage from "./product-image"
 import { makitoColourHex } from "./makito-colours"
 import { descriptionText } from "./description-text"
+import { ProductActions } from "./discovery/provider"
 
 export type CatalogProduct = {
   id: string
@@ -69,6 +70,7 @@ export default function CatalogCard({ product, backend, priority = false }: { pr
         {product.brand && <p className={styles.cardBrand}>{product.brand}</p>}
         <div className={styles.cardCommercial}><strong>{price === undefined ? "Price on request" : `${hasPriceTiers ? "From " : ""}€${price.toFixed(2)}/unit`}</strong>{price !== undefined && <small>{priceFromQuantity && priceFromQuantity > 1 ? `${hasPriceTiers ? "at" : "available from"} ${priceFromQuantity.toLocaleString()} units · ` : ""}plain product · excl. VAT</small>}<span className={stock && stock > 0 ? styles.inStock : styles.onRequest}>{stock && stock > 0 ? `${stock.toLocaleString()} in stock` : arrival ? `${arrival.quantity.toLocaleString()} incoming · ${new Date(arrival.date).toLocaleDateString()}` : stock === 0 ? "Out of stock" : "Availability on request"}</span></div>
         <Link className={styles.viewProduct} href={productHref} prefetch={false} onMouseEnter={prefetch} onFocus={prefetch}>Choose options <span aria-hidden="true">→</span></Link>
+        <ProductActions item={{ product_id: product.id, sku: option?.sku || product.sku || "", name: product.name }} />
       </div>
     </article>
   )

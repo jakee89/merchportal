@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation"
 import { previewPortalConfiguration, savePortalConfiguration, uploadPortalArtwork } from "../actions"
 import { decorationImage } from "@lib/util/decoration-image"
 import { boundedPrintDimension, printDimensionLimits, selectedPrintSize, uniquePrintSizes, validPrintDimensions } from "@lib/util/decoration-size"
+import { ProductActions } from "../../discovery/provider"
 
 type PriceBreak = { quantity: number; unit_price_eur: number; next_colour_price_eur?: number }
 type PriceTable = { code: string; option_code?: string; variant_sku?: string; max_colours?: number; max_area_cm2?: number; max_stitches?: number; price_by_color: boolean; price_by_area: boolean; price_by_stitches?: boolean; price_breaks: PriceBreak[] }
@@ -252,6 +253,7 @@ export default function Configurator({ productId, productName, productImages, ba
       <div className={styles.productBuyPanel}>
         <h2>Choose colour and option</h2>
         <p className={styles.selectedColour}>{variants.length} options · Selected: <strong>{variant?.color || "—"}</strong>{variant?.size && variant.size !== "Standard" ? ` · ${variant.size}` : ""}</p>
+        <ProductActions item={{ product_id: productId, sku: variant?.sku || "", name: productName }} />
         <div className={styles.variantChoices} role="group" aria-label="Available colours and variants">{variants.map((item) => <button type="button" key={item.id} className={item.id === variant?.id ? styles.activeVariantChoice : ""} aria-pressed={item.id === variant?.id} title={`${item.color}${item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}`} onClick={() => selectVariant(item.id)}><span className={styles.variantChoiceImage}>{item.color_hex ? <span className={styles.variantColour} style={{ backgroundColor: item.color_hex }} /> : <SafeImage src={mediaUrl(backend, item.images?.[0])} alt="" />}</span><span><strong>{item.color}</strong>{item.size && item.size !== "Standard" && <small>{item.size}</small>}</span></button>)}</div>
         {variants.length > 12 && <label className={styles.variantSelectFallback}>Find an option<select value={variant?.id || ""} onChange={(event) => selectVariant(event.target.value)}>{variants.map((item) => <option key={item.id} value={item.id}>{item.color}{item.size && item.size !== "Standard" ? ` · ${item.size}` : ""}{item.sku ? ` · ${item.sku}` : ""}</option>)}</select></label>}
         <dl className={styles.variantFacts}><div><dt>SKU</dt><dd>{variant?.sku || "—"}</dd></div>{variant?.ean && <div><dt>EAN</dt><dd>{variant.ean}</dd></div>}{variant?.pantone && <div><dt>Pantone</dt><dd>{variant.pantone}</dd></div>}{variant?.dimensions && <div><dt>Dimensions</dt><dd>{variant.dimensions}</dd></div>}</dl>

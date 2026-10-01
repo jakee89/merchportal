@@ -60,7 +60,7 @@ describe("Zoho email settings", () => {
     const store = service()
     await saveEmailSettings(store, { host: "smtppro.zoho.eu", port: 465, username: "info@example.com", from_email: "info@example.com", notification_email: "staff@example.com", app_password: "zoho-app-password" })
     await markEmailSettingsVerified(store)
-    const sendMail = jest.fn(async () => ({}))
+    const sendMail = jest.fn(async () => ({ accepted: ["client@example.com"] }))
     const transport = jest.spyOn(nodemailer, "createTransport").mockReturnValue({ sendMail } as any)
     try {
       expect(await sendPortalEmail(store, "client@example.com", "Welcome", "Hello")).toBe(true)

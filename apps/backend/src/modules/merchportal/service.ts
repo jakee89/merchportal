@@ -15,6 +15,9 @@ import PortalUsageDaily from "./models/portal-usage-daily"
 import FacetOperation from "./models/facet-operation"
 import FacetValue from "./models/facet-value"
 import MediaHealth from "./models/media-health"
+import ClientShortlist from "./models/client-shortlist"
+import ShortlistItem from "./models/shortlist-item"
+import EmailDelivery from "./models/email-delivery"
 
 class MerchPortalModuleService extends MedusaService({
   ImportJob,
@@ -33,6 +36,9 @@ class MerchPortalModuleService extends MedusaService({
   FacetOperation,
   FacetValue,
   MediaHealth,
+  ClientShortlist,
+  ShortlistItem,
+  EmailDelivery,
 }) {}
 
 export default MerchPortalModuleService

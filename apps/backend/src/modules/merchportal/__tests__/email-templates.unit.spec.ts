@@ -11,6 +11,7 @@ jest.mock("../../../api/admin/merchportal/auth", () => ({ requireStaff: jest.fn(
 function store() {
   const settings = new Map<string, any>()
   return {
+    createEmailDeliveries: jest.fn(async () => ({})),
     listPortalSettings: jest.fn(async ({ key }: { key: string }) => settings.has(key) ? [settings.get(key)] : []),
     createPortalSettings: jest.fn(async (input: any) => {
       const setting = { id: input.key, ...input, updated_at: "2026-10-01T12:00:00Z" }

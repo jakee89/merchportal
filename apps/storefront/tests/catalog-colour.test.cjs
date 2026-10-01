@@ -44,6 +44,7 @@ test("catalogue swatches change image, SKU, stock and price together", () => {
     "./product-image": { default: image },
     "./makito-colours": { makitoColourHex: () => undefined },
     "./description-text": { descriptionText: (text) => text },
+    "./discovery/provider": { ProductActions: "ProductActions" },
   }, {
     useRef: (value) => ({ current: value }),
     useState: (initial) => [selected || initial, (value) => { selected = value }],

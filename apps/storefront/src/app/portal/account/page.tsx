@@ -10,11 +10,22 @@ import CatalogCard, { type CatalogProduct } from "./catalog-card"
 import CatalogFilters, { type Facets } from "./catalog-filters"
 import QuoteCartLink from "./quote-cart-link"
 import { filterLabel } from "./filter-label"
+import SearchSuggestions from "./discovery/search-suggestions"
+import FeaturedCarousel from "./discovery/featured-carousel"
+import { getFeaturedCollections } from "./discovery/actions"
+import discoveryStyles from "./discovery/discovery.module.css"
 
 type PortalMe = { membership: { role: string } | null; organization: { name: string; primary_color: string } | null }
 type Search = Record<string, string | string[] | undefined>
 type CatalogResponse = { products: CatalogProduct[]; facets: Facets; total: number; page: number; page_size: number; page_count: number }
 const filterKeys = ["category", "color", "size", "material", "brand", "lead_time", "print_method", "min_price", "max_price", "in_stock", "out_of_stock", "sustainable"]
+
+async function FeaturedProducts({ backend }: { backend: string }) {
+  try {
+    const { collections } = await getFeaturedCollections()
+    return <>{collections.map((collection, index) => <FeaturedCarousel key={`${index}:${collection.label}`} collection={collection} backend={backend} />)}</>
+  } catch { return null }
+}
 
 function values(input: string | string[] | undefined) {
   return (Array.isArray(input) ? input : input ? [input] : []).filter(Boolean)
@@ -59,8 +70,10 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
     <header className={styles.topbar}><Link href="/portal" className={styles.brand}><span className={styles.mark}>M</span>{me.organization.name}</Link><span className={styles.headerActions}>{customer.first_name || customer.email} · {me.membership?.role.replace("client_", "")} · <Link href="/portal/account/profile">Profile</Link> · <Suspense fallback={<Link href="/portal/account/quotes">Quote cart</Link>}><QuoteCartLink /></Suspense></span></header>
     <main className={styles.catalogMain}>
       <header className={styles.catalogIntro}><span className={styles.eyebrow}>Private client catalogue</span><h1>Promotional products</h1><p>Explore products, live availability and custom branding options.</p></header>
+      <nav className={discoveryStyles.toolbar} aria-label="Product tools"><Link href="/portal/account/shortlists">Your shortlists →</Link><Link href="/portal/account/compare">Compare products →</Link></nav>
+      {!values(search.q)[0]?.trim() && !active.length && catalog.page === 1 && <Suspense fallback={null}><FeaturedProducts backend={backend} /></Suspense>}
       <Form className={styles.catalogToolbar} action="/portal/account" prefetch={false}>
-        <input name="q" defaultValue={values(search.q)[0]} placeholder="Search products or codes" aria-label="Search catalogue" />
+        <SearchSuggestions initialValue={values(search.q)[0]} />
         {filterKeys.flatMap((key) => selected[key].map((value) => <input key={`${key}-${value}`} type="hidden" name={key} value={value} />))}
         <select name="sort" defaultValue={values(search.sort)[0]} aria-label="Sort products"><option value="">Recommended</option><option value="price_asc">Lowest price</option><option value="price_desc">Highest price</option><option value="name_asc">Name A–Z</option><option value="name_desc">Name Z–A</option></select>
         <button className={styles.primary} type="submit">Search</button>

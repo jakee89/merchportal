@@ -9,6 +9,11 @@ export const metadata: Metadata = {
     template: "%s | MerchPortal",
   },
   description: "A private B2B merchandise discovery and quotation platform.",
+  robots: {
+    index: false,
+    follow: false,
+    nosnippet: true,
+  },
 }
 
 export default function RootLayout(props: { children: React.ReactNode }) {

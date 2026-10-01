@@ -1,6 +1,7 @@
 import { MedusaError } from "@medusajs/framework/utils"
 import { sendPortalEmail } from "./email-settings"
 import { transactionalEmailHtml } from "./transactional-email"
+import { emailFailureCode, recordEmailDelivery } from "./email-delivery-history"
 
 export type EmailTemplateId = "password-reset" | "client-invitation" | "staff-quote-request" | "client-quote-ready" | "smtp-test"
 type Variables = Record<string, string>
@@ -140,7 +141,15 @@ export function previewEmailTemplate(id: string, input: Record<string, unknown>)
 }
 
 export async function sendTemplatedPortalEmail(service: any, id: EmailTemplateId, recipient: string, variables: Variables, plainText: string, test = false) {
-  const { content } = await loadTemplate(service, id)
-  const email = renderEmailTemplate(id, variables, content)
-  return sendPortalEmail(service, recipient, email.subject, plainText, test, email.html)
+  let accepted: boolean
+  try {
+    const { content } = await loadTemplate(service, id)
+    const email = renderEmailTemplate(id, variables, content)
+    accepted = await sendPortalEmail(service, recipient, email.subject, plainText, test, email.html)
+  } catch (error) {
+    await recordEmailDelivery(service, id, recipient, "failed", emailFailureCode(error))
+    throw error
+  }
+  await recordEmailDelivery(service, id, recipient, accepted ? "accepted" : "failed", accepted ? undefined : "SMTP_NOT_ACCEPTED")
+  return accepted
 }

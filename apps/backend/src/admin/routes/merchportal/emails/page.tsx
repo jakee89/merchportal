@@ -1,6 +1,7 @@
 import { defineRouteConfig } from "@medusajs/admin-sdk"
 import { Button, Container, Heading, Input, Text, toast } from "@medusajs/ui"
 import { useEffect, useState } from "react"
+import DeliveryHistory from "./delivery-history"
 
 type Preview = { subject: string; html: string }
 type Template = {
@@ -93,7 +94,7 @@ const EmailTemplatesPage = () => {
   return <div className="space-y-4">
     <Container>
       <Heading level="h1">Email templates</Heading>
-      <Text className="mt-2 text-ui-fg-subtle">All email types currently sent by MerchPortal. Edit the subject and HTML to adjust branding. Changes apply to future emails only; this is not a delivery-history log.</Text>
+      <Text className="mt-2 text-ui-fg-subtle">All email types currently sent by MerchPortal. Edit the subject and HTML to adjust branding. Changes apply to future emails only. Delivery history is shown below.</Text>
       <div className="mt-3 flex flex-wrap gap-4"><a className="text-ui-fg-interactive" href="/app/merchportal/settings">Sender & Zoho settings →</a><a className="text-ui-fg-interactive" href="/app/merchportal">MerchPortal overview →</a></div>
       {busy === "loading" && <Text className="mt-3">Loading email templates…</Text>}
       {error && <Text className="mt-3 text-ui-fg-error" role="alert">{error}</Text>}
@@ -131,6 +132,7 @@ const EmailTemplatesPage = () => {
         </Container>
       </div>}
     </div>
+    <DeliveryHistory templates={templates} />
   </div>
 }
 

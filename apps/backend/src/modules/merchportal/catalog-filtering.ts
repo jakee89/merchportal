@@ -48,9 +48,9 @@ export function catalogSearchText(product: CatalogEntry) {
 
 const codeIndexes = new WeakMap<CatalogEntry[], { skus: string[]; ids: Map<string, Set<string>> }>()
 
-export function catalogCodeMatches(products: CatalogEntry[], input: string): Set<string> | undefined {
+export function catalogCodeMatches(products: CatalogEntry[], input: string, minimumLength = 4): Set<string> | undefined {
   const code = input.trim().toLocaleLowerCase()
-  if (code.length < 4 || !/^[a-z0-9]+(?:[-/][a-z0-9]+)*$/u.test(code) || !/\d/u.test(code)) return
+  if (code.length < minimumLength || !/^[a-z0-9]+(?:[-/][a-z0-9]+)*$/u.test(code) || !/\d/u.test(code)) return
   let index = codeIndexes.get(products)
   if (!index) {
     const ids = new Map<string, Set<string>>()

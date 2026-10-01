@@ -13,6 +13,16 @@ const S3_PATHNAME = process.env.MEDUSA_CLOUD_S3_PATHNAME
  */
 const nextConfig = {
   reactStrictMode: true,
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Robots-Tag", value: "noindex, nofollow, nosnippet" },
+        ],
+      },
+    ]
+  },
   experimental: {
     serverActions: { bodySizeLimit: "15mb" },
   },
