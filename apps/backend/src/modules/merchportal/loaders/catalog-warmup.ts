@@ -1,13 +1,14 @@
 import type { LoaderOptions } from "@medusajs/framework/types"
 import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { catalogRevision, catalogSources } from "../catalog-data"
-import { warmActiveCatalogs } from "../catalog-prepared"
+import { warmDefaultCatalog, warmActiveCatalogs } from "../catalog-prepared"
+import { warmCatalogImages } from "../catalog-image-warmup"
 
 export default async function catalogWarmup({ container }: LoaderOptions) {
   if (process.env.NODE_ENV !== "production" || process.env.MEDUSA_WORKER_MODE === "worker") return
   // Reuse this module's existing connection; do not create another database pool.
   const manager = container.resolve(ContainerRegistrationKeys.MANAGER) as any
-  const scope = { resolve: () => manager.getConnection().getKnex() }
+  const scope = { resolve: (key: string) => key === ContainerRegistrationKeys.PG_CONNECTION ? manager.getConnection().getKnex() : container.resolve(key) }
   let running = false
   const warm = async () => {
     if (running) return
@@ -15,6 +16,8 @@ export default async function catalogWarmup({ container }: LoaderOptions) {
     try {
       const revision = await catalogRevision(scope)
       await catalogSources(scope, revision.source)
+      const products = await warmDefaultCatalog(scope, revision)
+      if (products) void warmCatalogImages(products).catch(() => {})
       await warmActiveCatalogs()
     } catch {
       // Warm-up is optional and must never prevent startup, migrations or sign-in.

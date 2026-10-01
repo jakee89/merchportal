@@ -3,7 +3,7 @@ import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
 import { cachePortalCatalogFacets, cachePortalCatalogResponse, portalCatalogFacetCache, portalCatalogResponseCache, removeExpiredPortalCatalogCacheEntries } from "../../../modules/merchportal/catalog-cache"
 import { catalogFacets, colorLabel, matchesCatalogFilters, matchingCatalogVariants, type CatalogFilters } from "../../../modules/merchportal/catalog-filtering"
 import { searchCatalog } from "../../../modules/merchportal/catalog-search"
-import { compareSupplierPriority } from "../../../modules/merchportal/supplier-priority"
+import { orderCatalog } from "../../../modules/merchportal/catalog-ordering"
 import { catalogMetadata, catalogRevision } from "../../../modules/merchportal/catalog-data"
 import { portalReadCache } from "../../../modules/merchportal/read-cache"
 import { preparedCatalog } from "../../../modules/merchportal/catalog-prepared"
@@ -92,31 +92,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   }
   const filtered = catalogCandidates(safeProducts, filters).filter((product) => matchesCatalogFilters(product, filters)) as any[]
   const sort = queryText(req.query.sort)
-  const sortedPrices = sort === "price_asc" || sort === "price_desc"
-    ? new Map(filtered.map((product) => {
-      const prices = matchingCatalogVariants(product, filters).map((variant) => variant.price_eur).filter((price): price is number => typeof price === "number" && Number.isFinite(price))
-      return [product, prices.length ? Math.min(...prices) : undefined] as const
-    }))
-    : undefined
-  filtered.sort((left, right) => {
-    if (sort === "price_asc") return (sortedPrices?.get(left) ?? Number.POSITIVE_INFINITY) - (sortedPrices?.get(right) ?? Number.POSITIVE_INFINITY)
-    if (sort === "price_desc") return (sortedPrices?.get(right) ?? Number.NEGATIVE_INFINITY) - (sortedPrices?.get(left) ?? Number.NEGATIVE_INFINITY)
-    if (sort === "name_asc") return left.name.localeCompare(right.name)
-    if (sort === "name_desc") return right.name.localeCompare(left.name)
-    const priorityDifference = compareSupplierPriority(left.supplier_id, right.supplier_id, supplierPriorities)
-    if (priorityDifference) return priorityDifference
-    if (filters.search && searchScores) {
-      const score = (product: any) => {
-        const term = filters.search.toLocaleLowerCase()
-        const name = String(product.name).toLocaleLowerCase()
-        const skus = (product.filter_variants || []).map((variant: any) => String(variant.sku || "").toLocaleLowerCase())
-        return (skus.includes(term) ? 1000 : 0) + (name === term ? 500 : name.startsWith(term) ? 100 : name.includes(term) ? 25 : 0) + (searchScores.get(product.id) || 0)
-      }
-      const difference = score(right) - score(left)
-      if (difference) return difference
-    }
-    return String(left.name).localeCompare(String(right.name))
-  })
+  orderCatalog(filtered, filters, sort, supplierPriorities, searchScores)
   const pageSize = Math.max(12, Math.min(48, Math.floor(queryNumber(req.query.page_size) || 24)))
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const page = Math.max(1, Math.min(pageCount, Math.floor(queryNumber(req.query.page) || 1)))

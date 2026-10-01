@@ -8,8 +8,10 @@ import styles from "./discovery.module.css"
 
 export default function SearchSuggestions({
   initialValue = "",
+  onCategory,
 }: {
   initialValue?: string
+  onCategory?: (href: string) => void
 }) {
   const [value, setValue] = useState(initialValue)
   const [result, setResult] = useState<Suggestions>({
@@ -110,7 +112,8 @@ export default function SearchSuggestions({
           if (event.key === "Enter" && visible && active >= 0) {
             event.preventDefault()
             setOpen(false)
-            router.push(choices[active].href)
+            if (choices[active].detail === "Category" && onCategory) onCategory(choices[active].href)
+            else router.push(choices[active].href)
           }
         }}
       />

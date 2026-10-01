@@ -5,9 +5,26 @@ import { makitoDocumentCategories } from "./makito-categories"
 import { applyFacetMappings, facetMappingIndex } from "./facet-mappings"
 import { catalogMetadata, catalogRevision, catalogSources } from "./catalog-data"
 import { portalPreparedCatalogCache } from "./read-cache"
+import { recommendedCatalog } from "./catalog-ordering"
+import { prepareSearchTokens } from "./search-relevance"
+import { catalogCandidates } from "./catalog-index"
 
 type Revision = { source: string; settings: string }
 const activeCatalogs = new Map<string, { used: number; warm: () => Promise<unknown> }>()
+
+export async function warmDefaultCatalog(container: any, revision: Revision) {
+  const sources = await catalogSources(container, revision.source)
+  // Module loaders have no Product-module query graph. Only warm the existing
+  // indexed path; older/incomplete imports retain the normal request fallback.
+  if (!sources.length || sources.some((source) => !source.catalog_preview)) return
+  const knex = container.resolve(ContainerRegistrationKeys.PG_CONNECTION) as any
+  const reads = {
+    listPricingRules: () => knex("merchportal_pricing_rule").whereNull("deleted_at").where({ status: "active" }).select("id", "scope_key", "organization_id", "markup_percentage", "quantity_tiers", "status"),
+    listSuppliers: () => knex("merchportal_supplier").whereNull("deleted_at").select("id", "code", "catalog_priority"),
+    listFacetMappings: (_filters: any, options: any) => knex("merchportal_facet_mapping").whereNull("deleted_at").select("supplier_id", "facet_type", "source_value", "target_value").orderBy("id", "asc").limit(options.take).offset(options.skip),
+  }
+  return preparedCatalog(container, reads, "", revision, false)
+}
 
 export async function warmActiveCatalogs() {
   for (const [id, entry] of activeCatalogs) {
@@ -29,7 +46,10 @@ export async function preparedCatalog(container: any, service: any, organization
       await preparedCatalog(scope, service, organizationId, latest, false)
     } })
   }
-  const cacheKey = `${organizationId}:${revision.source}:${revision.settings}`
+  // Default/supplier rules produce exactly the same prices for all companies
+  // without an override. Share that prepared snapshot, never a company override.
+  const pricingScope = rules.some((rule: any) => rule.scope_key === `organization:${organizationId}`) ? `organization:${organizationId}` : "default"
+  const cacheKey = `${pricingScope}:${revision.source}:${revision.settings}`
   return portalPreparedCatalogCache.get<any[]>(cacheKey, 60 * 60_000, async () => {
     const mappingIndex = facetMappingIndex(facetMappings)
     const rulesByScope = new Map<string, any>(rules.map((rule: any) => [rule.scope_key, rule]))
@@ -167,6 +187,9 @@ export async function preparedCatalog(container: any, service: any, organization
       const mapped = product.supplier_id ? applyFacetMappings(product, product.supplier_id, mappingIndex) : product
       return { ...mapped, search_text: catalogSearchText(mapped) }
     })
+    recommendedCatalog(safeProducts, new Map(suppliers.map((supplier: any) => [supplier.id, supplier.catalog_priority])))
+    prepareSearchTokens(safeProducts)
+    catalogCandidates(safeProducts, { search: "", categories: [], colors: [], sizes: [], materials: [], brands: [], leadTimes: [], printMethods: [], inStock: false, outOfStock: false, sustainable: false })
     return safeProducts
   })
 }

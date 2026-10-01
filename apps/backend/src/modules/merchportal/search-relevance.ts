@@ -54,6 +54,15 @@ const tokenCache = new WeakMap<
   { primary: string[]; all: string[]; name: string[] }
 >()
 
+export function prepareSearchTokens(products: CatalogEntry[]) {
+  for (const product of products) {
+    if (tokenCache.has(product)) continue
+    const identity = [product.name, product.category, ...(product.category_hierarchy || []), ...(product.keywords || []), ...(product.materials || []), ...(product.colors || []), product.brand, ...(product.print_methods || [])].filter(Boolean).join(" ")
+    const primary = [...new Set(words(identity).map(singular))]
+    tokenCache.set(product, { primary, name: words(product.name).map(singular), all: [...new Set([...primary, ...words(product.description || "").map(singular)])] })
+  }
+}
+
 export function relevantSearchScores(
   products: CatalogEntry[],
   input: string,
@@ -63,38 +72,13 @@ export function relevantSearchScores(
 ) {
   const terms = words(input.trim().slice(0, 120)).map(singular)
   if (!terms.length) return new Map<string, number>()
+  prepareSearchTokens(products)
   const primary = new Map<string, number>()
   const secondary = new Map<string, number>()
   const fuzzy = new Map<string, number>()
   for (const product of products) {
     if (!product.id) continue
-    let tokens = tokenCache.get(product)
-    if (!tokens) {
-      const identity = [
-        product.name,
-        product.category,
-        ...(product.category_hierarchy || []),
-        ...(product.keywords || []),
-        ...(product.materials || []),
-        ...(product.colors || []),
-        product.brand,
-        ...(product.print_methods || []),
-      ]
-        .filter(Boolean)
-        .join(" ")
-      const primaryWords = [...new Set(words(identity).map(singular))]
-      tokens = {
-        primary: primaryWords,
-        name: words(product.name).map(singular),
-        all: [
-          ...new Set([
-            ...primaryWords,
-            ...words(product.description || "").map(singular),
-          ]),
-        ],
-      }
-      tokenCache.set(product, tokens)
-    }
+    const tokens = tokenCache.get(product)!
     const exact = (values: string[]) =>
       terms.every(
         (term, index) =>

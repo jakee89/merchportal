@@ -9,7 +9,7 @@ import CategoryNavigation from "./category-navigation"
 type Facet = [value: string, count: number]
 export type Facets = { category_tree?: { roots: { value: string; count: number; children: { value: string; label: string; count: number }[] }[] }; categories: Facet[]; colors: Facet[]; sizes: Facet[]; materials: Facet[]; brands: Facet[]; lead_times: Facet[]; print_methods: Facet[]; availability: { in_stock: number; out_of_stock: number; sustainable: number } }
 
-export default function CatalogFilters({ facets, selected, activeCount, clearHref }: { facets: Facets; selected: Record<string, string[]>; activeCount: number; clearHref: string }) {
+export default function CatalogFilters({ facets, selected, activeCount, clearHref, onNavigate, updating = false }: { facets: Facets; selected: Record<string, string[]>; activeCount: number; clearHref: string; onNavigate?: (query: URLSearchParams) => void; updating?: boolean }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [localSelected, setLocalSelected] = useState(selected)
@@ -26,7 +26,8 @@ export default function CatalogFilters({ facets, selected, activeCount, clearHre
   const navigate = (next: URLSearchParams) => {
     next.delete("page")
     pendingQuery.current = next
-    startTransition(() => router.replace(`/portal/account?${next}`, { scroll: false }))
+    if (onNavigate) onNavigate(next)
+    else startTransition(() => router.replace(`/portal/account?${next}`, { scroll: false }))
   }
   const choose = (name: string, value: string, checked: boolean) => {
     const next = new URLSearchParams(pendingQuery.current?.toString() || window.location.search)
@@ -70,7 +71,7 @@ export default function CatalogFilters({ facets, selected, activeCount, clearHre
     <button className={styles.mobileFilterButton} type="button" aria-expanded={open} onClick={() => setOpen(!open)}>Filters{activeCount ? ` (${activeCount})` : ""}</button>
     <div className={`${styles.catalogFilters} ${open ? styles.filtersOpen : ""}`}>
       <div className={styles.filterHeading}><strong>Filters</strong><Link href={clearHref}>Clear all</Link></div>
-      {pending && <span className={styles.filterUpdating} aria-live="polite">Updating results…</span>}
+      {(pending || updating) && <span className={styles.filterUpdating} aria-live="polite">Updating results…</span>}
       {facets.category_tree?.roots.length ? <CategoryNavigation tree={facets.category_tree} selected={localSelected.category || []} choose={choose} /> : group("Category", "category", facets.categories)}{group("Colour", "color", facets.colors)}{group("Size", "size", facets.sizes)}{group("Material", "material", facets.materials)}{group("Brand", "brand", facets.brands)}{group("Lead time", "lead_time", facets.lead_times)}{group("Print technology", "print_method", facets.print_methods)}
       <fieldset className={styles.facetGroup}><legend>Price</legend><div className={styles.priceInputs}><input key={`min-${selected.min_price?.[0] || ""}`} aria-label="Minimum price" type="number" min="0" step="0.01" placeholder="Min €" defaultValue={selected.min_price?.[0]} onChange={(event) => priceChanged("min_price", event.target.value)} onBlur={(event) => priceChanged("min_price", event.target.value, true)} /><input key={`max-${selected.max_price?.[0] || ""}`} aria-label="Maximum price" type="number" min="0" step="0.01" placeholder="Max €" defaultValue={selected.max_price?.[0]} onChange={(event) => priceChanged("max_price", event.target.value)} onBlur={(event) => priceChanged("max_price", event.target.value, true)} /></div></fieldset>
       <fieldset className={styles.facetGroup}><legend>Availability</legend><div className={styles.facetOptions}><label><input type="checkbox" checked={localSelected.in_stock?.includes("true") || false} onChange={(event) => choose("in_stock", "true", event.target.checked)} /><span>In stock</span><small>{facets.availability.in_stock.toLocaleString()}</small></label><label><input type="checkbox" checked={localSelected.out_of_stock?.includes("true") || false} onChange={(event) => choose("out_of_stock", "true", event.target.checked)} /><span>Out of stock</span><small>{facets.availability.out_of_stock.toLocaleString()}</small></label><label><input type="checkbox" checked={localSelected.sustainable?.includes("true") || false} onChange={(event) => choose("sustainable", "true", event.target.checked)} /><span>Sustainable</span><small>{facets.availability.sustainable.toLocaleString()}</small></label></div></fieldset>

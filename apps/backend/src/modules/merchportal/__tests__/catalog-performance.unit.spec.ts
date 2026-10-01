@@ -7,7 +7,7 @@ import { ContainerRegistrationKeys } from "@medusajs/framework/utils"
 import { catalogRevision, catalogSources } from "../catalog-data"
 import { clearPortalCatalogCache } from "../catalog-cache"
 import { relatedProductSources } from "../related-products"
-import { warmActiveCatalogs } from "../catalog-prepared"
+import { preparedCatalog, warmActiveCatalogs, warmDefaultCatalog } from "../catalog-prepared"
 
 const makeSource = (id: string, supplier: string, sku: string, cost: number) => ({
   id: `source-${id}`, product_id: id, supplier_id: supplier, cost_by_sku: { [sku]: cost },
@@ -75,6 +75,37 @@ describe("read-only performance paths", () => {
     await catalogGet(request("revoked") as any, revoked as any)
     expect(revoked.status).toHaveBeenCalledWith(403)
     expect(service.listMemberships).toHaveBeenCalledTimes(4)
+  })
+
+  it("shares prepared default pricing for new companies but isolates company overrides", async () => {
+    const revision = { source: "s1", settings: "r1" }
+    const first = await preparedCatalog(scope, service, "company-a", revision)
+    const newlyRegistered = await preparedCatalog(scope, service, "new-company", revision)
+    expect(newlyRegistered).toBe(first)
+    const overridden = await preparedCatalog(scope, service, "company-b", revision)
+    expect(overridden).not.toBe(first)
+    expect(overridden.find((row) => row.id === "p-midocean").price_eur).toBe(15)
+  })
+
+  it("warms default prices using the module's existing connection before any client visit", async () => {
+    const rows: Record<string, any[]> = {
+      merchportal_pricing_rule: [{ scope_key: "global", markup_percentage: "30", status: "active" }],
+      merchportal_supplier: [{ id: "midocean", code: "midocean", catalog_priority: 2 }, { id: "stricker", code: "stricker", catalog_priority: 1 }],
+      merchportal_facet_mapping: [],
+    }
+    const knex = (table: string) => {
+      const builder: any = {}
+      for (const method of ["whereNull", "where", "select", "orderBy", "limit", "offset"]) builder[method] = () => builder
+      builder.then = (resolve: any, reject: any) => Promise.resolve(rows[table]).then(resolve, reject)
+      return builder
+    }
+    await warmDefaultCatalog({ resolve: () => knex }, { source: "s1", settings: "r1" })
+    const warmReads = jest.mocked(catalogSources).mock.calls.length
+    const first = response()
+    await catalogGet(request("new-company") as any, first as any)
+    expect(catalogSources).toHaveBeenCalledTimes(warmReads)
+    expect(service.listPricingRules).not.toHaveBeenCalled()
+    expect(first.json.mock.calls[0][0].products[1].price_eur).toBe(13)
   })
 
   it("does not restore marking categories from native-product fallback records", async () => {

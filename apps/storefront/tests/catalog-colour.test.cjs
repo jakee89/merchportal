@@ -60,6 +60,8 @@ test("catalogue swatches change image, SKU, stock and price together", () => {
     findNode(tree, (node) => node.props?.["aria-label"] === `Show ${option.name}`).props.onClick()
     const changed = render()
     assert.equal(findNode(changed, (node) => node.type === image).props.src, `/portal${option.image_url}`)
+    assert.match(findNode(changed, (node) => node.type === image).props.sizes, /280px$/)
+    assert.equal(findNode(findNode(changed, (node) => node.props?.["aria-label"] === `Show ${option.name}`), (node) => node.type === image).props.sizes, "25px")
     assert.equal(findNode(changed, (node) => node.props?.["aria-label"] === "Available colours").props.children[0].filter((node) => node.props["aria-pressed"]).length, 1)
     assert.equal(findNode(changed, (node) => node.props?.["aria-label"] === "View AIRLINE").props.href, `/portal/account/products/p?sku=${option.sku}`)
     assert.equal(findNode(changed, (node) => node.type === "strong").props.children, `€${option.price_eur.toFixed(2)}/unit`)
