@@ -42,6 +42,37 @@ describe("read-only performance paths", () => {
   const request = (actor = "company-a", query = {}) => ({ scope, auth_context: { actor_id: actor }, query, params: { id: "p-midocean" } })
   const response = () => { const res = { json: jest.fn(), setHeader: jest.fn(), status: jest.fn() }; res.status.mockReturnValue(res); return res }
 
+  it("matches every displayed category branch when secondary path ancestors are absent from the primary hierarchy", async () => {
+    const cap = makeSource("cap", "makito", "CAP-01", 10)
+    const fan = makeSource("fan-cap", "makito", "FAN-01", 10)
+    const hat = makeSource("hat", "makito", "HAT-01", 20)
+    const bag = makeSource("bag", "stricker", "BAG-01", 5)
+    cap.catalog_preview = { ...cap.catalog_preview, category: "Caps", category_hierarchy: ["Caps"], category_paths: [["Caps And Hats", "Caps", "Adult Caps"]] } as any
+    fan.catalog_preview = { ...fan.catalog_preview, category: "Fans", category_hierarchy: ["Summer", "Fans"], category_paths: [["Summer", "Fans"], ["Caps And Hats", "Caps", "Adult Caps"], ["Caps And Hats", "Caps"]] } as any
+    hat.catalog_preview = { ...hat.catalog_preview, category: "Hats", category_hierarchy: ["Hats"], category_paths: [["Caps And Hats", "Hats"]], variants: [{ ...hat.catalog_preview.variants[0], color: "Blue", stock_quantity: 0 }] } as any
+    jest.mocked(catalogSources).mockResolvedValue([cap, fan, hat, bag])
+    service.listSuppliers.mockResolvedValue([{ id: "makito", code: "makito" }, { id: "stricker", code: "stricker" }])
+    // A saved flat rename updates hierarchy labels but retains supplier paths.
+    service.listFacetMappings.mockResolvedValue([{ supplier_id: "makito", facet_type: "category", source_value: "Caps And Hats", target_value: "Headwear" }])
+    const initial = response()
+    await catalogGet(request("company-a", { view: "facets", compact: "true" }) as any, initial as any)
+    const roots = initial.json.mock.calls[0][0].facets.category_tree.roots
+    expect(roots.find((root: any) => root.value === "Caps And Hats").count).toBe(3)
+    for (const root of roots) {
+      for (const branch of [root, ...root.children]) {
+        const result = response()
+        await catalogGet(request("company-a", { category: branch.value, view: "products", compact: "true" }) as any, result as any)
+        expect(result.json.mock.calls[0][0].total).toBe(branch.count)
+      }
+    }
+    const filtered = response()
+    await catalogGet(request("company-a", { category: "Caps And Hats", color: "Black", in_stock: "true", max_price: "15", view: "products", compact: "true" }) as any, filtered as any)
+    expect(filtered.json.mock.calls[0][0].products.map((product: any) => product.id).sort()).toEqual(["cap", "fan-cap"])
+    const union = response()
+    await catalogGet(request("company-a", { category: ["Caps And Hats", "Bags"], view: "products", compact: "true" }) as any, union as any)
+    expect(union.json.mock.calls[0][0].total).toBe(4)
+  })
+
   it("treats comma-containing filter labels as whole values and preserves parent, child and multi-select results", async () => {
     const parent = "Bar, Wine And Hotel"
     const first = makeSource("wine", "stricker", "WINE-01", 10)

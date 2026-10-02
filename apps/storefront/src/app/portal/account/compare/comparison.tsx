@@ -22,7 +22,7 @@ function imageUrl(image?: string) {
 const money = (value: number | null) =>
   value === null ? "Quote required" : `€${value.toFixed(2)}`
 
-export default function ComparisonClient() {
+export default function ComparisonClient({ brand }: { brand?: React.ReactNode }) {
   const discovery = useDiscovery()
   const [quantity, setQuantity] = useState(25)
   const [pricedQuantity, setPricedQuantity] = useState(25)
@@ -116,9 +116,9 @@ export default function ComparisonClient() {
   return (
     <div className={styles.page}>
       <header className={styles.topbar}>
-        <Link className={styles.brand} href="/portal/account">
+        {brand || <Link className={styles.brand} href="/portal/account">
           <span className={styles.mark}>M</span>Product comparison
-        </Link>
+        </Link>}
         <Link href="/portal/account/shortlists">Shortlists</Link>
       </header>
       <main className={styles.catalogMain}>

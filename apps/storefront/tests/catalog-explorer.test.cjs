@@ -24,7 +24,7 @@ function find(node, predicate) {
   if (predicate(node)) return node
   for (const child of [node.props?.children].flat(Infinity)) { const result = find(child, predicate); if (result) return result }
 }
-function harness() {
+function harness(initialQuery = "") {
   const states = [], refs = [], effects = [], timers = new Map(), requests = [], history = [], listeners = {}, assigned = []
   let stateIndex = 0, refIndex = 0, effectIndex = 0, timerId = 0
   const window = { location: { origin: "https://portal.test", search: "", assign: (url) => assigned.push(url) }, history: { replaceState: (_state, _unused, url) => history.push(url) }, addEventListener: (name, callback) => { listeners[name] = callback }, removeEventListener: (name) => delete listeners[name] }
@@ -45,7 +45,7 @@ function harness() {
   })
   return {
     requests, history, listeners, window, assigned,
-    render: () => { stateIndex = refIndex = effectIndex = 0; return exports.default({ initialCatalog: initial, initialQuery: "", backend: "", featured: "Server featured" }) },
+    render: () => { stateIndex = refIndex = effectIndex = 0; return exports.default({ initialCatalog: initial, initialQuery, backend: "", featured: "Server featured" }) },
     effects: () => { effects.forEach((effect) => { if (effect.run) { effect.run = false; effect.callback() } }) },
     timers: () => { const callbacks = [...timers.values()]; timers.clear(); callbacks.forEach((callback) => callback()) },
   }
@@ -54,6 +54,26 @@ function harness() {
 test("query normalization strips unrelated fields and retains multi-select filters", () => {
   assert.equal(query.catalogQuery(new URLSearchParams("color=Black&color=Blue&color=Black&secret=unsafe&view=anything&page=2")).toString(), "color=Black&color=Blue&page=2")
   assert.throws(() => query.catalogQuery(new URLSearchParams({ color: "x".repeat(2001) })), /too long/)
+})
+
+test("search chip clears only the keyword and page while Clear all clears keywords and filters", async () => {
+  const h = harness("q=%20caps%20&category=Caps+And+Hats&sort=name_asc&page=3")
+  const tree = h.render()
+  const chip = find(tree, (node) => node.props?.["aria-label"] === "Clear search: caps")
+  assert.ok(chip)
+  const target = new URL(chip.props.href, h.window.location.origin)
+  assert.equal(target.searchParams.has("q"), false)
+  assert.equal(target.searchParams.has("page"), false)
+  assert.equal(target.searchParams.get("category"), "Caps And Hats")
+  assert.equal(target.searchParams.get("sort"), "name_asc")
+  const clear = find(tree, (node) => node.type === "Link" && node.props.children === "Clear all")
+  assert.equal(clear.props.href, "/portal/account?sort=name_asc")
+  let prevented = false
+  tree.props.onClickCapture({ button: 0, target: { closest: () => ({ href: target.href, hasAttribute: () => false, getAttribute: () => null }) }, preventDefault: () => { prevented = true } })
+  h.timers()
+  assert.equal(prevented, true)
+  assert.match(h.requests[0].url, /category=Caps\+And\+Hats/)
+  assert.doesNotMatch(h.requests[0].url, /[?&]q=|[?&]page=/)
 })
 
 test("cold browsers receive product cards immediately and fetch filter data separately", async () => {

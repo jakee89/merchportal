@@ -33,6 +33,12 @@
   justify-content: center;
   width: 34px;
 }
+.brandLogo {
+  height: 34px;
+  width: auto;
+  max-width: 140px;
+  object-fit: contain;
+}
 .nav {
   display: flex;
   gap: 28px;

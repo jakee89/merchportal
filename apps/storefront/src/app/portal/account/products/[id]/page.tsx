@@ -8,6 +8,7 @@ import Configurator, { type InitialConfiguration } from "./configurator"
 import PrintingOptions from "./printing-options"
 import QuoteCartLink from "../../quote-cart-link"
 import RelatedProducts from "./related-products"
+import PortalBrand from "../../../portal-brand"
 
 type Product = {
   id: string; name: string; description?: string; short_description?: string; code?: string; category?: string; category_hierarchy: string[]; brand?: string; sustainable: boolean; images: string[]
@@ -41,7 +42,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
   const backend = process.env.NEXT_PUBLIC_MEDUSA_BACKEND_URL || "http://localhost:9000"
   if (initialConfiguration && initialConfiguration.product_id !== product.id) notFound()
   return <div className={styles.page}>
-    <header className={styles.topbar}><Link href="/portal/account" className={styles.brand}><span className={styles.mark}>M</span>MerchPortal</Link><div className={styles.headerActions}><Link className={styles.secondary} href="/portal/account">Back to catalogue</Link><Suspense fallback={<Link href="/portal/account/quotes">Quote cart</Link>}><QuoteCartLink /></Suspense></div></header>
+    <header className={styles.topbar}><Suspense fallback={<Link href="/portal/account" className={styles.brand}>MerchPortal</Link>}><PortalBrand /></Suspense><div className={styles.headerActions}><Link className={styles.secondary} href="/portal/account">Back to catalogue</Link><Suspense fallback={<Link href="/portal/account/quotes">Quote cart</Link>}><QuoteCartLink /></Suspense></div></header>
     <main className={styles.productMain}>
       <nav className={styles.breadcrumbs} aria-label="Breadcrumb"><Link href="/portal/account">Catalogue</Link>{product.category_hierarchy?.map((item, index) => <span key={`${item}-${index}`}>/ <Link href={`/portal/account?category=${encodeURIComponent(item)}`}>{item}</Link></span>)}</nav>
       <header className={styles.productTitle}><div><div className={styles.badges}>{product.category && <span>{product.category}</span>}{product.sustainable && <span className={styles.ecoBadge}>Sustainable</span>}</div><h1>{product.name}</h1><p>{[product.brand, product.code ? `Code ${product.code}` : ""].filter(Boolean).join(" · ")}</p></div></header>

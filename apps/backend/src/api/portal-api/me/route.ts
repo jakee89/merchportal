@@ -1,5 +1,6 @@
 import type { AuthenticatedMedusaRequest, MedusaResponse } from "@medusajs/framework/http"
 import { MERCHPORTAL_MODULE } from "../../../modules/merchportal"
+import { loadPortalBranding } from "../../../modules/merchportal/portal-branding"
 
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
   const actorId = req.auth_context?.actor_id
@@ -9,6 +10,7 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   const organizations = await service.listOrganizations({ id: memberships[0].organization_id, status: "active" }, { take: 1 })
   const organization = organizations[0]
   res.json({
+    branding: await loadPortalBranding(service),
     membership: { role: memberships[0].role, permissions: memberships[0].permissions },
     organization: organization ? {
       id: organization.id,

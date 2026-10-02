@@ -13,7 +13,7 @@ import type { Shortlist } from "../discovery/types"
 import styles from "../../../portal-shell.module.css"
 import tools from "../discovery/discovery.module.css"
 
-export default function ShortlistsClient() {
+export default function ShortlistsClient({ brand }: { brand?: React.ReactNode }) {
   const [lists, setLists] = useState<Shortlist[]>([])
   const [selected, setSelected] = useState<Record<string, string[]>>({})
   const [name, setName] = useState("")
@@ -77,9 +77,9 @@ export default function ShortlistsClient() {
   return (
     <div className={styles.page}>
       <header className={styles.topbar}>
-        <Link className={styles.brand} href="/portal/account">
+        {brand || <Link className={styles.brand} href="/portal/account">
           <span className={styles.mark}>M</span>Your shortlists
-        </Link>
+        </Link>}
         <Link href="/portal/account/quotes">Quote cart →</Link>
       </header>
       <main className={styles.catalogMain}>

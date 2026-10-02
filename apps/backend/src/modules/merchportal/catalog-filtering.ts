@@ -114,7 +114,10 @@ function selected(values: string[], available: string[]) {
 }
 
 export function categoryValues(product: CatalogEntry) {
-  return [...(product.category_hierarchy || [product.category || ""]), ...(product.category_paths || []).map((path) => path.join(" > "))]
+  // The tree can contain secondary/legacy paths absent from the primary
+  // hierarchy. Every displayed ancestor must be selectable in the index too.
+  const paths = product.category_paths || []
+  return [...new Set([...(product.category_hierarchy || [product.category || ""]), ...paths.flat(), ...paths.map((path) => path.join(" > "))].filter(Boolean))]
 }
 
 export function matchesCatalogFilters(product: CatalogEntry, filters: CatalogFilters, excluded?: FilterKey) {

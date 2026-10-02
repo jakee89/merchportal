@@ -115,6 +115,7 @@ export default function CatalogExplorer({ initialCatalog, initialQuery, backend,
   const params = new URLSearchParams(query)
   const selected = selectedCatalogFilters(params)
   const active = catalogFilterKeys.flatMap((key) => selected[key]).filter(Boolean)
+  const searchTerm = params.get("q")?.trim() || ""
   const showFeatured = !params.get("q")?.trim() && !active.length && Number(params.get("page") || 1) === 1 && catalog.page === 1
   useEffect(() => {
     if (!showFeatured || featured || collections) return
@@ -123,13 +124,12 @@ export default function CatalogExplorer({ initialCatalog, initialQuery, backend,
     return () => { cancelled = true }
   }, [showFeatured, featured, collections])
   const clear = new URLSearchParams()
-  params.getAll("q").forEach((value) => clear.append("q", value))
   params.getAll("sort").forEach((value) => clear.append("sort", value))
   const clearHref = `/portal/account?${clear}`
   const without = (key: string, value: string) => {
     const next = new URLSearchParams(query)
     next.delete("page")
-    const kept = next.getAll(key).filter((item) => item !== value)
+    const kept = key === "q" ? [] : next.getAll(key).filter((item) => item !== value)
     next.delete(key)
     kept.forEach((item) => next.append(key, item))
     return `/portal/account?${next}`
@@ -164,7 +164,7 @@ export default function CatalogExplorer({ initialCatalog, initialQuery, backend,
       <select key={params.get("sort") || ""} name="sort" defaultValue={params.get("sort") || ""} aria-label="Sort products"><option value="">Recommended</option><option value="price_asc">Lowest price</option><option value="price_desc">Highest price</option><option value="name_asc">Name A–Z</option><option value="name_desc">Name Z–A</option></select>
       <button className={styles.primary} type="submit">Search</button>
     </form>
-    {active.length > 0 && <div className={styles.activeFilters}>{catalogFilterKeys.flatMap((key) => selected[key].map((value) => <Link key={`${key}-${value}`} prefetch={false} aria-label={`Remove ${filterLabel(key, value)}`} href={without(key, value)}>{filterLabel(key, value)} ×</Link>))}<Link prefetch={false} href={clearHref}>Clear all</Link></div>}
+    {(active.length > 0 || searchTerm) && <div className={styles.activeFilters}>{searchTerm && <Link prefetch={false} aria-label={`Clear search: ${searchTerm}`} href={without("q", searchTerm)}>Search: {searchTerm} ×</Link>}{catalogFilterKeys.flatMap((key) => selected[key].map((value) => <Link key={`${key}-${value}`} prefetch={false} aria-label={`Remove ${filterLabel(key, value)}`} href={without(key, value)}>{filterLabel(key, value)} ×</Link>))}<Link prefetch={false} href={clearHref}>Clear all</Link></div>}
     {error && <p className={styles.helper} role="alert">{error} <button type="button" onClick={() => load(currentQuery.current, responseQuery.current !== currentQuery.current)}>Retry</button></p>}
     <div className={styles.catalogLayout}>
       {facets ? <CatalogFilters facets={facets} selected={selected} activeCount={active.length} clearHref={clearHref} onNavigate={(next) => navigate(next, true)} updating={pending} /> : <aside className={styles.filterColumn} aria-busy="true"><button className={styles.mobileFilterButton} disabled>Filters</button><div className={styles.catalogFilters}><div className={styles.filterHeading}><strong>Filters</strong></div><span className={styles.filterUpdating} role="status">Loading filters…</span></div></aside>}

@@ -30,18 +30,21 @@ const SettingsPage = () => {
   const [email, setEmail] = useState<Email>({ host: "smtppro.zoho.eu", port: 587, username: "", from_email: "", notification_email: "", password_configured: false, verified: false })
   const [emailPassword, setEmailPassword] = useState("")
   const [publishableKey, setPublishableKey] = useState("")
+  const [logoUrl, setLogoUrl] = useState("")
   const [busy, setBusy] = useState("")
 
   const refresh = useCallback(async () => {
-    const [supplierData, pricingData, emailData] = await Promise.all([
+    const [supplierData, pricingData, emailData, brandingData] = await Promise.all([
       api<{ suppliers: Supplier[] }>("/admin/merchportal/suppliers"),
       api<{ rules: Rule[]; organizations: Organization[] }>("/admin/merchportal/pricing-rules"),
       api<{ email: Email }>("/admin/merchportal/email"),
+      api<{ branding: { logo_url: string } }>("/admin/merchportal/branding"),
     ])
     setSuppliers([...supplierData.suppliers].sort((left, right) => left.catalog_priority - right.catalog_priority || left.display_name.localeCompare(right.display_name)))
     setRules(pricingData.rules)
     setOrganizations(pricingData.organizations)
     setEmail(emailData.email)
+    setLogoUrl(brandingData.branding.logo_url)
     setGlobalMarkup(String(pricingData.rules.find((rule) => rule.scope_key === "global")?.markup_percentage ?? 30))
     setClientMarkups(Object.fromEntries(pricingData.rules.filter((rule) => rule.organization_id).map((rule) => [rule.organization_id!, String(rule.markup_percentage)])))
     setSupplierMarkups(Object.fromEntries(supplierData.suppliers.map((supplier) => [supplier.code, String(pricingData.rules.find((rule) => rule.scope_key === `supplier:${supplier.code}`)?.markup_percentage ?? pricingData.rules.find((rule) => rule.scope_key === "global")?.markup_percentage ?? 30)])))
@@ -108,6 +111,15 @@ const SettingsPage = () => {
     } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
   }
 
+  const saveLogo = async (logo = logoUrl) => {
+    setBusy("branding")
+    try {
+      const result = await api<{ branding: { logo_url: string } }>("/admin/merchportal/branding", { method: "POST", body: JSON.stringify({ logo_url: logo }) })
+      setLogoUrl(result.branding.logo_url)
+      toast.success("Portal logo saved")
+    } catch (error) { toast.error((error as Error).message) } finally { setBusy("") }
+  }
+
   const updateTier = (code: string, index: number, update: Partial<Tier>) => setTiers((current) => ({ ...current, [code]: (current[code] || []).map((tier, tierIndex) => tierIndex === index ? { ...tier, ...update } : tier) }))
   const addTier = (code: string) => setTiers((current) => {
     const existing = current[code] || []
@@ -118,6 +130,11 @@ const SettingsPage = () => {
 
   return <div className="flex flex-col gap-y-3">
     <Container><Heading>Supplier API & settings</Heading><Text className="text-ui-fg-subtle">Connections, supplier-specific quantity markups and shop settings.</Text><a className="text-ui-fg-interactive text-sm" href="/app/merchportal">← Back to supplier updates</a></Container>
+    <Container><Heading level="h2">Portal logo</Heading><Text className="mb-3 text-ui-fg-subtle">Set the header logo for signed-in client pages. Use a public HTTPS image URL. Leave blank to use the company logo or default M icon. Super administrators can change this setting.</Text>
+      <label className="flex flex-col gap-1 text-sm">Logo image URL<Input type="url" placeholder="https://your-site.example/logo.png" value={logoUrl} onChange={(event) => setLogoUrl(event.target.value)} /></label>
+      {logoUrl.startsWith("https://") && <img className="my-3 max-h-16 max-w-64 object-contain" src={logoUrl} alt="Portal logo preview" referrerPolicy="no-referrer" />}
+      <div className="mt-3 flex gap-2"><Button isLoading={busy === "branding"} onClick={() => saveLogo()}>Save logo</Button><Button variant="secondary" disabled={busy === "branding"} onClick={() => saveLogo("")}>Use default logo</Button></div>
+    </Container>
     <Container><Heading level="h2">Supplier connections and quantity markups</Heading><Text className="mb-4 text-ui-fg-subtle">Search order 1 appears first in Recommended catalogue and filtered results. Changing one supplier’s position shifts the others automatically. Price and name sorts remain customer-controlled. Set pricing tiers separately for each supplier.</Text>
       <div className="flex flex-col gap-4">{suppliers.map((supplier) => {
         const code = supplier.code
