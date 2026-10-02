@@ -265,8 +265,8 @@ function positionImages(candidate: AnyObject) {
   })
 }
 
-// The detailed Stricker options control sizes/pricing, but colour-specific
-// area images belong to the individual product rows. Keep both sources.
+// Detailed Stricker options control sizes/pricing. AreaNImage contains the
+// print boundary; LocationNImage is a plain photo and can name another component.
 export function strickerPositionImages(payloads: unknown[]) {
   const result = new Map<string, NonNullable<DecorationPosition["images"]>>()
   const areaOwners = new Map<string, Set<string>>()
@@ -290,13 +290,18 @@ export function strickerPositionImages(payloads: unknown[]) {
     for (let index = 1; index <= 64; index++) {
       const component = directValue(product, [`component${index}`])
       const location = directValue(product, [`location${index}`])
-      const locationImage = directValue(product, [`location${index}image`])
-      const areaImage = directValue(product, [`area${index}image`])
-      const image = locationImage || areaImage
-      if (!component || !location || !image) continue
+      const image = directValue(product, [`area${index}image`])
+      if (!component || !location) continue
       const id = slug(`${component}-${location}`)
       const images = result.get(id) || []
-      const generic = !locationImage && (areaOwners.get(image)?.size || 0) > 1
+      if (!image) {
+        result.set(id, images)
+        continue
+      }
+      // Shared printing-line filenames omit the SKU colour, even when only one
+      // variant is present. Never present their illustrated colour as an exact match.
+      const firstImage = image.split(",")[0].trim().split("/").pop() || ""
+      const generic = /^\d+_\d+_\d+_\d+\.png$/iu.test(firstImage) || (areaOwners.get(image)?.size || 0) > 1
       const guide = { url: image, variant_sku: generic ? undefined : sku, variant_color: generic ? undefined : color }
       if (!images.some((item) => item.url === image && item.variant_sku === guide.variant_sku && item.variant_color === guide.variant_color)) images.push(guide)
       result.set(id, images)
@@ -528,7 +533,7 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
       const positionName = directValue(product, [`composed_location${index}`]) || `${component} - ${location}`
       const positionId = slug(`${component}-${location}`)
       const area = printingArea(key(product, [`area${index}`]))
-      const image = directValue(product, [`area${index}image`, `location${index}image`])
+      const image = directValue(product, [`area${index}image`])
       const variantColor = directValue(product, ["color_desc_1", "color_description", "color_code"])
       const methodNames = String(key(product, [`customization_types${index}`]) || "").split(",").map((item) => item.trim()).filter(Boolean)
       const methodIds = String(key(product, [`table_codes${index}`]) || "").split(",").map((item) => item.trim()).filter(Boolean)
@@ -600,7 +605,7 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
       const height = placeholder ? locationArea.height : Math.min(tableArea.height || locationArea.height || 0, locationArea.height || tableArea.height || 0)
       const positionName = fieldValue(candidate, ["composed_location"]) || `${component} - ${location}`
       const positionId = slug(`${component}-${location}`)
-      const image = fieldValue(candidate, ["area_image", "location_image"])
+      const image = fieldValue(candidate, ["area_image"])
       const methodId = strickerMethodFamily(tableCode) || slug(strickerMethodName)
       add(strickerMethodName, methodId, {
         id: positionId,
@@ -670,7 +675,7 @@ export function normalizeDecorationOptions(payloads: unknown[], _fallbackMethods
   const variantGuides = strickerPositionImages(payloads)
   for (const method of methods.values()) for (const position of method.positions) {
     const images = variantGuides.get(position.id)
-    if (images?.length) position.images = [...images, ...(position.images || [])].filter((item, index, all) => all.findIndex((other) => other.url === item.url && other.variant_sku === item.variant_sku && other.variant_color === item.variant_color) === index)
+    if (images?.length) position.images = [...images, ...(position.images || []).filter((item) => !images.some((guide) => guide.url === item.url))].filter((item, index, all) => all.findIndex((other) => other.url === item.url && other.variant_sku === item.variant_sku && other.variant_color === item.variant_color) === index)
   }
   return [...methods.values()].sort((left, right) => left.name.localeCompare(right.name))
 }

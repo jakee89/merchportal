@@ -1,6 +1,39 @@
 import { decorationPrice, normalizeDecorationOptions, validateDecorationChoice } from "../decoration"
 
 describe("supplier-neutral decoration normalization", () => {
+  it("keeps Stricker dotted guides with their component instead of misassigned location photos", () => {
+    const row: Record<string, unknown> = { Reference: "93715-104", ColorDesc1: "Blue" }
+    const positions = [
+      ["Notepad", "Back", "70 x 160", "93715_1_2_1.png", "93715_104_C2_L2.png"],
+      ["Notepad", "Front", "70 x 160", "93715_1_1_1.png", "93715_104_C1_L1.png"],
+      ["Ball pen", "Barrel 2", "50 x 6", "93715_2_2_1.png", "93715_104_C2_L2.png"],
+      ["Ball pen", "Barrel", "50 x 6", "93715_2_1_1.png", "93715_104_C1_L1.png"],
+    ]
+    positions.forEach(([component, location, area, guide, photo], index) => {
+      const number = index + 1
+      Object.assign(row, {
+        [`Component${number}`]: component, [`Location${number}`]: location, [`Area${number}`]: area,
+        [`Location${number}Image`]: photo, [`Area${number}Image`]: guide,
+        [`TableCodes${number}`]: "PDP1-01", [`CustomizationTypes${number}`]: "Pad Printing",
+      })
+    })
+    const [method] = normalizeDecorationOptions([row])
+    expect(method.positions).toHaveLength(4)
+    method.positions.forEach((position, index) => {
+      expect(position.image_url).toBe(positions[index][3])
+      expect(position.images).toEqual([{ url: positions[index][3], variant_sku: undefined, variant_color: undefined }])
+    })
+  })
+
+  it("does not substitute plain Stricker location photos when a print guide is unavailable", () => {
+    const [method] = normalizeDecorationOptions([{
+      Reference: "93715-104", Component1: "Notepad", Location1: "Back", Area1: "70 x 160",
+      Location1Image: "93715_104_C2_L2.png", TableCodes1: "PDP1-01", CustomizationTypes1: "Pad Printing",
+    }])
+    expect(method.positions[0].image_url).toBeUndefined()
+    expect(method.positions[0].images).toBeUndefined()
+  })
+
   it("retains every Stricker colour guide when authoritative options override flat sizes", () => {
     const rows = [
       { Reference: "99164-104", ColorDesc1: "Blue", Component1: "Umbrella", Location1: "Panel 1", Area1: "999 x 999", Area1Image: "99164_blue.png", TableCodes1: "PDP1-01", CustomizationTypes1: "Pad Printing" },
