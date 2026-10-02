@@ -168,7 +168,7 @@ export function catalogFacets(products: CatalogEntry[], filters: CatalogFilters)
     const variants = eligibleVariants(product, filters)
     if (variants.length) {
       if (matchesExcept(categoryMatch)) {
-        addFacet(counts.categories, product.category_hierarchy || [product.category || ""])
+        addFacet(counts.categories, categoryValues(product))
         const paths = product.category_paths?.length ? product.category_paths : (product.category_hierarchy || [product.category || ""]).filter(Boolean).map((value) => [value])
         const roots = new Set<string>()
         const children = new Set<string>()
@@ -204,7 +204,9 @@ export function catalogFacets(products: CatalogEntry[], filters: CatalogFilters)
     if (child.length && !branches.get(root)!.children.has(value)) branches.get(root)!.children.set(value, 0)
   }
   return {
-    category_tree: { roots: [...branches].sort(([a], [b]) => a.localeCompare(b)).map(([value, branch]) => ({ value, count: branch.count, children: finishFacet(branch.children).map((child) => ({ ...child, label: child.value.split(" > ").slice(1).join(" > ") })) })) },
+    // A bare category name selects that label anywhere in any supplier path,
+    // not only paths where it is the root. Count the same unique products.
+    category_tree: { roots: [...branches].sort(([a], [b]) => a.localeCompare(b)).map(([value, branch]) => ({ value, count: counts.categories.get(value) || 0, children: finishFacet(branch.children).map((child) => ({ ...child, label: child.value.split(" > ").slice(1).join(" > ") })) })) },
     categories: finishFacet(counts.categories, filters.categories),
     colors: finishFacet(counts.colors, filters.colors.map(colorLabel)),
     sizes: finishFacet(counts.sizes, filters.sizes),

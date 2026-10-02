@@ -14,6 +14,30 @@ const products: CatalogEntry[] = Array.from({ length: 300 }, (_, index) => ({
 }))
 
 describe("catalogue candidate index", () => {
+  it("counts each category by the same matches as results across roots, children and secondary paths", () => {
+    const rows: CatalogEntry[] = [
+      { id: "a", name: "Travel", category_hierarchy: ["Backpacks", "Travel"], category_paths: [["Backpacks", "Travel"], ["Backpacks", "Travel"]], materials: ["Cotton"] },
+      { id: "b", name: "Laptop", category_hierarchy: ["Bags", "Backpacks"], category_paths: [["Bags", "Backpacks"]], materials: ["Cotton"] },
+      { id: "c", name: "School", category_hierarchy: ["School", "Accessories"], category_paths: [["School", "Accessories"], ["Backpacks", "School"]], materials: ["Polyester"] },
+      { id: "d", name: "Tote", category_hierarchy: ["Bags", "Totes"], category_paths: [["Bags", "Totes"]], materials: ["Cotton"] },
+    ]
+    for (const filters of [base, { ...base, materials: ["Cotton"] }, { ...base, search: "School" }]) {
+      const facets = catalogFacets(catalogCandidates(rows, filters, true), filters)
+      for (const root of facets.category_tree.roots) {
+        for (const option of [root, ...root.children]) {
+          const selection = { ...filters, categories: [option.value] }
+          const matches = catalogCandidates(rows, selection).filter((row) => matchesCatalogFilters(row, selection))
+          expect(option.count).toBe(matches.length)
+        }
+      }
+    }
+    const filters = { ...base, categories: ["Backpacks"] }
+    const root = catalogFacets(rows, filters).category_tree.roots.find((root) => root.value === "Backpacks")!
+    expect(root.count).toBe(3)
+    expect(catalogCandidates(rows, filters).filter((row) => matchesCatalogFilters(row, filters))).toHaveLength(3)
+    expect(catalogFacets(rows, filters).categories).toContainEqual({ value: "Backpacks", count: 3 })
+  })
+
   it("scopes a child to its parent and counts shared branches once per product", () => {
     const rows = [
       { id: "a", name: "A", category_hierarchy: ["Bags", "Travel", "Backpacks"], category_paths: [["Bags", "Backpacks"], ["Bags", "Totes"]] },
