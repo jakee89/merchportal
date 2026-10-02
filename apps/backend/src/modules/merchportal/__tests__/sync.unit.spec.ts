@@ -1,11 +1,15 @@
 import { createHash } from "crypto"
 import { createSupplierAdapter } from "../adapters"
-import { deduplicateSupplierRecords, ImportCancelledError, interruptibleSupplierRead, reconcileStaleImportJobs, runSupplierSync } from "../sync"
+import { deduplicateSupplierRecords, ImportCancelledError, interruptibleSupplierRead, NORMALIZER_VERSION, reconcileStaleImportJobs, runSupplierSync } from "../sync"
 
 jest.mock("../adapters", () => ({ createSupplierAdapter: jest.fn() }))
 jest.mock("../supplier-credentials", () => ({ resolveSupplierCredential: jest.fn().mockReturnValue("test-key") }))
 
 describe("supplier sync record deduplication", () => {
+  it("retains Makito current stock and distinct dated deliveries idempotently", () => {
+    const records = [{ material: "11011008000", quantity: 12 }, { material: "11011008000", quantity: 160, availableDate: "2026-12-01T00:00:00Z" }, { material: "11011008000", quantity: 50, availableDate: "2027-01-01T00:00:00Z" }]
+    expect(deduplicateSupplierRecords([...records, ...records], "makito", "stock")).toEqual(records)
+  })
   it("keeps every Stricker OptionalReference when the feed uses PascalCase fields", () => {
     const records = deduplicateSupplierRecords(
       [
@@ -120,7 +124,7 @@ describe("supplier update interruption", () => {
 describe("unchanged supplier records", () => {
   it("does not rewrite a raw row when its checksum matches", async () => {
     const payload = { model: "MO2639", sku: "MO2639-03", qty: 12 }
-    const checksum = createHash("sha256").update(`2026-09-12.3:${JSON.stringify(payload)}`).digest("hex")
+    const checksum = createHash("sha256").update(`${NORMALIZER_VERSION}:${JSON.stringify(payload)}`).digest("hex")
     ;(createSupplierAdapter as jest.Mock).mockReturnValue({ fetchStock: jest.fn().mockResolvedValue([payload]) })
     const job: Record<string, any> = { id: "job-1", status: "running", phase: "downloading", log: {} }
     const service = {

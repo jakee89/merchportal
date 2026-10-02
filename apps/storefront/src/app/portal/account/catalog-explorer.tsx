@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useEffect, useRef, useState } from "react"
 import CatalogCard, { type CatalogProduct } from "./catalog-card"
 import CatalogFilters, { type Facets } from "./catalog-filters"
+import { decodeFacets, type FacetSchema } from "./catalog-facet-transport"
 import SearchSuggestions from "./discovery/search-suggestions"
 import { catalogFilterKeys, catalogQuery, selectedCatalogFilters } from "./catalog-query"
 import { filterLabel } from "./filter-label"
@@ -27,9 +28,13 @@ export default function CatalogExplorer({ initialCatalog, initialQuery, backend,
   const currentQuery = useRef(initialQuery)
   const mounted = useRef(false)
   const responseQuery = useRef(initialQuery)
+  const facetResponseQuery = useRef<string | undefined>(undefined)
+  const facetResponseAt = useRef(0)
+  const facetSchema = useRef<FacetSchema | undefined>(undefined)
 
   const read = async (next: string, view: "products" | "facets", signal: AbortSignal) => {
-    const response = await fetch(`/portal/catalog?${next}&view=${view}`, { signal, cache: "no-store", credentials: "same-origin" })
+    const schema = view === "facets" && facetSchema.current ? `&facet_schema=${facetSchema.current.id}` : ""
+    const response = await fetch(`/portal/catalog?${next}&view=${view}${schema}`, { signal, cache: "no-store", credentials: "same-origin" })
     if (response.status === 401 || response.status === 403) {
       window.location.assign(`/portal/login?returnTo=${encodeURIComponent(`/portal/account?${next}`)}`)
       throw new Error("Sign in to view the catalog")
@@ -54,9 +59,15 @@ export default function CatalogExplorer({ initialCatalog, initialQuery, backend,
     const facetQuery = new URLSearchParams(next)
     facetQuery.delete("page")
     facetQuery.delete("sort")
-    const facetRequest = read(facetQuery.toString(), "facets", controller.signal).then((result: { facets: Facets }) => {
+    facetQuery.sort()
+    const normalizedFacets = facetQuery.toString()
+    const facetRequest = normalizedFacets === facetResponseQuery.current && Date.now() - facetResponseAt.current < 30_000 ? Promise.resolve() : read(normalizedFacets, "facets", controller.signal).then((result) => {
       if (id !== version.current) return
-      setFacets(result.facets)
+      const decoded = decodeFacets(result, facetSchema.current)
+      facetSchema.current = decoded.schema
+      facetResponseQuery.current = normalizedFacets
+      facetResponseAt.current = Date.now()
+      setFacets(decoded.facets)
     })
     void Promise.allSettled([productRequest, facetRequest]).then((results) => {
       if (id !== version.current || controller.signal.aborted) return
@@ -171,7 +182,7 @@ export default function CatalogExplorer({ initialCatalog, initialQuery, backend,
       <section className={styles.catalogResults} aria-busy={pending}>
         <div className={styles.resultsHeading}><strong>{catalog.total.toLocaleString()} products</strong><span>{pending ? "Updating results…" : `Page ${catalog.page} of ${catalog.page_count}`}</span></div>
         {catalog.products.length ? <div className={styles.catalogGrid}>{catalog.products.map((product, index) => <CatalogCard key={`${product.id}:${selectionKey}`} product={product} backend={backend} priority={index < 2} />)}</div> : <div className={styles.empty}><h2>No products match these filters</h2><p>Clear some filters and try again.</p></div>}
-        {catalog.page_count > 1 && <nav className={styles.pagination} aria-label="Catalogue pages"><Link prefetch={false} className={catalog.page <= 1 ? styles.disabledPage : styles.secondary} aria-disabled={catalog.page <= 1} href={pageHref(Math.max(1, catalog.page - 1))}>Previous</Link><span>Page {catalog.page} of {catalog.page_count}</span><Link prefetch={false} className={catalog.page >= catalog.page_count ? styles.disabledPage : styles.secondary} aria-disabled={catalog.page >= catalog.page_count} href={pageHref(Math.min(catalog.page_count, catalog.page + 1))}>Next</Link></nav>}
+        {catalog.page_count > 1 && <nav className={styles.pagination} aria-label="Catalogue pages"><Link prefetch={false} className={catalog.page <= 1 ? styles.disabledPage : styles.secondary} aria-disabled={catalog.page <= 1} href={pageHref(Math.max(1, catalog.page - 1))}>Previous</Link><span>Page {catalog.page} of {catalog.page_count}</span><label>Go to page <select aria-label="Go to page" value={catalog.page} disabled={pending} onChange={(event) => navigate(new URL(pageHref(Number(event.target.value)), window.location.origin).searchParams)}>{Array.from({ length: catalog.page_count }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select></label><Link prefetch={false} className={catalog.page >= catalog.page_count ? styles.disabledPage : styles.secondary} aria-disabled={catalog.page >= catalog.page_count} href={pageHref(Math.min(catalog.page_count, catalog.page + 1))}>Next</Link></nav>}
       </section>
     </div>
   </div>

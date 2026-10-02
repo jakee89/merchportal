@@ -29,4 +29,4 @@ RUN corepack enable
 WORKDIR /app
 COPY --from=build /app /app
 EXPOSE 8000
-CMD ["pnpm", "--filter", "@dtc/storefront", "start"]
+CMD ["node", "docker/storefront-start.cjs"]

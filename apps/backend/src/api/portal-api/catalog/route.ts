@@ -8,6 +8,7 @@ import { catalogMetadata, catalogRevision } from "../../../modules/merchportal/c
 import { portalReadCache } from "../../../modules/merchportal/read-cache"
 import { preparedCatalog } from "../../../modules/merchportal/catalog-prepared"
 import { catalogCandidates } from "../../../modules/merchportal/catalog-index"
+import { facetSchema, facetTransport } from "../../../modules/merchportal/catalog-facet-transport"
 
 function queryText(value: unknown) {
   return typeof value === "string" ? value.trim() : ""
@@ -28,6 +29,8 @@ function queryValues(value: unknown) {
 }
 
 export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) {
+  res.setHeader("Cache-Control", "private, no-store")
+  if (Object.values(req.query).some((value) => Array.isArray(value) ? value.length > 200 || value.some((item) => typeof item !== "string" || item.length > 2000) : typeof value !== "string" || value.length > 2000)) return res.status(400).json({ message: "Invalid or oversized catalog filters" })
   const started = performance.now()
   const service = req.scope.resolve(MERCHPORTAL_MODULE) as any
   if (!req.auth_context?.actor_id) return res.status(401).json({ message: "Sign in to view the catalog" })
@@ -85,7 +88,9 @@ export async function GET(req: AuthenticatedMedusaRequest, res: MedusaResponse) 
   if (facets && (!cachedFacets || cachedFacets.expires <= Date.now())) cachePortalCatalogFacets(facetKey, facets)
   const facetsMs = performance.now() - started - metadataMs - catalogMs
   if (req.query.view === "facets") {
-    const response = { facets: req.query.compact === "true"
+    const emptyFilters: CatalogFilters = { search: "", categories: [], colors: [], sizes: [], materials: [], brands: [], leadTimes: [], printMethods: [], inStock: false, outOfStock: false, sustainable: false }
+    const schema = req.query.transport === "dictionary" ? await portalReadCache.get(`facet-schema:${cacheKey}`, 10 * 60_000, async () => facetSchema(!filters.search && !filters.categories.length && !filters.colors.length && !filters.sizes.length && !filters.materials.length && !filters.brands.length && !filters.leadTimes.length && !filters.printMethods.length && !filters.inStock && !filters.outOfStock && !filters.sustainable && filters.minPrice === undefined && filters.maxPrice === undefined ? facets! : catalogFacets(safeProducts, emptyFilters))) : undefined
+    const response = schema ? facetTransport(schema, facets!, req.query.facet_schema) : { facets: req.query.compact === "true"
       ? Object.fromEntries(Object.entries(facets!).map(([key, value]) => [key, Array.isArray(value) ? value.map((item: any) => [item.value, item.count]) : value]))
       : facets }
     cachePortalCatalogResponse(responseKey, response)

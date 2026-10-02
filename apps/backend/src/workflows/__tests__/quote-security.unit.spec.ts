@@ -3,6 +3,7 @@ import { signArtwork, verifyArtwork } from "../../modules/merchportal/artwork-pr
 import { validateArtwork } from "../upload-artwork"
 import { staffQuoteEmail } from "../quote-notifications"
 import { limitCustomerAction } from "../../modules/merchportal/request-limits"
+import { deflateSync } from "node:zlib"
 
 const details = { contact_name: "Jane Doe", contact_email: "jane@example.com", phone: "+356 2123 4567", company_name: "Example Ltd", vat_number: "MT12345678", billing_address: { line1: "1 Main St", line2: "", city: "Valletta", postal_code: "VLT 1000", country_code: "MT" }, delivery_address: { line1: "2 Dock Rd", line2: "", city: "Marsa", postal_code: "MRS 1000", country_code: "mt" } }
 
@@ -33,6 +34,28 @@ describe("quote and artwork security", () => {
     expect(() => validateArtwork(file('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'))).toThrow()
     expect(() => validateArtwork({ ...file('<svg></svg>'), filename: "logo.png" })).toThrow()
     expect(() => validateArtwork({ filename: "logo.pdf", mime_type: "application/pdf", content: Buffer.from("not a PDF").toString("base64") })).toThrow()
+  })
+
+  it("rejects active, encrypted and compressed malicious PDFs while retaining static artwork", () => {
+    const file = (body: string) => ({ filename: "logo.pdf", mime_type: "application/pdf", content: Buffer.from(`%PDF-1.4\n${body}\n%%EOF\n`, "latin1").toString("base64") })
+    expect(validateArtwork(file("1 0 obj << /Type /Catalog >> endobj")).length).toBeGreaterThan(0)
+    for (const body of ["/JavaScript (alert(1))", "/J#53 (alert(1))", "/OpenAction 1 0 R", "/EmbeddedFile", "/Encrypt 1 0 R", "/Launch"]) expect(() => validateArtwork(file(body))).toThrow(/active content/)
+    const compressed = deflateSync(Buffer.from("1 0 << /S /JavaScript /JS (alert(1)) >>"))
+    expect(() => validateArtwork(file(`1 0 obj << /Type /ObjStm /Filter /FlateDecode /Length ${compressed.length} >>\nstream\n${compressed.toString("latin1")}\nendstream\nendobj`))).toThrow()
+    expect(() => validateArtwork(file(`1 0 obj << /Type /Obj#53tm /Filter /Fl#61teDecode /Length ${compressed.length} /DecodeParms << /Predictor 1 >> >>\rstream\r${compressed.toString("latin1")}\rendstream\rendobj`))).toThrow()
+    const safe = deflateSync(Buffer.from("1 0 << /Type /Catalog >>"))
+    expect(validateArtwork(file(`1 0 obj << /Type /ObjStm /Filter /FlateDecode /Length ${safe.length} >>\nstream\n${safe.toString("latin1")}\nendstream\nendobj`)).length).toBeGreaterThan(0)
+    const oversized = deflateSync(Buffer.alloc(21 * 1024 * 1024))
+    expect(() => validateArtwork(file(`<< /Filter /FlateDecode /Length ${oversized.length} >>\nstream\n${oversized.toString("latin1")}\nendstream`))).toThrow()
+  })
+
+  it("rejects namespaced/encoded active SVG and image trailers", () => {
+    for (const body of ['<x:script>alert(1)</x:script>', '<use href="jav&#x61;script:alert(1)"/>', '<image href="https://example.test/x"/>', '<animateTransform/>', '<use href=javascript:alert(1)/>']) expect(() => validateArtwork({ filename: "logo.svg", mime_type: "image/svg+xml", content: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg">${body}</svg>`).toString("base64") })).toThrow()
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aR/cAAAAASUVORK5CYII=", "base64")
+    const file = (bytes: Buffer) => ({ filename: "logo.png", mime_type: "image/png", content: bytes.toString("base64") })
+    expect(validateArtwork(file(png)).length).toBe(png.length)
+    expect(() => validateArtwork(file(Buffer.concat([png, Buffer.from("executable payload")])))).toThrow()
+    expect(() => validateArtwork(file(png.subarray(0, 8)))).toThrow()
   })
 
   it("escapes customer-provided text in the staff email", () => {

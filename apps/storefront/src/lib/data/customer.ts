@@ -1,6 +1,7 @@
 "use server"
 
 import { sdk } from "@lib/config"
+import { loginCustomer } from "./auth-proxy"
 import medusaError from "@lib/util/medusa-error"
 import { HttpTypes } from "@medusajs/types"
 import { FetchError } from "@medusajs/js-sdk"
@@ -146,7 +147,7 @@ async function completeLogin(
   let result: Awaited<ReturnType<typeof sdk.auth.login>>
 
   try {
-    result = await sdk.auth.login("customer", "emailpass", { email, password })
+    result = await loginCustomer(email, password)
   } catch (error) {
     return { state: "error", error: String(error) }
   }
@@ -211,10 +212,7 @@ async function completeLogin(
         { authorization: `Bearer ${token}` }
       )
 
-      token = (await sdk.auth.login("customer", "emailpass", {
-        email,
-        password,
-      })) as string
+      token = (await loginCustomer(email, password)) as string
     } catch (error) {
       return { state: "error", error: String(error) }
     }

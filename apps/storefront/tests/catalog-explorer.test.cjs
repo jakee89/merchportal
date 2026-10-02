@@ -16,6 +16,7 @@ function moduleFile(file, dependencies = {}, globals = {}) {
   return exports
 }
 const query = moduleFile("account/catalog-query.ts")
+const transport = moduleFile("account/catalog-facet-transport.ts")
 const facet = { categories: [], colors: [], sizes: [], materials: [], brands: [], lead_times: [], print_methods: [], availability: { in_stock: 0, out_of_stock: 0, sustainable: 0 } }
 const initial = { products: [{ id: "prod_1", name: "Backpack", color_options: [] }], total: 1, page: 1, page_count: 1, page_size: 24 }
 const tick = async () => { for (let index = 0; index < 12; index++) await Promise.resolve() }
@@ -24,7 +25,7 @@ function find(node, predicate) {
   if (predicate(node)) return node
   for (const child of [node.props?.children].flat(Infinity)) { const result = find(child, predicate); if (result) return result }
 }
-function harness(initialQuery = "") {
+function harness(initialQuery = "", initialCatalog = initial) {
   const states = [], refs = [], effects = [], timers = new Map(), requests = [], history = [], listeners = {}, assigned = []
   let stateIndex = 0, refIndex = 0, effectIndex = 0, timerId = 0
   const window = { location: { origin: "https://portal.test", search: "", assign: (url) => assigned.push(url) }, history: { replaceState: (_state, _unused, url) => history.push(url) }, addEventListener: (name, callback) => { listeners[name] = callback }, removeEventListener: (name) => delete listeners[name] }
@@ -38,6 +39,7 @@ function harness(initialQuery = "") {
     "next/link": { default: "Link" }, "./catalog-card": { default: "Card" }, "./catalog-filters": { default: "Filters" },
     "./discovery/search-suggestions": { default: "Search" }, "./discovery/actions": { getFeaturedCollections: async () => ({ collections: [] }) },
     "./discovery/featured-carousel": { default: "Featured" }, "./catalog-query": query, "./filter-label": { filterLabel: (_key, value) => value },
+    "./catalog-facet-transport": transport,
     "../../portal-shell.module.css": { default: new Proxy({}, { get: (_target, name) => name }) },
   }, {
     window, setTimeout: (callback) => { const id = ++timerId; timers.set(id, callback); return id }, clearTimeout: (id) => timers.delete(id),
@@ -45,7 +47,7 @@ function harness(initialQuery = "") {
   })
   return {
     requests, history, listeners, window, assigned,
-    render: () => { stateIndex = refIndex = effectIndex = 0; return exports.default({ initialCatalog: initial, initialQuery, backend: "", featured: "Server featured" }) },
+    render: () => { stateIndex = refIndex = effectIndex = 0; return exports.default({ initialCatalog, initialQuery, backend: "", featured: "Server featured" }) },
     effects: () => { effects.forEach((effect) => { if (effect.run) { effect.run = false; effect.callback() } }) },
     timers: () => { const callbacks = [...timers.values()]; timers.clear(); callbacks.forEach((callback) => callback()) },
   }
@@ -54,6 +56,29 @@ function harness(initialQuery = "") {
 test("query normalization strips unrelated fields and retains multi-select filters", () => {
   assert.equal(query.catalogQuery(new URLSearchParams("color=Black&color=Blue&color=Black&secret=unsafe&view=anything&page=2")).toString(), "color=Black&color=Blue&page=2")
   assert.throws(() => query.catalogQuery(new URLSearchParams({ color: "x".repeat(2001) })), /too long/)
+})
+
+test("page dropdown preserves search/filter/sort and does not refetch unchanged counts", async () => {
+  const h = harness("q=bag&color=Blue&sort=name_asc", { ...initial, total: 80, page_count: 4 })
+  h.render(); h.effects()
+  h.requests[0].resolve({ ok: true, json: async () => ({ facets: facet }) }); await tick()
+  const select = find(h.render(), (node) => node.props?.["aria-label"] === "Go to page")
+  assert.equal(select.props.children.length, 4)
+  select.props.onChange({ target: { value: "3" } })
+  assert.equal(h.requests.length, 2)
+  assert.match(h.requests[1].url, /q=bag&sort=name_asc&page=3&view=products/)
+  assert.match(h.requests[1].url, /color=Blue/)
+})
+
+test("dictionary and count updates preserve labels, zero counts and category trees", () => {
+  const schema = { id: "schema-1", labels: ["Bags", "Bags > Backpacks", "Blue"], fields: { categories: [0, 1], colors: [2], sizes: [], materials: [], brands: [], lead_times: [], print_methods: [] }, tree: [[0, [1]]] }
+  const counts = { categories: [[0, 4], [1, 4]], colors: [[2, 0]], sizes: [], materials: [], brands: [], lead_times: [], print_methods: [], category_tree: [[0, 4], [1, 4]], availability: facet.availability }
+  const first = transport.decodeFacets({ schema, schema_id: schema.id, counts })
+  const next = transport.decodeFacets({ schema_id: schema.id, counts }, first.schema)
+  assert.equal(JSON.stringify(first.facets), JSON.stringify(next.facets))
+  assert.equal(next.facets.colors[0][1], 0)
+  assert.equal(next.facets.category_tree.roots[0].children[0].label, "Backpacks")
+  assert.throws(() => transport.decodeFacets({ schema_id: "different", counts }, schema), /changed/)
 })
 
 test("search chip clears only the keyword and page while Clear all clears keywords and filters", async () => {

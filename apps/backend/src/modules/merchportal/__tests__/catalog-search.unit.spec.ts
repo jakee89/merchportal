@@ -5,17 +5,26 @@ function database(rows: Array<{ product_id: string; rank: number }>) {
   const conditions: string[] = []
   const builder: any = {}
   for (const method of ["select", "whereNull", "whereNotNull"]) builder[method] = jest.fn(() => builder)
-  builder.whereRaw = jest.fn((sql: string) => { conditions.push(sql); return builder })
-  builder.orWhereRaw = jest.fn((sql: string) => { conditions.push(sql); return builder })
+  const bindings: unknown[][] = []
+  builder.whereRaw = jest.fn((sql: string, values: unknown[]) => { conditions.push(sql); bindings.push(values); return builder })
+  builder.orWhereRaw = jest.fn((sql: string, values: unknown[]) => { conditions.push(sql); bindings.push(values); return builder })
   builder.where = jest.fn((callback: Function) => { callback.call(builder); return builder })
   builder.then = (resolve: any, reject: any) => Promise.resolve(rows).then(resolve, reject)
   const knex: any = jest.fn(() => builder)
   knex.raw = jest.fn((sql: string) => sql)
-  return { container: { resolve: () => knex }, conditions }
+  return { container: { resolve: () => knex }, conditions, bindings }
 }
 
 describe("full supplier search without loose result pollution", () => {
   beforeEach(() => portalReadCache.clear())
+  it("keeps SQL attack strings in bound values and escapes LIKE wildcards", async () => {
+    const attack = "bag%_'; DROP TABLE products; --"
+    const { container, conditions, bindings } = database([])
+    await catalogSearchScores(container, attack)
+    expect(conditions.join(" ")).not.toContain("DROP TABLE")
+    expect(bindings).toContainEqual([attack])
+    expect(bindings).toContainEqual(["%bag!%!_'; DROP TABLE products; --%"])
+  })
   it("uses parameterized full-text and literal matching without broad similarity eligibility", async () => {
     const { container, conditions } = database([{ product_id: "bag", rank: 0.2 }])
     expect(await catalogSearchScores(container, "backpack")).toEqual(new Map([["bag", 0.2]]))

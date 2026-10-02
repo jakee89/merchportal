@@ -1,7 +1,10 @@
 import { authenticate, defineMiddlewares } from "@medusajs/framework/http"
+import { securityHeaders, throttleAuth } from "../modules/merchportal/auth-security"
 
 export default defineMiddlewares({
   routes: [
+    { matcher: "/*", middlewares: [securityHeaders] },
+    { matcher: "/auth*", methods: ["POST"], middlewares: [throttleAuth] },
     {
       matcher: "/portal-api/artwork",
       methods: ["POST"],
@@ -11,7 +14,7 @@ export default defineMiddlewares({
       matcher: "/admin/merchportal*",
       middlewares: [
         authenticate("user", ["session", "bearer", "api-key"], {
-          requireMfa: false,
+          requireMfa: true,
         }),
       ],
     },

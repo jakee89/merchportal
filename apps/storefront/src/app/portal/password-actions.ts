@@ -1,6 +1,7 @@
 "use server"
 
 import { sdk } from "@lib/config"
+import { authProxyHeaders } from "@lib/data/auth-proxy"
 
 export type PasswordState = { status: "success" | "error"; message: string } | null
 
@@ -8,7 +9,7 @@ export async function requestPasswordReset(_state: PasswordState, form: FormData
   const email = String(form.get("email") || "").trim().toLowerCase()
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) return { status: "error", message: "Enter a valid email address." }
   try {
-    await sdk.auth.resetPassword("customer", "emailpass", { identifier: email })
+    await sdk.client.fetch("/auth/customer/emailpass/reset-password", { method: "POST", body: { identifier: email }, headers: await authProxyHeaders(), cache: "no-store" })
   } catch {
     // Do not reveal whether this email is registered.
   }

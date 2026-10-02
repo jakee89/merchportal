@@ -13,6 +13,11 @@ export async function GET(request: NextRequest) {
   }
   query.set("view", request.nextUrl.searchParams.get("view") === "facets" ? "facets" : "products")
   query.set("compact", "true")
+  if (query.get("view") === "facets") {
+    query.set("transport", "dictionary")
+    const schema = request.nextUrl.searchParams.get("facet_schema")
+    if (schema && /^[a-f0-9]{64}$/.test(schema)) query.set("facet_schema", schema)
+  }
   try {
     const result = await sdk.client.fetch(`/portal-api/catalog?${query}`, { headers, cache: "no-store", signal: request.signal })
     return NextResponse.json(result, { headers: privateHeaders })

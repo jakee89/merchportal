@@ -41,6 +41,15 @@ describe("read-only performance paths", () => {
 
   const request = (actor = "company-a", query = {}) => ({ scope, auth_context: { actor_id: actor }, query, params: { id: "p-midocean" } })
   const response = () => { const res = { json: jest.fn(), setHeader: jest.fn(), status: jest.fn() }; res.status.mockReturnValue(res); return res }
+  it("rejects oversized and structured catalog inputs before catalog/database loading", async () => {
+    for (const query of [{ q: "x".repeat(2001) }, { category: { unsafe: "nested" } }, { color: Array(201).fill("Blue") }]) {
+      const result = response()
+      await catalogGet(request("company-a", query) as any, result as any)
+      expect(result.status).toHaveBeenCalledWith(400)
+      expect(result.setHeader).toHaveBeenCalledWith("Cache-Control", "private, no-store")
+    }
+    expect(service.listMemberships).not.toHaveBeenCalled()
+  })
 
   it("matches every displayed category branch when secondary path ancestors are absent from the primary hierarchy", async () => {
     const cap = makeSource("cap", "makito", "CAP-01", 10)

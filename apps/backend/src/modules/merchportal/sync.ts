@@ -27,7 +27,7 @@ const suppliers = {
 type SupplierCode = keyof typeof suppliers
 type RecordObject = Record<string, unknown>
 type RawRecordType = "product" | "price" | "stock" | "decoration" | "decoration_price"
-const NORMALIZER_VERSION = "2026-09-25.1"
+export const NORMALIZER_VERSION = "2026-10-02.1"
 
 export class ImportCancelledError extends Error {
   constructor() {
@@ -154,7 +154,9 @@ function recordIdentity(
     ? decorationId || objectValue(value, ["variant_id", "id", "ID"])
     : masterId ?? objectValue(value, ["variant_id", "id", "ID", "TableFullCode", "TableCode", "service_code"])
   return {
-    externalId: (preferSku ? (sku ?? externalId) : (externalId ?? sku)) ?? `record-${index}`,
+    externalId: type === "stock" && sku && value.material && value.availableDate
+      ? `${sku}:${String(value.availableDate)}`
+      : (preferSku ? (sku ?? externalId) : (externalId ?? sku)) ?? `record-${index}`,
     sku,
   }
 }

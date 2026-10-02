@@ -130,6 +130,7 @@ const SettingsPage = () => {
 
   return <div className="flex flex-col gap-y-3">
     <Container><Heading>Supplier API & settings</Heading><Text className="text-ui-fg-subtle">Connections, supplier-specific quantity markups and shop settings.</Text><a className="text-ui-fg-interactive text-sm" href="/app/merchportal">← Back to supplier updates</a></Container>
+    <Container><Heading level="h2">Admin two-factor authentication</Heading><Text className="mb-3 text-ui-fg-subtle">Enable an authenticator app in My Profile and save your recovery codes offline. Once enabled, MerchPortal requires your verified MFA login, including for existing sessions. Each administrator must enroll their own account.</Text><a className="text-ui-fg-interactive" href="/app/settings/profile">Set up authenticator & recovery codes →</a></Container>
     <Container><Heading level="h2">Portal logo</Heading><Text className="mb-3 text-ui-fg-subtle">Set the header logo for signed-in client pages. Use a public HTTPS image URL. Leave blank to use the company logo or default M icon. Super administrators can change this setting.</Text>
       <label className="flex flex-col gap-1 text-sm">Logo image URL<Input type="url" placeholder="https://your-site.example/logo.png" value={logoUrl} onChange={(event) => setLogoUrl(event.target.value)} /></label>
       {logoUrl.startsWith("https://") && <img className="my-3 max-h-16 max-w-64 object-contain" src={logoUrl} alt="Portal logo preview" referrerPolicy="no-referrer" />}

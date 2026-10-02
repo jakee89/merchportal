@@ -20,6 +20,7 @@ services:
 
     environment:
       MEDUSA_BACKEND_URL: http://backend:9000
+      AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
 
       NEXT_PUBLIC_MEDUSA_BACKEND_URL: ${BACKEND_URL:-http://localhost:9000}
 
@@ -33,6 +34,8 @@ services:
 
     ports:
       - "${STOREFRONT_PORT:-8000}:8000"
+    volumes:
+      - storefront_image_cache:/app/apps/storefront/.next/cache/images
 
     healthcheck:
       test:
@@ -76,6 +79,8 @@ services:
       REDIS_URL: redis://redis:6379
       EVENTS_REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      AUTH_MFA_ENCRYPTION_KEY: ${AUTH_MFA_ENCRYPTION_KEY:-}
+      AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
 
       COOKIE_SECRET: ${COOKIE_SECRET:?Set COOKIE_SECRET}
 
@@ -296,3 +301,5 @@ volumes:
   typesense_data:
 
   minio_data:
+
+  storefront_image_cache:

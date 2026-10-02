@@ -3,6 +3,20 @@ import { supplierImageToken } from "../media"
 import { asRecords } from "../adapters/types"
 
 describe("supplier catalog normalization", () => {
+  it("reads dated Makito incoming deliveries without counting them as available now", async () => {
+    const service = {
+      listSuppliers: jest.fn().mockResolvedValue([{ id: "makito", code: "makito" }]),
+      listRawSupplierRecords: jest.fn(async (filters) => filters.record_type === "product" ? [{ supplier_id: "makito", external_id: "1101", payload: { ref: "1101", name: "Bag", variants: [{ variant_reference: "BAG", variant_material: "11011008000", color: "Blue" }] } }] : filters.record_type === "stock" ? [
+        { supplier_id: "makito", sku: "11011008000", payload: { material: "11011008000", quantity: 12 } },
+        { supplier_id: "makito", sku: "11011008000", payload: { material: "11011008000", quantity: 160, availableDate: "2099-12-01T00:00:00Z" } },
+      ] : []),
+      listPublishedProductSources: jest.fn().mockResolvedValue([]),
+    }
+    const [product] = await normalizeSupplierCatalog({ resolve: () => service } as any, { supplier_code: "makito" })
+    expect(product.variants[0].stock_quantity).toBe(12)
+    expect(product.variants[0].future_stock).toEqual([{ date: "2099-12-01", quantity: 160 }])
+    expect(futureStock([{ material: "1", quantity: 50, availableDate: "2020-01-01T00:00:00Z" }])).toEqual([])
+  })
   it("reports preparation progress so long imports can be monitored and stopped", async () => {
     const service = {
       listSuppliers: jest.fn().mockResolvedValue([{ id: "supplier-1", code: "stricker", display_name: "Stricker" }]),

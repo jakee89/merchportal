@@ -322,10 +322,14 @@ export function productPriceBreaks(items: any[]) {
     .sort((left, right) => left.quantity - right.quantity)
 }
 
-export function futureStock(items: any[]) {
+export function futureStock(items: any[], now = Date.now()) {
   const arrivals: Array<{ date: string; quantity: number }> = []
   for (const item of items) {
     const payload = (item.payload || item) as ObjectValue
+    if (typeof payload.availableDate === "string" && Date.parse(payload.availableDate) > now) {
+      const quantity = numberValue(payload, ["quantity"], true)
+      if (quantity !== undefined && quantity > 0) arrivals.push({ date: payload.availableDate.slice(0, 10), quantity: Math.floor(quantity) })
+    }
     for (const prefix of ["first", "next", "second"]) {
       const date = value(payload, [`${prefix}_arrival_date`, `${prefix}ArrivalDate`])
       const quantity = numberValue(payload, [`${prefix}_arrival_qty`, `${prefix}_arrival_quantity`, `${prefix}ArrivalQty`], true)
@@ -471,7 +475,9 @@ export async function normalizeSupplierCatalog(container: MedusaContainer, optio
         const stockReference = supplier?.code === "makito" ? value(row, ["variant_material"]) : undefined
         const stockMatches = matchingRecords(stockIndex, group.supplier_id, stockReference || sku, group.master_id)
         const priceBreaks = productPriceBreaks(priceMatches.length ? priceMatches : [row])
-        const stocksFound = stockMatches.map((item) => numberValue(item.payload, ["qty", "stock", "quantity", "available", "free_stock"], true)).filter((item): item is number => item !== undefined)
+        const stocksFound = stockMatches.map((item) => supplier?.code === "makito" && item.payload.availableDate && !(Date.parse(item.payload.availableDate) <= Date.now())
+          ? 0
+          : numberValue(item.payload, ["qty", "stock", "quantity", "available", "free_stock"], true)).filter((item): item is number => item !== undefined)
         const suppliedVariantImage = supplier?.code === "stricker" ? value(row, ["OptionalImage1", "optional_image_1"]) : undefined
         const aodaciPreferredImage = supplier?.code === "aodaci"
           ? imageUrls({ productFrontImage: value(row, ["productFrontImage"]), productMainImage: value(row, ["productMainImage"]) }, "aodaci")[0]
